@@ -4,7 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from tax_reporting.services.bnb_fx.client import build_cache, build_cache_for_symbols_and_years, get_exchange_rate
+from services.bnb_fx.client import build_cache, build_cache_for_symbols_and_years, get_exchange_rate
 
 
 logger = logging.getLogger(__name__)

@@ -6,14 +6,14 @@ from decimal import Decimal
 import pytest
 import requests
 
-from tax_reporting.services.bnb_fx.client import (
+from services.bnb_fx.client import (
     BnbCsvClient,
     EUR_FIXED_RATE_BGN,
     build_cache,
     build_cache_for_symbols_and_years,
     get_exchange_rate,
 )
-from tax_reporting.services.bnb_fx.models import FxRate, QuarterCacheData, QuarterKey, RateNotFoundError
+from services.bnb_fx.models import FxRate, QuarterCacheData, QuarterKey, RateNotFoundError
 
 
 class _MockResponse:
@@ -127,7 +127,7 @@ def test_missing_rate_raises_rate_not_found(monkeypatch, tmp_path) -> None:
         return _make_data(quarter, symbol="EUR", on_date=date(2024, 10, 15))
 
     monkeypatch.setattr(BnbCsvClient, "fetch_quarter", fake_fetch_quarter)
-    monkeypatch.setattr("tax_reporting.services.bnb_fx.client.LOOKBACK_QUARTERS", 2)
+    monkeypatch.setattr("services.bnb_fx.client.LOOKBACK_QUARTERS", 2)
 
     with pytest.raises(RateNotFoundError):
         _ = get_exchange_rate("USD", "2024-10-15", cache_dir=tmp_path)
@@ -264,7 +264,7 @@ def test_missing_date_falls_back_to_previous_quarter(monkeypatch, tmp_path) -> N
         )
 
     monkeypatch.setattr(BnbCsvClient, "fetch_quarter", fake_fetch_quarter)
-    monkeypatch.setattr("tax_reporting.services.bnb_fx.client.LOOKBACK_QUARTERS", 2)
+    monkeypatch.setattr("services.bnb_fx.client.LOOKBACK_QUARTERS", 2)
 
     rate = get_exchange_rate("USD", "2024-10-01", cache_dir=tmp_path)
     assert rate.date == date(2024, 9, 30)

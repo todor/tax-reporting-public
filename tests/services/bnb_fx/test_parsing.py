@@ -5,9 +5,9 @@ from decimal import Decimal
 
 import pytest
 
-from tax_reporting.services.bnb_fx.client import parse_bnb_csv, parse_bnb_payload
-from tax_reporting.services.bnb_fx.models import ParseError, QuarterKey
-from tax_reporting.services.bnb_fx.utils import quarter_for_date
+from services.bnb_fx.client import parse_bnb_csv, parse_bnb_payload
+from services.bnb_fx.models import ParseError, QuarterKey
+from services.bnb_fx.utils import quarter_for_date
 
 PRE_2026_CSV = """\
 BNB historical rates in BGN

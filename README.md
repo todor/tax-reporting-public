@@ -34,11 +34,11 @@ pyenv exec pytest
 Run the entry point:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m tax_reporting.main list-integrations
-PYTHONPATH=src pyenv exec python -m tax_reporting.main run --integration binance --year 2025 --input data/input.csv --output output
+PYTHONPATH=src pyenv exec python -m main list-integrations
+PYTHONPATH=src pyenv exec python -m main run --integration binance --year 2025 --input data/input.csv --output output
 ```
 
-## BNB FX (`tax_reporting.services.bnb_fx`)
+## BNB FX (`services.bnb_fx`)
 
 What you can do:
 
@@ -61,7 +61,7 @@ Rate semantics:
 Get one rate (auto-fetch quarter if needed):
 
 ```python
-from tax_reporting.services.bnb_fx import get_exchange_rate
+from services.bnb_fx import get_exchange_rate
 
 rate = get_exchange_rate("USD", "2024-10-15")
 print(rate.symbol, rate.date, rate.rate, rate.base_currency)
@@ -71,7 +71,7 @@ print(rate.symbol, rate.date, rate.rate, rate.base_currency)
 Build cache for an arbitrary period:
 
 ```python
-from tax_reporting.services.bnb_fx import build_cache
+from services.bnb_fx import build_cache
 
 result = build_cache(["USD", "EUR"], "2024-01-01", "2024-12-31")
 print(result.fetched_count, result.skipped_count, result.failed_count)
@@ -80,7 +80,7 @@ print(result.fetched_count, result.skipped_count, result.failed_count)
 Build cache for full years:
 
 ```python
-from tax_reporting.services.bnb_fx import build_cache_for_symbols_and_years
+from services.bnb_fx import build_cache_for_symbols_and_years
 
 result = build_cache_for_symbols_and_years(["USD"], [2023, 2024, 2025])
 print(result.fetched_count, result.rows_written)
@@ -90,7 +90,7 @@ Use a custom cache directory:
 
 ```bash
 PYTHONPATH=src pyenv exec python - <<'PY'
-from tax_reporting.services.bnb_fx import get_exchange_rate
+from services.bnb_fx import get_exchange_rate
 
 rate = get_exchange_rate("USD", "2024-10-15", cache_dir="output/fx-cache")
 print(rate.rate, rate.base_currency)
@@ -100,7 +100,7 @@ PY
 Query multiple dates with automatic fallback to previous available day:
 
 ```python
-from tax_reporting.services.bnb_fx import get_exchange_rate
+from services.bnb_fx import get_exchange_rate
 
 for d in ["2025-10-11", "2025-10-12"]:
     fx = get_exchange_rate("USD", d)
@@ -112,7 +112,7 @@ for d in ["2025-10-11", "2025-10-12"]:
 Build cache for period:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m tax_reporting.services.bnb_fx.cli period \
+PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli period \
   --symbols USD,EUR \
   --start-date 2024-01-01 \
   --end-date 2024-12-31
@@ -121,7 +121,7 @@ PYTHONPATH=src pyenv exec python -m tax_reporting.services.bnb_fx.cli period \
 Build cache for full years:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m tax_reporting.services.bnb_fx.cli years \
+PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli years \
   --symbols USD \
   --years 2023,2024,2025
 ```
@@ -129,7 +129,7 @@ PYTHONPATH=src pyenv exec python -m tax_reporting.services.bnb_fx.cli years \
 Build cache into a custom folder:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m tax_reporting.services.bnb_fx.cli period \
+PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli period \
   --symbols USD \
   --start-date 2024-01-01 \
   --end-date 2024-03-31 \
@@ -139,7 +139,7 @@ PYTHONPATH=src pyenv exec python -m tax_reporting.services.bnb_fx.cli period \
 Get one rate:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m tax_reporting.services.bnb_fx.cli get-rate \
+PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
   --symbol USD \
   --date 2024-10-15
 ```
@@ -147,7 +147,7 @@ PYTHONPATH=src pyenv exec python -m tax_reporting.services.bnb_fx.cli get-rate \
 Get multiple dates:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m tax_reporting.services.bnb_fx.cli get-rate \
+PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
   --symbol USD \
   --dates 2025-10-11,2025-10-12
 ```
@@ -161,11 +161,11 @@ PYTHONPATH=src pyenv exec python -m tax_reporting.services.bnb_fx.cli get-rate \
 
 ## Current Structure
 
-- `src/tax_reporting/main.py`: single CLI entry point
-- `src/tax_reporting/config.py`: central project paths
-- `src/tax_reporting/logging_config.py`: minimal logging setup
-- `src/tax_reporting/integrations/`: integration packages (currently `binance` placeholder)
-- `src/tax_reporting/services/bnb_fx/`: BNB CSV client + quarter cache + CLI
+- `src/main.py`: single CLI entry point
+- `src/config.py`: central project paths
+- `src/logging_config.py`: minimal logging setup
+- `src/integrations/`: integration packages (currently `binance` placeholder)
+- `src/services/bnb_fx/`: BNB CSV client + quarter cache + CLI
 - `tests/test_imports.py`: minimal import smoke tests
-- `tests/tax_reporting/services/bnb_fx/`: BNB FX tests
+- `tests/services/bnb_fx/`: BNB FX tests
 - `output/`: output directory kept in git via `.gitkeep`

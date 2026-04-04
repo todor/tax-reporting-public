@@ -2,9 +2,9 @@ import argparse
 import logging
 from pathlib import Path
 
-from tax_reporting.config import OUTPUT_DIR
-from tax_reporting.integrations import AVAILABLE_INTEGRATIONS
-from tax_reporting.logging_config import configure_logging
+from config import OUTPUT_DIR
+from integrations import AVAILABLE_INTEGRATIONS
+from logging_config import configure_logging
 
 logger = logging.getLogger(__name__)
 

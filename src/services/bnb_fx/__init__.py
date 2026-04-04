@@ -9,7 +9,7 @@ Strategy:
 - Base currency in returned quotes is always EUR (`rate` means EUR for 1 symbol unit).
 
 Example:
-    >>> from tax_reporting.services.bnb_fx import build_cache, get_exchange_rate
+    >>> from services.bnb_fx import build_cache, get_exchange_rate
     >>> _ = build_cache(["USD", "EUR"], "2024-01-01", "2024-12-31")
     >>> usd = get_exchange_rate("USD", "2024-10-15")
     >>> usd.base_currency, usd.rate

@@ -3,13 +3,13 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from tax_reporting.services.bnb_fx.cache import (
+from services.bnb_fx.cache import (
     load_quarter_cache,
     quarter_cache_path,
     quarter_is_cached,
     save_quarter_cache,
 )
-from tax_reporting.services.bnb_fx.models import FxRate, QuarterCacheData, QuarterKey
+from services.bnb_fx.models import FxRate, QuarterCacheData, QuarterKey
 
 
 def _sample_cache_data() -> QuarterCacheData:
