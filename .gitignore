@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Local outputs
+output/*
+!output/.gitkeep
+
+# Conservative local data/cache folders
+.cache/
+data/
