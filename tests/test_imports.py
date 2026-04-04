@@ -14,3 +14,7 @@ def test_integrations_import() -> None:
 
 def test_binance_package_import() -> None:
     import tax_reporting.integrations.binance  # noqa: F401
+
+
+def test_bnb_fx_package_import() -> None:
+    import tax_reporting.services.bnb_fx  # noqa: F401

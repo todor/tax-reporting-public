@@ -36,4 +36,5 @@ output/*
 
 # Conservative local data/cache folders
 .cache/
+.cache
 data/
