@@ -589,21 +589,21 @@ def _load_or_fetch_quarter_for_symbol(
     )
 
 
-def _to_one_eur_quote(rate: FxRate) -> FxRate:
-    """Convert stored quote to 'symbol units for 1 EUR'."""
+def _to_eur_per_symbol_quote(rate: FxRate) -> FxRate:
+    """Convert stored quote to 'EUR for 1 symbol unit'."""
     source_base = rate.base_currency
     if rate.symbol == EUR_SYMBOL:
         converted = Decimal("1")
     elif source_base == "EUR":
-        converted = rate.nominal / rate.rate
+        converted = rate.rate / rate.nominal
     elif source_base == "BGN":
-        converted = (EUR_FIXED_RATE_BGN * rate.nominal) / rate.rate
+        converted = rate.rate / (rate.nominal * EUR_FIXED_RATE_BGN)
     else:
         raise ParseError(f"unsupported source base currency: {source_base}")
 
     raw_row = dict(rate.raw_row or {})
     raw_row["source_base_currency"] = source_base
-    raw_row["quote_semantics"] = "symbol units for 1 EUR"
+    raw_row["quote_semantics"] = "EUR for 1 symbol unit"
 
     return FxRate(
         symbol=rate.symbol,
@@ -621,7 +621,7 @@ def get_exchange_rate(
     on_date: date | str,
     cache_dir: str | Path | None = None,
 ) -> FxRate:
-    """Return FX quote for `symbol` on `on_date` as units per 1 EUR.
+    """Return FX quote for `symbol` on `on_date` as EUR for 1 symbol unit.
 
     On cache miss the entire containing quarter is downloaded, parsed, and cached.
     If the exact date is missing, the closest previous available date is used.
@@ -664,7 +664,7 @@ def get_exchange_rate(
                     target_date.isoformat(),
                     found.date.isoformat(),
                 )
-            return _to_one_eur_quote(found)
+            return _to_eur_per_symbol_quote(found)
 
         current_quarter = _previous_quarter(current_quarter)
 

@@ -47,13 +47,13 @@ What you can do:
 - Preload cache for any date period.
 - Preload cache for full years.
 - Use either default cache location (`~/.cache/tax_reporting/bnb_fx`) or a custom directory.
-- Always receive quotes as **symbol units for 1 EUR**.
+- Always receive quotes as **EUR for 1 symbol unit**.
 - If a requested date has no published rate, automatically use the closest previous available date.
 
 Rate semantics:
 
-- `rate` returned by `get_exchange_rate()` is always for `1 EUR`.
-- Example for USD: `rate=1.17` means `1 EUR = 1.17 USD`.
+- `rate` returned by `get_exchange_rate()` is always for `1` unit of the requested symbol.
+- Example for USD: `rate=0.85` means `1 USD = 0.85 EUR`.
 - For `EUR`, returned rate is always `1`.
 
 ### From Python code
@@ -65,7 +65,7 @@ from tax_reporting.services.bnb_fx import get_exchange_rate
 
 rate = get_exchange_rate("USD", "2024-10-15")
 print(rate.symbol, rate.date, rate.rate, rate.base_currency)
-# rate is always "symbol units for 1 EUR"
+# rate is always "EUR for 1 symbol unit"
 ```
 
 Build cache for an arbitrary period:
@@ -157,7 +157,7 @@ PYTHONPATH=src pyenv exec python -m tax_reporting.services.bnb_fx.cli get-rate \
 - `requested_date`
 - `effective_date` (may be earlier if no rate on requested date)
 - `symbol`
-- `rate_for_1_eur`
+- `eur_for_1_symbol`
 
 ## Current Structure
 

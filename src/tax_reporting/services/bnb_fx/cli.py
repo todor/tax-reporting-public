@@ -92,7 +92,7 @@ def main() -> int:
         )
     else:
         requested_dates = [args.date] if args.date else args.dates
-        print("requested_date,effective_date,symbol,rate_for_1_eur")
+        print("requested_date,effective_date,symbol,eur_for_1_symbol")
         had_errors = False
         for requested in requested_dates:
             try:

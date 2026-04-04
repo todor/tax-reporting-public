@@ -71,7 +71,7 @@ def test_second_lookup_hits_cache_without_network(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(BnbCsvClient, "fetch_quarter", fail_fetch)
     rate = get_exchange_rate("USD", "2024-02-15", cache_dir=tmp_path)
     assert rate.base_currency == "EUR"
-    assert rate.rate == EUR_FIXED_RATE_BGN / Decimal("1.50")
+    assert rate.rate == Decimal("1.50") / EUR_FIXED_RATE_BGN
 
 
 def test_build_cache_skips_existing_quarter(monkeypatch, tmp_path) -> None:
@@ -239,7 +239,7 @@ def test_missing_date_falls_back_to_previous_available_day_same_quarter(monkeypa
     # 2024-10-12 is a Saturday, fallback should pick 2024-10-11.
     rate = get_exchange_rate("USD", "2024-10-12", cache_dir=tmp_path)
     assert rate.date == date(2024, 10, 11)
-    assert rate.rate == EUR_FIXED_RATE_BGN / Decimal("1.77")
+    assert rate.rate == Decimal("1.77") / EUR_FIXED_RATE_BGN
 
 
 def test_missing_date_falls_back_to_previous_quarter(monkeypatch, tmp_path) -> None:
@@ -268,11 +268,11 @@ def test_missing_date_falls_back_to_previous_quarter(monkeypatch, tmp_path) -> N
 
     rate = get_exchange_rate("USD", "2024-10-01", cache_dir=tmp_path)
     assert rate.date == date(2024, 9, 30)
-    assert rate.rate == EUR_FIXED_RATE_BGN / Decimal("1.75")
+    assert rate.rate == Decimal("1.75") / EUR_FIXED_RATE_BGN
     assert calls == [QuarterKey(2024, 4), QuarterKey(2024, 3)]
 
 
-def test_post_2026_returns_symbol_units_for_one_eur(monkeypatch, tmp_path) -> None:
+def test_post_2026_returns_eur_for_one_symbol(monkeypatch, tmp_path) -> None:
     def fake_fetch_quarter(self: BnbCsvClient, quarter: QuarterKey, symbols=None):  # noqa: ANN001
         return QuarterCacheData(
             quarter=quarter,
@@ -292,4 +292,4 @@ def test_post_2026_returns_symbol_units_for_one_eur(monkeypatch, tmp_path) -> No
     rate = get_exchange_rate("USD", "2026-01-02", cache_dir=tmp_path)
 
     assert rate.base_currency == "EUR"
-    assert rate.rate == Decimal("1") / Decimal("0.8511")
+    assert rate.rate == Decimal("0.8511")
