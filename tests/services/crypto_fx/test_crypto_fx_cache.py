@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from crypto_fx.cache import load_symbol_year_cache, save_symbol_year_cache, symbol_year_cache_path
-from crypto_fx.models import SymbolYearCache
+from services.crypto_fx.cache import load_symbol_year_cache, save_symbol_year_cache, symbol_year_cache_path
+from services.crypto_fx.models import SymbolYearCache
 
 
 def test_save_and_load_symbol_year_cache(tmp_path) -> None:

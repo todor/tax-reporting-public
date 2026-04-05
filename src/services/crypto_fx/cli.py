@@ -4,7 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from crypto_fx.client import get_crypto_eur_rate
+from .client import get_crypto_eur_rate
 
 logger = logging.getLogger(__name__)
 

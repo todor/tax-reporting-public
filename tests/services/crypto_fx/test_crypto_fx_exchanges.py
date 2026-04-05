@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import requests
 
-from crypto_fx.exchanges import normalize_kraken_symbol, resolve_target_symbol
+from services.crypto_fx.exchanges import normalize_kraken_symbol, resolve_target_symbol
 
 
 class _DummySession(requests.Session):
@@ -17,7 +17,7 @@ def test_binance_pair_detection(monkeypatch) -> None:
             "symbols": [{"symbol": "ALCHBTC", "baseAsset": "ALCH", "quoteAsset": "BTC"}]
         }
 
-    monkeypatch.setattr("crypto_fx.exchanges._request_json", fake_request_json)
+    monkeypatch.setattr("services.crypto_fx.exchanges._request_json", fake_request_json)
 
     resolved = resolve_target_symbol("ALCHBTC", "binance", session=_DummySession())
     assert resolved.is_pair is True
@@ -37,7 +37,7 @@ def test_binance_futures_pair_detection(monkeypatch) -> None:
             ]
         }
 
-    monkeypatch.setattr("crypto_fx.exchanges._request_json", fake_request_json)
+    monkeypatch.setattr("services.crypto_fx.exchanges._request_json", fake_request_json)
 
     resolved = resolve_target_symbol("ETHBTC", "binance", is_future=True, session=_DummySession())
     assert resolved.is_pair is True
@@ -60,7 +60,7 @@ def test_kraken_pair_detection_and_mapping(monkeypatch) -> None:
             },
         }
 
-    monkeypatch.setattr("crypto_fx.exchanges._request_json", fake_request_json)
+    monkeypatch.setattr("services.crypto_fx.exchanges._request_json", fake_request_json)
 
     resolved = resolve_target_symbol("XXBTZUSD", "kraken", session=_DummySession())
     assert resolved.is_pair is True
@@ -84,7 +84,7 @@ def test_kraken_futures_pair_detection_and_mapping(monkeypatch) -> None:
             ],
         }
 
-    monkeypatch.setattr("crypto_fx.exchanges._request_json", fake_request_json)
+    monkeypatch.setattr("services.crypto_fx.exchanges._request_json", fake_request_json)
 
     resolved = resolve_target_symbol("PF_XXBTZUSD", "kraken", is_future=True, session=_DummySession())
     assert resolved.is_pair is True
@@ -97,7 +97,7 @@ def test_single_symbol_not_pair_uses_symbol_itself(monkeypatch) -> None:
     def fake_request_json(session, url, params=None, timeout_seconds=20.0, retries=2):  # noqa: ANN001
         return 400, {"code": -1121, "msg": "Invalid symbol."}
 
-    monkeypatch.setattr("crypto_fx.exchanges._request_json", fake_request_json)
+    monkeypatch.setattr("services.crypto_fx.exchanges._request_json", fake_request_json)
 
     resolved = resolve_target_symbol("SOL", "binance", session=_DummySession())
     assert resolved.is_pair is False
@@ -108,7 +108,7 @@ def test_futures_single_symbol_not_pair_uses_symbol_itself(monkeypatch) -> None:
     def fake_request_json(session, url, params=None, timeout_seconds=20.0, retries=2):  # noqa: ANN001
         return 200, {"symbols": []}
 
-    monkeypatch.setattr("crypto_fx.exchanges._request_json", fake_request_json)
+    monkeypatch.setattr("services.crypto_fx.exchanges._request_json", fake_request_json)
 
     resolved = resolve_target_symbol("SOL", "binance", is_future=True, session=_DummySession())
     assert resolved.is_pair is False
@@ -119,7 +119,7 @@ def test_known_quote_suffix_skips_metadata_calls(monkeypatch) -> None:
     def fail_request_json(*args, **kwargs):  # noqa: ANN002, ANN003
         raise AssertionError("metadata call should not happen for known quote suffix")
 
-    monkeypatch.setattr("crypto_fx.exchanges._request_json", fail_request_json)
+    monkeypatch.setattr("services.crypto_fx.exchanges._request_json", fail_request_json)
 
     resolved = resolve_target_symbol("ALCHUSDT", "binance", is_future=True, session=_DummySession())
     assert resolved.is_pair is True

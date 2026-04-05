@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pytest
 
-from crypto_fx.client import floor_to_hour, get_crypto_eur_rate
-from crypto_fx.models import (
+from services.crypto_fx.client import floor_to_hour, get_crypto_eur_rate
+from services.crypto_fx.models import (
     AssetNotFoundOnBinanceError,
     CryptoFxRate,
     PricingUnavailableError,
@@ -46,7 +46,7 @@ def test_main_api_accepts_is_future(monkeypatch) -> None:
         captured["is_future"] = is_future
         return _resolved(target_symbol="EUR", is_pair=False, exchange=exchange)
 
-    monkeypatch.setattr("crypto_fx.client.resolve_target_symbol", fake_resolve)
+    monkeypatch.setattr("services.crypto_fx.client.resolve_target_symbol", fake_resolve)
 
     result = get_crypto_eur_rate("ETH", "2025-01-01T00:00:00Z", "binance", is_future=True)
     assert captured["is_future"] is True
@@ -56,12 +56,12 @@ def test_main_api_accepts_is_future(monkeypatch) -> None:
 
 def test_pair_input_resolves_quote_asset_and_uses_fiat_shortcut(monkeypatch) -> None:
     monkeypatch.setattr(
-        "crypto_fx.client.resolve_target_symbol",
+        "services.crypto_fx.client.resolve_target_symbol",
         lambda symbol_or_pair, exchange, is_future=False, session=None: _resolved(
             target_symbol="USDT", is_pair=True, base="ALCH", quote="USDT"
         ),
     )
-    monkeypatch.setattr("crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.91"), on_date))
+    monkeypatch.setattr("services.crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.91"), on_date))
 
     rate = get_crypto_eur_rate("ALCHUSDT", "2025-10-11T10:30:15Z", "binance")
     assert rate.is_pair is True
@@ -73,12 +73,12 @@ def test_pair_input_resolves_quote_asset_and_uses_fiat_shortcut(monkeypatch) -> 
 
 def test_single_symbol_resolves_to_itself_and_prices_via_binance(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "crypto_fx.client.resolve_target_symbol",
+        "services.crypto_fx.client.resolve_target_symbol",
         lambda symbol_or_pair, exchange, is_future=False, session=None: _resolved(
             target_symbol="BTC", is_pair=False
         ),
     )
-    monkeypatch.setattr("crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.85"), on_date))
+    monkeypatch.setattr("services.crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.85"), on_date))
 
     def fake_load_or_fetch(*, market, exchange, symbol, year, cache_dir, session):  # noqa: ANN001
         assert market == "spot"
@@ -95,7 +95,7 @@ def test_single_symbol_resolves_to_itself_and_prices_via_binance(monkeypatch, tm
             },
         )
 
-    monkeypatch.setattr("crypto_fx.client._load_or_fetch_symbol_year", fake_load_or_fetch)
+    monkeypatch.setattr("services.crypto_fx.client._load_or_fetch_symbol_year", fake_load_or_fetch)
 
     result = get_crypto_eur_rate("BTC", "2025-10-11T10:30:15Z", "binance", cache_dir=tmp_path)
     assert result.is_pair is False
@@ -108,10 +108,10 @@ def test_single_symbol_resolves_to_itself_and_prices_via_binance(monkeypatch, tm
 
 
 def test_fiat_shortcuts(monkeypatch) -> None:
-    monkeypatch.setattr("crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.80"), on_date))
+    monkeypatch.setattr("services.crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.80"), on_date))
 
     monkeypatch.setattr(
-        "crypto_fx.client.resolve_target_symbol",
+        "services.crypto_fx.client.resolve_target_symbol",
         lambda symbol_or_pair, exchange, is_future=False, session=None: _resolved(
             target_symbol="EUR", is_pair=False
         ),
@@ -122,7 +122,7 @@ def test_fiat_shortcuts(monkeypatch) -> None:
 
     for symbol in ("USD", "USDT", "USDC"):
         monkeypatch.setattr(
-            "crypto_fx.client.resolve_target_symbol",
+            "services.crypto_fx.client.resolve_target_symbol",
             lambda symbol_or_pair, exchange, is_future=False, session=None, symbol=symbol: _resolved(
                 target_symbol=symbol, is_pair=False
             ),
@@ -134,12 +134,12 @@ def test_fiat_shortcuts(monkeypatch) -> None:
 
 def test_cache_miss_fetch_write_then_second_lookup_hits_cache(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "crypto_fx.client.resolve_target_symbol",
+        "services.crypto_fx.client.resolve_target_symbol",
         lambda symbol_or_pair, exchange, is_future=False, session=None: _resolved(
             target_symbol="ETH", is_pair=False
         ),
     )
-    monkeypatch.setattr("crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.9"), on_date))
+    monkeypatch.setattr("services.crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.9"), on_date))
 
     fetch_calls = {"count": 0}
 
@@ -148,7 +148,7 @@ def test_cache_miss_fetch_write_then_second_lookup_hits_cache(monkeypatch, tmp_p
         fetch_calls["count"] += 1
         return {"2025-01-01T10:00:00+00:00": "3000"}
 
-    monkeypatch.setattr("crypto_fx.client._fetch_binance_year", fake_fetch)
+    monkeypatch.setattr("services.crypto_fx.client._fetch_binance_year", fake_fetch)
 
     _ = get_crypto_eur_rate("ETH", "2025-01-01T10:30:00Z", "binance", cache_dir=tmp_path)
     assert fetch_calls["count"] == 1
@@ -159,7 +159,7 @@ def test_cache_miss_fetch_write_then_second_lookup_hits_cache(monkeypatch, tmp_p
 
 def test_asset_not_found_on_binance_error(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "crypto_fx.client.resolve_target_symbol",
+        "services.crypto_fx.client.resolve_target_symbol",
         lambda symbol_or_pair, exchange, is_future=False, session=None: _resolved(
             target_symbol="UNKNOWN", is_pair=False
         ),
@@ -168,7 +168,7 @@ def test_asset_not_found_on_binance_error(monkeypatch, tmp_path) -> None:
     def fake_fetch(symbol, year, *, market, session):  # noqa: ANN001
         raise AssetNotFoundOnBinanceError("asset symbol UNKNOWN not found on Binance")
 
-    monkeypatch.setattr("crypto_fx.client._fetch_binance_year", fake_fetch)
+    monkeypatch.setattr("services.crypto_fx.client._fetch_binance_year", fake_fetch)
 
     with pytest.raises(AssetNotFoundOnBinanceError):
         _ = get_crypto_eur_rate("UNKNOWN", "2025-01-01T10:30:00Z", "binance", cache_dir=tmp_path)
@@ -176,12 +176,12 @@ def test_asset_not_found_on_binance_error(monkeypatch, tmp_path) -> None:
 
 def test_futures_tries_spot_then_uses_mark_price_fallback(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "crypto_fx.client.resolve_target_symbol",
+        "services.crypto_fx.client.resolve_target_symbol",
         lambda symbol_or_pair, exchange, is_future=False, session=None: _resolved(
             target_symbol="ETH", is_pair=False
         ),
     )
-    monkeypatch.setattr("crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.9"), on_date))
+    monkeypatch.setattr("services.crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.9"), on_date))
 
     calls: list[str] = []
 
@@ -197,7 +197,7 @@ def test_futures_tries_spot_then_uses_mark_price_fallback(monkeypatch, tmp_path)
             hourly_close_usd={"2025-10-11T10:00:00+00:00": "3100"},
         )
 
-    monkeypatch.setattr("crypto_fx.client._load_or_fetch_symbol_year", fake_load_or_fetch)
+    monkeypatch.setattr("services.crypto_fx.client._load_or_fetch_symbol_year", fake_load_or_fetch)
 
     result = get_crypto_eur_rate(
         "ETH",
@@ -214,12 +214,12 @@ def test_futures_tries_spot_then_uses_mark_price_fallback(monkeypatch, tmp_path)
 
 def test_futures_prefers_spot_when_available(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "crypto_fx.client.resolve_target_symbol",
+        "services.crypto_fx.client.resolve_target_symbol",
         lambda symbol_or_pair, exchange, is_future=False, session=None: _resolved(
             target_symbol="BTC", is_pair=False
         ),
     )
-    monkeypatch.setattr("crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.9"), on_date))
+    monkeypatch.setattr("services.crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.9"), on_date))
 
     calls: list[str] = []
 
@@ -235,7 +235,7 @@ def test_futures_prefers_spot_when_available(monkeypatch, tmp_path) -> None:
             )
         raise AssertionError("futures should not be called when spot has data")
 
-    monkeypatch.setattr("crypto_fx.client._load_or_fetch_symbol_year", fake_load_or_fetch)
+    monkeypatch.setattr("services.crypto_fx.client._load_or_fetch_symbol_year", fake_load_or_fetch)
 
     result = get_crypto_eur_rate(
         "BTC",
@@ -251,7 +251,7 @@ def test_futures_prefers_spot_when_available(monkeypatch, tmp_path) -> None:
 
 def test_futures_both_spot_and_futures_fail(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        "crypto_fx.client.resolve_target_symbol",
+        "services.crypto_fx.client.resolve_target_symbol",
         lambda symbol_or_pair, exchange, is_future=False, session=None: _resolved(
             target_symbol="UNKNOWN", is_pair=False
         ),
@@ -260,7 +260,7 @@ def test_futures_both_spot_and_futures_fail(monkeypatch, tmp_path) -> None:
     def fake_load_or_fetch(*, market, exchange, symbol, year, cache_dir, session):  # noqa: ANN001
         raise AssetNotFoundOnBinanceError(f"{market} missing")
 
-    monkeypatch.setattr("crypto_fx.client._load_or_fetch_symbol_year", fake_load_or_fetch)
+    monkeypatch.setattr("services.crypto_fx.client._load_or_fetch_symbol_year", fake_load_or_fetch)
 
     with pytest.raises(PricingUnavailableError):
         _ = get_crypto_eur_rate(
@@ -278,9 +278,9 @@ def test_integration_with_bnb_fx_usd_to_eur(monkeypatch) -> None:
             self.rate = Decimal("0.87")
             self.date = date(2025, 2, 1)
 
-    monkeypatch.setattr("crypto_fx.client.get_fiat_rate", lambda symbol, on_date: _DummyBnbRate())
+    monkeypatch.setattr("services.crypto_fx.client.get_fiat_rate", lambda symbol, on_date: _DummyBnbRate())
     monkeypatch.setattr(
-        "crypto_fx.client.resolve_target_symbol",
+        "services.crypto_fx.client.resolve_target_symbol",
         lambda symbol_or_pair, exchange, is_future=False, session=None: _resolved(
             target_symbol="USDT", is_pair=True
         ),
@@ -291,10 +291,10 @@ def test_integration_with_bnb_fx_usd_to_eur(monkeypatch) -> None:
 
 
 def test_cli_behavior(monkeypatch, capsys) -> None:
-    from crypto_fx import cli
+    from services.crypto_fx import cli
 
     monkeypatch.setattr(
-        "crypto_fx.cli.get_crypto_eur_rate",
+        "services.crypto_fx.cli.get_crypto_eur_rate",
         lambda symbol_or_pair, timestamp, exchange, is_future=False, cache_dir=None: CryptoFxRate(
             requested_input=symbol_or_pair,
             exchange=exchange,

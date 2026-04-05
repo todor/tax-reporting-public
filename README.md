@@ -166,13 +166,13 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/logging_config.py`: minimal logging setup
 - `src/integrations/`: integration packages (currently `binance` placeholder)
 - `src/services/bnb_fx/`: BNB CSV client + quarter cache + CLI
-- `src/crypto_fx/`: crypto-to-EUR layer (pair resolution + Binance hourly pricing + CLI)
+- `src/services/crypto_fx/`: crypto-to-EUR layer (pair resolution + Binance hourly pricing + CLI)
 - `tests/test_imports.py`: minimal import smoke tests
 - `tests/services/bnb_fx/`: BNB FX tests
-- `tests/crypto_fx/`: crypto FX tests
+- `tests/services/crypto_fx/`: crypto FX tests
 - `output/`: output directory kept in git via `.gitkeep`
 
-## Crypto FX (`crypto_fx`)
+## Crypto FX (`services.crypto_fx`)
 
 `get_crypto_eur_rate(symbol_or_pair, timestamp, exchange, is_future=False)` resolves to a target symbol and returns EUR value for 1 unit of that symbol:
 
@@ -190,7 +190,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 CLI:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m crypto_fx.cli get-rate \
+PYTHONPATH=src pyenv exec python -m services.crypto_fx.cli get-rate \
   --symbol-or-pair ALCHUSDT \
   --exchange binance \
   --is-future \
