@@ -166,6 +166,33 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/logging_config.py`: minimal logging setup
 - `src/integrations/`: integration packages (currently `binance` placeholder)
 - `src/services/bnb_fx/`: BNB CSV client + quarter cache + CLI
+- `src/crypto_fx/`: crypto-to-EUR layer (pair resolution + Binance hourly pricing + CLI)
 - `tests/test_imports.py`: minimal import smoke tests
 - `tests/services/bnb_fx/`: BNB FX tests
+- `tests/crypto_fx/`: crypto FX tests
 - `output/`: output directory kept in git via `.gitkeep`
+
+## Crypto FX (`crypto_fx`)
+
+`get_crypto_eur_rate(symbol_or_pair, timestamp, exchange, is_future=False)` resolves to a target symbol and returns EUR value for 1 unit of that symbol:
+
+- Pair input: use QUOTE asset from exchange metadata (`binance` / `kraken`)
+- Single symbol: use symbol itself
+- Kraken symbols are normalized for Binance pricing (for example `XBT -> BTC`)
+- `is_future=False`: pair detection uses spot metadata (`/api/v3/exchangeInfo` for Binance, `/0/public/AssetPairs` for Kraken)
+- `is_future=True`: pair detection uses futures metadata (`/fapi/v1/exchangeInfo` for Binance, `/derivatives/api/v3/instruments` for Kraken)
+- Fiat shortcuts:
+  - `EUR` -> `1 EUR`
+  - `USD` / `USDT` / `USDC` -> USD->EUR via `bnb_fx`
+- Non-fiat symbols are priced via Binance hourly data on `<SYMBOL>USDT` (timestamp floored to hour), then converted USD->EUR via `bnb_fx`
+- In futures mode, pricing tries Binance spot hourly close first, then falls back to Binance futures mark-price hourly candles (`/fapi/v1/premiumIndexKlines`)
+
+CLI:
+
+```bash
+PYTHONPATH=src pyenv exec python -m crypto_fx.cli get-rate \
+  --symbol-or-pair ALCHUSDT \
+  --exchange binance \
+  --is-future \
+  --timestamp 2025-10-11T10:30:15Z
+```
