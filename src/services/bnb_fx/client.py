@@ -10,6 +10,7 @@ from collections.abc import Iterable
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from threading import Lock
 
 import requests
 
@@ -45,6 +46,8 @@ BNB_FX_ENDPOINT = (
 EUR_FIXED_RATE_BGN = Decimal("1.95583")
 EUR_SYMBOL = "EUR"
 LOOKBACK_QUARTERS = 12
+_FALLBACK_LOGGED: set[tuple[str, date, date]] = set()
+_FALLBACK_LOGGED_LOCK = Lock()
 
 
 def _decode_response_payload(response: requests.Response) -> str:
@@ -577,7 +580,7 @@ def _load_or_fetch_quarter_for_symbol(
 ) -> QuarterCacheData:
     cached = load_quarter_cache(quarter, cache_dir=cache_dir)
     if cached is not None and cached.has_symbol(symbol):
-        logger.info("Cache hit for %s (%s)", quarter.label, symbol)
+        logger.debug("Cache hit for %s (%s)", quarter.label, symbol)
         return cached
 
     logger.info("Cache miss for %s (%s); fetching quarter", quarter.label, symbol)
@@ -613,6 +616,21 @@ def _to_eur_per_symbol_quote(rate: FxRate) -> FxRate:
         source=rate.source,
         nominal=Decimal("1"),
         raw_row=raw_row,
+    )
+
+
+def _log_fallback_once(symbol: str, requested_date: date, effective_date: date) -> None:
+    key = (symbol, requested_date, effective_date)
+    with _FALLBACK_LOGGED_LOCK:
+        if key in _FALLBACK_LOGGED:
+            return
+        _FALLBACK_LOGGED.add(key)
+
+    logger.info(
+        "No exact rate for %s on %s, using previous date %s",
+        symbol,
+        requested_date.isoformat(),
+        effective_date.isoformat(),
     )
 
 
@@ -658,12 +676,7 @@ def get_exchange_rate(
         found = data.find_latest_on_or_before(normalized_symbol, cutoff_date)
         if found is not None:
             if found.date != target_date:
-                logger.info(
-                    "No exact rate for %s on %s, using previous date %s",
-                    normalized_symbol,
-                    target_date.isoformat(),
-                    found.date.isoformat(),
-                )
+                _log_fallback_once(normalized_symbol, target_date, found.date)
             return _to_eur_per_symbol_quote(found)
 
         current_quarter = _previous_quarter(current_quarter)

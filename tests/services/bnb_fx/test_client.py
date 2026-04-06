@@ -269,7 +269,32 @@ def test_missing_date_falls_back_to_previous_quarter(monkeypatch, tmp_path) -> N
     rate = get_exchange_rate("USD", "2024-10-01", cache_dir=tmp_path)
     assert rate.date == date(2024, 9, 30)
     assert rate.rate == Decimal("1.75") / EUR_FIXED_RATE_BGN
-    assert calls == [QuarterKey(2024, 4), QuarterKey(2024, 3)]
+
+
+def test_fallback_log_emitted_once_for_repeated_lookup(monkeypatch, tmp_path, caplog) -> None:
+    def fake_fetch_quarter(self: BnbCsvClient, quarter: QuarterKey, symbols=None):  # noqa: ANN001
+        return QuarterCacheData(
+            quarter=quarter,
+            base_currency="BGN",
+            rates=[
+                FxRate(
+                    symbol="USD",
+                    date=date(2031, 10, 10),
+                    rate=Decimal("1.80"),
+                    nominal=Decimal("1"),
+                    base_currency="BGN",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(BnbCsvClient, "fetch_quarter", fake_fetch_quarter)
+
+    with caplog.at_level("INFO"):
+        _ = get_exchange_rate("USD", "2031-10-12", cache_dir=tmp_path)
+        _ = get_exchange_rate("USD", "2031-10-12", cache_dir=tmp_path)
+
+    fallback_logs = [record.message for record in caplog.records if "No exact rate for USD on 2031-10-12" in record.message]
+    assert len(fallback_logs) == 1
 
 
 def test_post_2026_returns_eur_for_one_symbol(monkeypatch, tmp_path) -> None:

@@ -1,1 +1,1 @@
-"""Binance integration package placeholder."""
+"""Binance integration modules."""

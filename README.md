@@ -171,6 +171,21 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `tests/services/bnb_fx/`: BNB FX tests
 - `tests/services/crypto_fx/`: crypto FX tests
 - `output/`: output directory kept in git via `.gitkeep`
+  Default analyzer outputs are written under this repo folder (for example `output/binance/futures/`).
+
+## Integration Docs
+
+- Binance integrations: [src/integrations/binance/README.md](src/integrations/binance/README.md)
+
+### Binance futures PnL cashflow analyzer
+
+Pure realized-cashflow analyzer (no FIFO/carryover), based on Binance Futures PnL / Transaction History CSV:
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.binance.futures_pnl_analyzer \
+  --input path/to/binance_futures_pnl.csv \
+  --tax-year 2025
+```
 
 ## Crypto FX (`services.crypto_fx`)
 
