@@ -91,10 +91,10 @@ Step 7: Aggregate totals
 - `loss_usd = sum(abs(amount_usd) where amount_usd < 0)`
 - `profit_eur = sum(amount_eur where amount_usd > 0)`
 - `loss_eur = sum(abs(amount_eur) where amount_usd < 0)`
-- `sale_value_usd = profit_usd`
-- `acquisition_value_usd = loss_usd`
-- `sale_value_eur = profit_eur`
-- `acquisition_value_eur = loss_eur`
+- `sale_price_usd = profit_usd`
+- `purchase_price_usd = loss_usd`
+- `sale_price_eur = profit_eur`
+- `purchase_price_eur = loss_eur`
 - `net_result_usd = profit_usd - loss_usd`
 - `net_result_eur = profit_eur - loss_eur`
 
@@ -116,10 +116,10 @@ Output columns:
 - `loss_usd`
 - `profit`
 - `loss`
-- `sale_value_usd`
-- `acquisition_value_usd`
-- `sale_value`
-- `acquisition_value`
+- `sale_price_usd`
+- `purchase_price_usd`
+- `sale_price`
+- `purchase_price`
 - `remark`
 
 For `Change > 0`:
@@ -128,10 +128,10 @@ For `Change > 0`:
 - `loss_usd = 0`
 - `profit = amount_eur`
 - `loss = 0`
-- `sale_value_usd = amount_usd`
-- `acquisition_value_usd = 0`
-- `sale_value = amount_eur`
-- `acquisition_value = 0`
+- `sale_price_usd = amount_usd`
+- `purchase_price_usd = 0`
+- `sale_price = amount_eur`
+- `purchase_price = 0`
 
 For `Change < 0`:
 
@@ -139,10 +139,10 @@ For `Change < 0`:
 - `loss_usd = abs(amount_usd)`
 - `profit = 0`
 - `loss = abs(amount_eur)`
-- `sale_value_usd = 0`
-- `acquisition_value_usd = abs(amount_usd)`
-- `sale_value = 0`
-- `acquisition_value = abs(amount_eur)`
+- `sale_price_usd = 0`
+- `purchase_price_usd = abs(amount_usd)`
+- `sale_price = 0`
+- `purchase_price = abs(amount_eur)`
 
 For `Change == 0`:
 
@@ -201,24 +201,29 @@ The analyzer prints totals and all output paths to stdout.
 `futures_pnl_tax_<year>.txt`
 
 - Human-readable filing helper.
-- Bulgarian labels for EUR declaration values:
+- Structured as:
+- `Приложение 5`
+- `Таблица 2`
+- `Информативни`
+- `Таблица 2` rows:
 - `данъчна година`
-- `продажна цена (EUR)`
-- `цена на придобиване (EUR)`
-- `печалба (EUR)`
-- `загуба (EUR)`
+- `продажна цена (EUR) - код 5082`
+- `цена на придобиване (EUR) - код 5082`
+- `печалба (EUR) - код 5082`
+- `загуба (EUR) - код 5082`
+- `Информативни` includes:
 - `нетна печалба (EUR)`
 - Includes USD totals and processing counters.
 
 `futures_pnl_summary_<year>.json`
 
 - Machine-readable totals with explicit currency suffixes:
-- `sale_value_usd`
-- `acquisition_value_usd`
+- `sale_price_usd`
+- `purchase_price_usd`
 - `profit_usd`
 - `loss_usd`
-- `sale_value_eur`
-- `acquisition_value_eur`
+- `sale_price_eur`
+- `purchase_price_eur`
 - `profit_eur`
 - `loss_eur`
 - `net_result_usd`

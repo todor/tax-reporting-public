@@ -1,0 +1,283 @@
+# IBKR Activity Statement Analyzer (Phase 1)
+
+This module analyzes Interactive Brokers Activity Statement CSV files and prepares tax-oriented outputs for Bulgarian annual reporting in EUR.
+
+Module:
+
+- `integrations.ibkr.activity_statement_analyzer`
+
+## Quick Start
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+  --input path/to/ibkr_activity_statement.csv \
+  --tax-year 2025 \
+  --tax-exempt-mode listed_symbol
+```
+
+Optional multi-account alias:
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+  --input path/to/ibkr_activity_statement_account2.csv \
+  --tax-year 2025 \
+  --tax-exempt-mode listed_symbol \
+  --report-alias account2
+```
+
+## CLI Options
+
+- `--input`: IBKR Activity Statement CSV (required)
+- `--tax-year`: target tax year, for example `2025` (required)
+- `--tax-exempt-mode`: `listed_symbol` or `execution_exchange` (required)
+- `--report-alias`: optional alias added in output filenames
+- `--output-dir`: optional output root (default `output/ibkr/activity_statement`)
+- `--cache-dir`: optional `bnb_fx` cache override
+- `--log-level`: logging level (default `INFO`)
+
+## Scope (Phase 1)
+
+- Input: IBKR Activity Statement CSV (multi-section format)
+- Processed section: `Trades` only
+- Symbol listing source: `Financial Instrument Information`
+- FX source: existing `services.bnb_fx` (`get_exchange_rate`)
+- Outputs:
+- modified CSV (multi-section preserved, `Trades` section extended)
+- declaration text file (Bulgarian)
+- sanity debug artifacts (`_sanity_debug`)
+- stdout diagnostics
+
+Out of scope in this phase:
+
+- Appendix 8
+- full Forex tax treatment
+- non-`Stocks` / non-`Treasury Bills` asset support
+
+## Core Principles
+
+- deterministic processing
+- preserve row order
+- `Decimal` only
+- no silent assumptions
+- fail loudly on structural/data errors
+
+## Header Scoping (Critical)
+
+IBKR CSV is multi-section and sections can contain multiple header rows.
+
+Rule:
+
+- a `Header` row applies only to following rows of the same section
+- when a new `Header` row for that section appears, it replaces the active schema
+- column positions can change between header blocks and are always resolved from the active header
+
+Implications:
+
+- `Trades` rows use the most recent preceding `Trades,Header`
+- `Financial Instrument Information` rows use the most recent preceding matching header
+- section schemas are never mixed
+- `Data` before matching `Header` fails loudly
+
+## Tax Modes
+
+`--tax-exempt-mode listed_symbol`
+
+- EU-listed symbol -> Приложение 13
+- non-EU-listed symbol -> Приложение 5
+- execution exchange is informational only (warnings for non-regulated/unknown)
+
+`--tax-exempt-mode execution_exchange`
+
+- non-EU-listed symbol -> Приложение 5
+- EU-listed + EU-regulated execution -> Приложение 13
+- EU-listed + non-regulated/unknown execution -> `REVIEW_REQUIRED` bucket (excluded from appendix totals)
+
+## Exchange Rules
+
+Normalization:
+
+- uppercase
+- trim spaces
+- preserve dots
+
+Aliases:
+
+- `ISE -> ENEXT.IR`
+- `BME -> SIBE`
+- `BM -> SIBE`
+- `EUIBSI* -> EUIBSI` (for example `EUIBSILP -> EUIBSI`)
+
+Classification:
+
+- `EU_REGULATED`
+- `EU_NON_REGULATED`
+- `UNKNOWN`
+
+## Algorithm (Step-by-Step)
+
+1. Parse full CSV as multi-section rows using `csv.reader`.
+2. Parse `Financial Instrument Information`:
+- use active header mapping
+- keep only `Stocks` and `Treasury Bills`
+- build `Symbol -> Listing Exch` mapping
+- support comma-separated symbol aliases, for example `4GLD, 4GLDd`
+- conflicting symbol mapping with different EU/non-EU classification -> fail
+- Treasury Bills symbol matching:
+- first try exact `Trades.Symbol == Financial Instrument Information.Symbol`
+- if not found, extract 9-char uppercase alphanumeric identifier from `Trades.Symbol`
+- if exactly one identifier exists, use it for mapping
+- if multiple or none are found, mark row `REVIEW_REQUIRED` (no guessing)
+3. Parse `Trades`:
+- process only `Trades,Data` rows
+- closing trade = `DataDiscriminator=Trade` and `Code` contains token `C`
+- attach immediate following `ClosedLot` rows only
+- fail if closing trade has no attached `ClosedLot` rows
+4. Asset category handling:
+- `Stocks`, `Treasury Bills`: processed
+- `Forex`: ignored for appendix totals, explicitly marked in outputs
+- any other category: fail
+5. Tax-year filter:
+- trade inclusion uses Trade `Date/Time` year
+- `ClosedLot` rows may be from prior years
+6. FX conversion:
+- Trade `Proceeds` -> EUR at trade date
+- Trade `Comm/Fee` -> EUR at trade date
+- `ClosedLot` `Basis` -> EUR at closed-lot date
+7. Closing-trade basis:
+- `Trade Basis (EUR) = -sum(ClosedLot Basis (EUR))`
+8. Closing-trade realized P/L:
+- `pnl_eur = proceeds_eur + basis_eur + comm_fee_eur`
+9. Appendix classification:
+- by selected `tax-exempt-mode`
+10. Sale/Purchase price totals per closing trade:
+- `cash_leg = proceeds_eur + comm_fee_eur`
+- if `cash_leg >= 0`: `sale_price += abs(cash_leg)`, `purchase += abs(basis_eur)`
+- if `cash_leg < 0`: `sale_price += abs(basis_eur)`, `purchase += abs(cash_leg)`
+
+## How To Read The Modified CSV
+
+The analyzer modifies only `Trades` rows. Non-`Trades` sections are preserved exactly.
+
+### Added Trades Columns
+
+- `Fx Rate`
+- `Comm/Fee (EUR)`
+- `Proceeds (EUR)`
+- `Basis (EUR)`
+- `Sale Price (EUR)`
+- `Purchase Price (EUR)`
+- `Realized P/L (EUR)`
+- `Realized P/L Wins (EUR)`
+- `Realized P/L Losses (EUR)`
+- `Normalized Symbol`
+- `Listing Exchange`
+- `Symbol Listed On EU Regulated Market`
+- `Execution Exchange Classification`
+- `Tax Exempt Mode`
+- `Appendix Target`
+- `Tax Treatment Reason`
+- `Review Required`
+- `Review Notes`
+
+### Row-Type Semantics
+
+- Closing `Trade` rows:
+- all EUR calculation columns are populated
+- `Sale Price (EUR)` / `Purchase Price (EUR)` are populated
+- Open-entry `Trade` rows:
+- `Realized P/L (EUR)` is `0`
+- `Sale Price (EUR)` / `Purchase Price (EUR)` remain empty
+- `ClosedLot` rows:
+- populate `Fx Rate` and `Basis (EUR)`
+- `Sale Price (EUR)` / `Purchase Price (EUR)` remain empty
+- `SubTotal` / `Total` rows:
+- EUR columns are populated from analyzer aggregates
+- when both native and derived EUR aggregate rows exist, only native-currency rows are used for aggregate reconciliation
+- if EUR-native trades exist, matching EUR aggregate rows are populated/checked
+
+## Declaration TXT Output
+
+The declaration file includes:
+
+- Приложение 5 totals
+- Приложение 13 totals
+- optional `РЪЧНА ПРОВЕРКА` section (execution mode with review rows)
+- sanity-check section (`PASS`/`FAIL`, counts, artifact paths)
+- mandatory Forex warning section
+- evidence section (mode, counts, exchanges, warnings)
+
+`нетен резултат (EUR)` is reported as `печалба - загуба`.
+
+## Sanity Check Gate
+
+After the modified CSV is produced, the analyzer runs sanity checks in verification mode (`FX=1`) and writes artifacts under:
+
+- `output/ibkr/activity_statement/_sanity_debug/...`
+
+Artifacts:
+
+- `ibkr_activity_modified_fx1_debug.csv`
+- `sanity_report.json`
+
+The debug CSV preserves row order and adds `DEBUG_SANITY_*` columns so failing rows are easy to inspect.
+
+If sanity checks fail:
+
+- run exits non-zero
+- declaration TXT includes failure summary and artifact paths
+- diagnostics are written to `sanity_report.json`
+
+## Forex Behavior
+
+Forex trades are excluded from Appendix 5/13 totals in this phase.
+
+- no hard failure on Forex rows
+- explicit ignored classification in output
+- declaration TXT always contains `ВНИМАНИЕ: FOREX ОПЕРАЦИИ`
+- current behavior also marks manual check as required when Forex rows are present
+
+## Errors (Fail Loudly)
+
+- missing required sections (`Financial Instrument Information`, `Trades`)
+- missing required section columns
+- malformed trade/closed-lot dates
+- invalid decimal values
+- FX conversion failure
+- unsupported asset category
+- closing trade without `ClosedLot` rows
+- conflicting symbol mapping with different EU classification
+
+## Output Paths
+
+Default output directory:
+
+- `output/ibkr/activity_statement/`
+
+Main files:
+
+- `ibkr_activity_modified_<tax_year>.csv`
+- `ibkr_activity_declaration_<tax_year>.txt`
+
+With alias (`--report-alias account2`):
+
+- `ibkr_activity_account2_modified_<tax_year>.csv`
+- `ibkr_activity_account2_declaration_<tax_year>.txt`
+
+Sanity artifacts:
+
+- `output/ibkr/activity_statement/_sanity_debug/ibkr_activity[_<alias>]_<tax_year>/ibkr_activity_modified_fx1_debug.csv`
+- `output/ibkr/activity_statement/_sanity_debug/ibkr_activity[_<alias>]_<tax_year>/sanity_report.json`
+
+Alias normalization:
+
+- trim spaces
+- spaces -> `_`
+- keep only `[A-Za-z0-9._-]`
+
+## Future Extension
+
+Planned later phases can add:
+
+- broader asset support
+- richer review workflows
+- Appendix 8 and additional declaration structures

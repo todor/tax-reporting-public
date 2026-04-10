@@ -1,9 +1,14 @@
 # Tax Reporting (Bulgaria / НАП)
 
-Minimal Python foundation for annual Bulgarian tax reporting workflows.
+Python project for Bulgarian annual tax reporting workflows.
 
-This repository currently contains foundational project setup plus a BNB FX caching module.
-Tax reporting business logic and calculations are still intentionally not implemented.
+The repository now includes:
+
+- FX services (`bnb_fx`, `crypto_fx`)
+- Binance analyzers
+- IBKR activity statement analyzer (phase 1)
+
+Some areas are still intentionally phased and evolving (for example broader asset coverage and additional appendices).
 
 ## Setup
 
@@ -164,18 +169,21 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/main.py`: single CLI entry point
 - `src/config.py`: central project paths
 - `src/logging_config.py`: minimal logging setup
-- `src/integrations/`: integration packages (currently `binance` placeholder)
+- `src/integrations/`: integration packages (`binance`, `ibkr`)
 - `src/services/bnb_fx/`: BNB CSV client + quarter cache + CLI
 - `src/services/crypto_fx/`: crypto-to-EUR layer (pair resolution + Binance hourly pricing + CLI)
-- `tests/test_imports.py`: minimal import smoke tests
+- `tests/test_imports.py`: import smoke tests
 - `tests/services/bnb_fx/`: BNB FX tests
 - `tests/services/crypto_fx/`: crypto FX tests
+- `tests/integrations/binance/`: Binance analyzer tests
+- `tests/integrations/ibkr/`: IBKR analyzer tests
 - `output/`: output directory kept in git via `.gitkeep`
   Default analyzer outputs are written under this repo folder (for example `output/binance/futures/`).
 
 ## Integration Docs
 
 - Binance integrations: [src/integrations/binance/README.md](src/integrations/binance/README.md)
+- IBKR integrations: [src/integrations/ibkr/README.md](src/integrations/ibkr/README.md)
 
 ### Binance futures PnL cashflow analyzer
 
@@ -185,6 +193,16 @@ Pure realized-cashflow analyzer (no FIFO/carryover), based on Binance Futures Pn
 PYTHONPATH=src pyenv exec python -m integrations.binance.futures_pnl_analyzer \
   --input path/to/binance_futures_pnl.csv \
   --tax-year 2025
+```
+
+### IBKR activity statement analyzer (phase 1)
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+  --input path/to/ibkr_activity_statement.csv \
+  --tax-year 2025 \
+  --tax-exempt-mode listed_symbol \
+  --report-alias account1
 ```
 
 ## Crypto FX (`services.crypto_fx`)

@@ -353,6 +353,13 @@ def test_tax_text_groups_eur_usd_and_processing_sections(tmp_path: Path) -> None
     )
 
     text = result.tax_text_path.read_text(encoding="utf-8")
-    assert "нетна печалба (EUR): 1.00" in text
-    assert "\n\nprofit_usd:" in text
-    assert "\n\nprocessed_rows: 2" in text
+    assert "Приложение 5" in text
+    assert "Таблица 2" in text
+    assert "- продажна цена (EUR) - код 5082: 2.00" in text
+    assert "- цена на придобиване (EUR) - код 5082: 1.00" in text
+    assert "- печалба (EUR) - код 5082: 2.00" in text
+    assert "- загуба (EUR) - код 5082: 1.00" in text
+    assert "Информативни" in text
+    assert "- нетна печалба (EUR): 1.00" in text
+    assert "\n\n- profit_usd:" in text
+    assert "\n\n- processed_rows: 2" in text

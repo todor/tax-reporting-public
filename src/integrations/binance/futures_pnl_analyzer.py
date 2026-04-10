@@ -49,10 +49,10 @@ DETAILED_COLUMNS = [
     "loss_usd",
     "profit",
     "loss",
-    "sale_value_usd",
-    "acquisition_value_usd",
-    "sale_value",
-    "acquisition_value",
+    "sale_price_usd",
+    "purchase_price_usd",
+    "sale_price",
+    "purchase_price",
     "remark",
 ]
 
@@ -95,19 +95,19 @@ class AggregatedTotals:
     loss: Decimal = ZERO
 
     @property
-    def sale_value_usd(self) -> Decimal:
+    def sale_price_usd(self) -> Decimal:
         return self.profit_usd
 
     @property
-    def acquisition_value_usd(self) -> Decimal:
+    def purchase_price_usd(self) -> Decimal:
         return self.loss_usd
 
     @property
-    def sale_value(self) -> Decimal:
+    def sale_price(self) -> Decimal:
         return self.profit
 
     @property
-    def acquisition_value(self) -> Decimal:
+    def purchase_price(self) -> Decimal:
         return self.loss
 
     @property
@@ -192,28 +192,28 @@ def _build_detailed_row(row: PnlRow, *, fx_rate: Decimal, amount_eur: Decimal) -
         loss_usd = ZERO
         profit = amount_eur
         loss = ZERO
-        sale_value_usd = amount_usd
-        acquisition_value_usd = ZERO
-        sale_value = amount_eur
-        acquisition_value = ZERO
+        sale_price_usd = amount_usd
+        purchase_price_usd = ZERO
+        sale_price = amount_eur
+        purchase_price = ZERO
     elif amount_usd < 0:
         profit_usd = ZERO
         loss_usd = -amount_usd
         profit = ZERO
         loss = -amount_eur
-        sale_value_usd = ZERO
-        acquisition_value_usd = -amount_usd
-        sale_value = ZERO
-        acquisition_value = -amount_eur
+        sale_price_usd = ZERO
+        purchase_price_usd = -amount_usd
+        sale_price = ZERO
+        purchase_price = -amount_eur
     else:
         profit_usd = ZERO
         loss_usd = ZERO
         profit = ZERO
         loss = ZERO
-        sale_value_usd = ZERO
-        acquisition_value_usd = ZERO
-        sale_value = ZERO
-        acquisition_value = ZERO
+        sale_price_usd = ZERO
+        purchase_price_usd = ZERO
+        sale_price = ZERO
+        purchase_price = ZERO
 
     return {
         "original_row_number": str(row.original_row_number),
@@ -230,10 +230,10 @@ def _build_detailed_row(row: PnlRow, *, fx_rate: Decimal, amount_eur: Decimal) -
         "loss_usd": _fmt_decimal(loss_usd),
         "profit": _fmt_decimal(profit, quant=DECIMAL_EIGHT),
         "loss": _fmt_decimal(loss, quant=DECIMAL_EIGHT),
-        "sale_value_usd": _fmt_decimal(sale_value_usd),
-        "acquisition_value_usd": _fmt_decimal(acquisition_value_usd),
-        "sale_value": _fmt_decimal(sale_value, quant=DECIMAL_EIGHT),
-        "acquisition_value": _fmt_decimal(acquisition_value, quant=DECIMAL_EIGHT),
+        "sale_price_usd": _fmt_decimal(sale_price_usd),
+        "purchase_price_usd": _fmt_decimal(purchase_price_usd),
+        "sale_price": _fmt_decimal(sale_price, quant=DECIMAL_EIGHT),
+        "purchase_price": _fmt_decimal(purchase_price, quant=DECIMAL_EIGHT),
         "remark": row.remark,
     }
 
@@ -305,20 +305,24 @@ def _write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) ->
 def _write_tax_text(path: Path, *, tax_year: int, totals: AggregatedTotals) -> None:
     lines = [
         f"данъчна година: {tax_year}",
-        f"продажна цена (EUR): {_fmt_decimal(totals.sale_value, quant=DECIMAL_TWO)}",
-        f"цена на придобиване (EUR): {_fmt_decimal(totals.acquisition_value, quant=DECIMAL_TWO)}",
-        f"печалба (EUR): {_fmt_decimal(totals.profit, quant=DECIMAL_TWO)}",
-        f"загуба (EUR): {_fmt_decimal(totals.loss, quant=DECIMAL_TWO)}",
-        f"нетна печалба (EUR): {_fmt_decimal(totals.net_result, quant=DECIMAL_TWO)}",
         "",
-        f"profit_usd: {_fmt_decimal(totals.profit_usd)}",
-        f"loss_usd: {_fmt_decimal(totals.loss_usd)}",
-        f"sale_value_usd: {_fmt_decimal(totals.sale_value_usd)}",
-        f"acquisition_value_usd: {_fmt_decimal(totals.acquisition_value_usd)}",
-        f"net_result_usd: {_fmt_decimal(totals.net_result_usd)}",
+        "Приложение 5",
+        "Таблица 2",
+        f"- продажна цена (EUR) - код 5082: {_fmt_decimal(totals.sale_price, quant=DECIMAL_TWO)}",
+        f"- цена на придобиване (EUR) - код 5082: {_fmt_decimal(totals.purchase_price, quant=DECIMAL_TWO)}",
+        f"- печалба (EUR) - код 5082: {_fmt_decimal(totals.profit, quant=DECIMAL_TWO)}",
+        f"- загуба (EUR) - код 5082: {_fmt_decimal(totals.loss, quant=DECIMAL_TWO)}",
+        "Информативни",
+        f"- нетна печалба (EUR): {_fmt_decimal(totals.net_result, quant=DECIMAL_TWO)}",
         "",
-        f"processed_rows: {totals.processed_rows}",
-        f"ignored_rows: {totals.ignored_rows}",
+        f"- profit_usd: {_fmt_decimal(totals.profit_usd)}",
+        f"- loss_usd: {_fmt_decimal(totals.loss_usd)}",
+        f"- sale_price_usd: {_fmt_decimal(totals.sale_price_usd)}",
+        f"- purchase_price_usd: {_fmt_decimal(totals.purchase_price_usd)}",
+        f"- net_result_usd: {_fmt_decimal(totals.net_result_usd)}",
+        "",
+        f"- processed_rows: {totals.processed_rows}",
+        f"- ignored_rows: {totals.ignored_rows}",
     ]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -328,12 +332,12 @@ def _write_summary_json(path: Path, *, tax_year: int, totals: AggregatedTotals) 
         "tax_year": tax_year,
         "processed_rows": totals.processed_rows,
         "ignored_rows": totals.ignored_rows,
-        "sale_value_usd": _fmt_decimal(totals.sale_value_usd),
-        "acquisition_value_usd": _fmt_decimal(totals.acquisition_value_usd),
+        "sale_price_usd": _fmt_decimal(totals.sale_price_usd),
+        "purchase_price_usd": _fmt_decimal(totals.purchase_price_usd),
         "profit_usd": _fmt_decimal(totals.profit_usd),
         "loss_usd": _fmt_decimal(totals.loss_usd),
-        "sale_value_eur": _fmt_decimal(totals.sale_value, quant=DECIMAL_TWO),
-        "acquisition_value_eur": _fmt_decimal(totals.acquisition_value, quant=DECIMAL_TWO),
+        "sale_price_eur": _fmt_decimal(totals.sale_price, quant=DECIMAL_TWO),
+        "purchase_price_eur": _fmt_decimal(totals.purchase_price, quant=DECIMAL_TWO),
         "profit_eur": _fmt_decimal(totals.profit, quant=DECIMAL_TWO),
         "loss_eur": _fmt_decimal(totals.loss, quant=DECIMAL_TWO),
         "net_result_usd": _fmt_decimal(totals.net_result_usd),
