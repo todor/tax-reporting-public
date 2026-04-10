@@ -186,6 +186,35 @@ def _treasury_rows(
     ]
 
 
+def _rows_with_review_status(
+    *,
+    listing_exchange: str,
+    execution_exchange: str,
+    review_status: str,
+) -> list[list[str]]:
+    return [
+        ["Statement", "Header", "Field", "Value"],
+        ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch"],
+        ["Financial Instrument Information", "Data", "Stocks", "BMW", listing_exchange],
+        [
+            "Trades",
+            "Header",
+            "Asset Category",
+            "Currency",
+            "Symbol",
+            "Date/Time",
+            "Exchange",
+            "Code",
+            "Proceeds",
+            "DataDiscriminator",
+            "Basis",
+            "Review Status",
+        ],
+        ["Trades", "Data", "Stocks", "USD", "BMW", "2025-01-10, 10:00:00", execution_exchange, "C", "100", "Trade", "", review_status],
+        ["Trades", "Data", "Stocks", "USD", "BMW", "2024-12-20", execution_exchange, "", "0", "ClosedLot", "30", ""],
+    ]
+
+
 def _run(
     tmp_path: Path,
     rows: list[list[str]],
@@ -552,6 +581,74 @@ def test_review_bucket_excluded_from_appendix_totals(tmp_path: Path) -> None:
     result = _run(tmp_path, rows, mode="execution_exchange")
     assert result.summary.review.rows == 1
     assert result.summary.appendix_13.rows == 0
+
+
+def test_review_status_taxable_routes_row_to_appendix_5(tmp_path: Path) -> None:
+    rows = _rows_with_review_status(
+        listing_exchange="IBIS2",
+        execution_exchange="IBIS2",
+        review_status="TAXABLE",
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.appendix_5.rows == 1
+    assert result.summary.appendix_13.rows == 0
+    assert result.summary.review_status_overrides_rows == 1
+
+    output_rows = _read_rows(result.output_csv_path)
+    header, data_rows = _trades_header_and_data(output_rows)
+    idx = {c: i for i, c in enumerate(header[2:])}
+    trade_row = next(r for r in data_rows if r[2 + idx["DataDiscriminator"]] == "Trade")
+    assert trade_row[2 + idx["Appendix Target"]] == "APPENDIX_5"
+    assert trade_row[2 + idx["Tax Treatment Reason"]] == "Review Status override: TAXABLE"
+    assert trade_row[2 + idx["Review Required"]] == "NO"
+
+
+def test_review_status_non_taxable_routes_row_to_appendix_13(tmp_path: Path) -> None:
+    rows = _rows_with_review_status(
+        listing_exchange="NASDAQ",
+        execution_exchange="NASDAQ",
+        review_status="NON-TAXABLE",
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.appendix_5.rows == 0
+    assert result.summary.appendix_13.rows == 1
+    assert result.summary.review_status_overrides_rows == 1
+
+
+def test_empty_review_status_uses_existing_mode_logic(tmp_path: Path) -> None:
+    rows = _rows_with_review_status(
+        listing_exchange="IBIS2",
+        execution_exchange="EUDARK",
+        review_status="",
+    )
+    result = _run(tmp_path, rows, mode="execution_exchange")
+    assert result.summary.review_rows == 1
+    assert result.summary.review.rows == 1
+    assert result.summary.review_status_overrides_rows == 0
+    assert result.summary.unknown_review_status_rows == 0
+
+
+def test_unknown_review_status_is_reported(tmp_path: Path) -> None:
+    rows = _rows_with_review_status(
+        listing_exchange="IBIS2",
+        execution_exchange="IBIS2",
+        review_status="MAYBE",
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.appendix_13.rows == 1
+    assert result.summary.unknown_review_status_rows == 1
+    assert "MAYBE" in result.summary.unknown_review_status_values
+    assert any("unknown Review Status=MAYBE" in warning for warning in result.summary.warnings)
+
+    output_rows = _read_rows(result.output_csv_path)
+    header, data_rows = _trades_header_and_data(output_rows)
+    idx = {c: i for i, c in enumerate(header[2:])}
+    trade_row = next(r for r in data_rows if r[2 + idx["DataDiscriminator"]] == "Trade")
+    assert trade_row[2 + idx["Review Required"]] == "YES"
+    assert "Unknown Review Status value" in trade_row[2 + idx["Review Notes"]]
+
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "непознат Review Status" in text
 
 
 def test_csv_integrity_non_trades_unchanged_and_trades_consistent(tmp_path: Path) -> None:

@@ -92,6 +92,23 @@ Implications:
 - EU-listed + EU-regulated execution -> Приложение 13
 - EU-listed + non-regulated/unknown execution -> `REVIEW_REQUIRED` bucket (excluded from appendix totals)
 
+## Review Workflow (Post-Review Processing)
+
+If the active `Trades,Header,...` block contains a `Review Status` column, the analyzer uses it for closing `Trade` rows:
+
+- empty value: row is treated as not reviewed yet; default mode logic applies
+- `TAXABLE`: row is forced to `APPENDIX_5`
+- `NON-TAXABLE`: row is forced to `APPENDIX_13`
+- any other value: row is flagged as unknown review status, reported in outputs, and kept with manual-check warning
+
+Notes:
+
+- `Review Status` override is mode-independent and has priority over `--tax-exempt-mode`
+- this means `TAXABLE` / `NON-TAXABLE` overrides both `listed_symbol` and `execution_exchange` logic
+- this is section-local and header-scoped, same as all other `Trades` fields
+- it does not change row-ordering or ClosedLot attachment logic
+- it is intended to let you re-run the analyzer after manual review and route rows deterministically
+
 ## Exchange Rules
 
 Normalization:
@@ -149,6 +166,7 @@ Classification:
 - `pnl_eur = proceeds_eur + basis_eur + comm_fee_eur`
 9. Appendix classification:
 - by selected `tax-exempt-mode`
+ - optional `Review Status` override (`TAXABLE` / `NON-TAXABLE`) applied after default classification
 10. Sale/Purchase price totals per closing trade:
 - `cash_leg = proceeds_eur + comm_fee_eur`
 - if `cash_leg >= 0`: `sale_price += abs(cash_leg)`, `purchase += abs(basis_eur)`
@@ -205,6 +223,7 @@ The declaration file includes:
 - sanity-check section (`PASS`/`FAIL`, counts, artifact paths)
 - mandatory Forex warning section
 - evidence section (mode, counts, exchanges, warnings)
+- review diagnostics (`review overrides`, `unknown Review Status` counts/values)
 
 `нетен резултат (EUR)` is reported as `печалба - загуба`.
 

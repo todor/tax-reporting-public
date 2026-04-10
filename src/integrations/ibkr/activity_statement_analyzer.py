@@ -105,6 +105,8 @@ APPENDIX_IGNORED = "IGNORED"
 EXCHANGE_CLASS_EU_REGULATED = "EU_REGULATED"
 EXCHANGE_CLASS_EU_NON_REGULATED = "EU_NON_REGULATED"
 EXCHANGE_CLASS_UNKNOWN = "UNKNOWN"
+REVIEW_STATUS_TAXABLE = "TAXABLE"
+REVIEW_STATUS_NON_TAXABLE = "NON-TAXABLE"
 
 DEFAULT_OUTPUT_DIR = OUTPUT_DIR / "ibkr" / "activity_statement"
 
@@ -172,6 +174,9 @@ class AnalysisSummary:
     review_exchanges: set[str] = field(default_factory=set)
     review_entries: list[ReviewEntry] = field(default_factory=list)
     review_required_rows: int = 0
+    review_status_overrides_rows: int = 0
+    unknown_review_status_rows: int = 0
+    unknown_review_status_values: set[str] = field(default_factory=set)
     trades_data_rows_total: int = 0
     trade_discriminator_rows: int = 0
     closedlot_discriminator_rows: int = 0
@@ -395,6 +400,7 @@ class _TradeFieldIndexes:
     basis: int | None
     discriminator: int
     commission: int | None
+    review_status: int | None
 
 
 def _trade_indexes(active_header: _ActiveHeader) -> _TradeFieldIndexes:
@@ -410,7 +416,16 @@ def _trade_indexes(active_header: _ActiveHeader) -> _TradeFieldIndexes:
         basis=_optional_index(active_header.headers, "Basis", "Cost Basis", "CostBasis"),
         discriminator=_index_for(active_header.headers, "DataDiscriminator", section_name=section_name),
         commission=_optional_index(active_header.headers, "Comm/Fee", "Commission"),
+        review_status=_optional_index(active_header.headers, "Review Status"),
     )
+
+
+def _normalize_review_status(raw: str) -> str:
+    normalized = raw.strip().upper().replace("_", "-")
+    normalized = re.sub(r"\s+", "-", normalized)
+    if normalized == "NONTAXABLE":
+        return REVIEW_STATUS_NON_TAXABLE
+    return normalized
 
 
 def _code_has_closing_token(code: str) -> bool:
@@ -1224,6 +1239,11 @@ def _build_declaration_text(result: AnalysisResult) -> str:
         manual_check_reasons.append(f"sanity checks failed: {summary.sanity_failures_count}")
     if summary.review_required_rows > 0:
         manual_check_reasons.append(f"има {summary.review_required_rows} записа с изисквана ръчна проверка")
+    if summary.unknown_review_status_rows > 0:
+        values = ", ".join(sorted(summary.unknown_review_status_values)) or "-"
+        manual_check_reasons.append(
+            f"има {summary.unknown_review_status_rows} записа с непознат Review Status ({values})"
+        )
     if summary.forex_ignored_rows > 0:
         manual_check_reasons.append(f"има {summary.forex_ignored_rows} Forex записа, които са изключени")
     manual_check_required = bool(manual_check_reasons)
@@ -1318,6 +1338,10 @@ def _build_declaration_text(result: AnalysisResult) -> str:
     lines.append(f"- обработени сделки (в данъчната година): {summary.processed_trades_in_tax_year}")
     lines.append(f"- сделки извън данъчната година: {summary.trades_outside_tax_year}")
     lines.append(f"- игнорирани редове без token C: {summary.ignored_non_closing_trade_rows}")
+    lines.append(f"- review overrides (TAXABLE/NON-TAXABLE): {summary.review_status_overrides_rows}")
+    lines.append(f"- unknown Review Status rows: {summary.unknown_review_status_rows}")
+    if summary.unknown_review_status_values:
+        lines.append(f"- unknown Review Status values: {', '.join(sorted(summary.unknown_review_status_values))}")
     lines.append(f"- използвани execution борси: {', '.join(sorted(summary.exchanges_used)) or '-'}")
     lines.append(f"- review execution борси: {', '.join(sorted(summary.review_exchanges)) or '-'}")
     lines.append("")
@@ -1726,10 +1750,34 @@ def analyze_ibkr_activity_statement(
             forced_review_reason=forced_review_reason,
         )
 
+        review_status_raw = data[field_idx.review_status].strip() if field_idx.review_status is not None else ""
+        review_status_normalized = _normalize_review_status(review_status_raw)
+        review_notes_parts: list[str] = []
+        if review_status_normalized == REVIEW_STATUS_TAXABLE:
+            appendix_target = APPENDIX_5
+            reason = "Review Status override: TAXABLE"
+            review_required = False
+            summary.review_status_overrides_rows += 1
+            review_notes_parts.append("Review Status override applied")
+        elif review_status_normalized == REVIEW_STATUS_NON_TAXABLE:
+            appendix_target = APPENDIX_13
+            reason = "Review Status override: NON-TAXABLE"
+            review_required = False
+            summary.review_status_overrides_rows += 1
+            review_notes_parts.append("Review Status override applied")
+        elif review_status_normalized != "":
+            reason = f"{reason}; unknown Review Status={review_status_normalized}"
+            review_required = True
+            summary.unknown_review_status_rows += 1
+            summary.unknown_review_status_values.add(review_status_normalized)
+            review_notes_parts.append("Unknown Review Status value")
+
         review_notes = ""
         if review_required:
             summary.review_required_rows += 1
-            review_notes = "Review required by tax mode rules"
+            if not review_notes_parts:
+                review_notes_parts.append("Review required by tax mode rules")
+            review_notes = "; ".join(review_notes_parts)
             summary.warnings.append(
                 f"row {row_number}: {reason} (symbol={symbol}, execution_exchange={execution_exchange_norm or '<EMPTY>'})"
             )
@@ -1740,6 +1788,8 @@ def analyze_ibkr_activity_statement(
                 symbol,
                 execution_exchange_norm or "<EMPTY>",
             )
+        elif review_notes_parts:
+            review_notes = "; ".join(review_notes_parts)
 
         if tax_exempt_mode == TAX_MODE_LISTED_SYMBOL and symbol_is_eu_listed:
             if execution_exchange_class in {EXCHANGE_CLASS_EU_NON_REGULATED, EXCHANGE_CLASS_UNKNOWN}:
@@ -2182,6 +2232,10 @@ def main() -> int:
     print(f"appendix_5_rows: {summary.appendix_5.rows}")
     print(f"appendix_13_rows: {summary.appendix_13.rows}")
     print(f"review_rows: {summary.review_rows}")
+    print(f"review_status_overrides_rows: {summary.review_status_overrides_rows}")
+    print(f"unknown_review_status_rows: {summary.unknown_review_status_rows}")
+    if summary.unknown_review_status_values:
+        print(f"unknown_review_status_values: {', '.join(sorted(summary.unknown_review_status_values))}")
     print(f"appendix_5_profit_eur: {_fmt(summary.appendix_5.wins_eur, quant=DECIMAL_TWO)}")
     print(f"appendix_5_loss_eur: {_fmt(summary.appendix_5.losses_eur, quant=DECIMAL_TWO)}")
     print(f"appendix_13_profit_eur: {_fmt(summary.appendix_13.wins_eur, quant=DECIMAL_TWO)}")
