@@ -38,11 +38,12 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
 ## Scope (Phase 1)
 
 - Input: IBKR Activity Statement CSV (multi-section format)
-- Processed section: `Trades` only
+- Processed sections: `Trades`, `Interest`
+- Withholding source section for interest credit: `Mark-to-Market Performance Summary`
 - Symbol listing source: `Financial Instrument Information`
 - FX source: existing `services.bnb_fx` (`get_exchange_rate`)
 - Outputs:
-- modified CSV (multi-section preserved, `Trades` section extended)
+- modified CSV (multi-section preserved, `Trades` and `Interest` sections extended)
 - declaration text file (Bulgarian)
 - sanity debug artifacts (`_sanity_debug`)
 - stdout diagnostics
@@ -74,6 +75,7 @@ Rule:
 Implications:
 
 - `Trades` rows use the most recent preceding `Trades,Header`
+- `Interest` rows use the most recent preceding `Interest,Header`
 - `Financial Instrument Information` rows use the most recent preceding matching header
 - section schemas are never mixed
 - `Data` before matching `Header` fails loudly
@@ -172,9 +174,80 @@ Classification:
 - if `cash_leg >= 0`: `sale_price += abs(cash_leg)`, `purchase += abs(basis_eur)`
 - if `cash_leg < 0`: `sale_price += abs(basis_eur)`, `purchase += abs(cash_leg)`
 
+## Interest Processing (Appendix 6 / 9)
+
+Parsed section:
+
+- `Interest,Header,...`
+- `Interest,Data,...`
+
+Required active-header columns:
+
+- `Currency`
+- `Date`
+- `Description`
+- `Amount`
+
+Total rows are skipped when `Currency` starts with:
+
+- `Total`
+- `Total in EUR`
+- `Total Interest in EUR`
+
+Interest type extraction:
+
+- strip leading currency token in `Description`
+- strip trailing `for <...>`
+- classify normalized type
+
+Supported types:
+
+- `Credit Interest` -> `TAXABLE` (Appendix 6 code 603)
+- `IBKR Managed Securities (SYEP) Interest` -> `TAXABLE` (Appendix 6 code 603)
+- `Debit Interest` -> `NON-TAXABLE`
+- `Borrow Fees` -> `NON-TAXABLE`
+- unknown type -> `UNKNOWN` (no EUR conversion for now)
+
+Interest review override:
+
+- if the active `Interest` header has `Review Status`, that value is treated as human review input
+- `Review Status=TAXABLE` forces `Status=TAXABLE`
+- `Review Status=NON-TAXABLE` forces `Status=NON-TAXABLE`
+- `Review Status=UNKNOWN` or `Review Status=REVIEW-REQUIRED` forces `Status=UNKNOWN`
+- empty `Review Status` keeps automatic classification
+- analyzer does not auto-fill `Review Status` for interest rows
+
+EUR conversion rules:
+
+- taxable interest rows only
+- conversion date = `Interest.Date`
+- conversion currency = `Interest.Currency`
+- amount source = `Interest.Amount`
+
+Appendix 6:
+
+- `Обща сума на доходите с код 603` = taxable interest EUR total
+- includes `Credit Interest` + `IBKR Managed Securities (SYEP) Interest`
+
+Appendix 9 source for paid foreign tax:
+
+- section `Mark-to-Market Performance Summary`
+- row with `Asset Category = Withholding on Interest Received`
+- use `abs(Mark-to-Market P/L Total)`
+- if this row is missing while credit interest exists, analyzer keeps `Платен данък в чужбина = 0` and marks manual review
+
+Appendix 9 calculations:
+
+- country fixed: `Ирландия`
+- income code: `603`
+- gross income / tax base: credit-interest EUR total only
+- allowable credit: `APPENDIX_9_ALLOWABLE_CREDIT_RATE * credit_interest_total_eur`
+- default code constant is `APPENDIX_9_ALLOWABLE_CREDIT_RATE = 0.10` (change in code if regulation changes)
+- recognized credit: `min(allowable_credit, paid_tax_abroad)`
+
 ## How To Read The Modified CSV
 
-The analyzer modifies only `Trades` rows. Non-`Trades` sections are preserved exactly.
+The analyzer modifies only `Trades` and `Interest` rows. All other sections are preserved exactly.
 
 ### Added Trades Columns
 
@@ -197,6 +270,11 @@ The analyzer modifies only `Trades` rows. Non-`Trades` sections are preserved ex
 - `Review Required`
 - `Review Notes`
 
+### Added Interest Columns
+
+- `Amount (EUR)`
+- `Status`
+
 ### Row-Type Semantics
 
 - Closing `Trade` rows:
@@ -212,6 +290,11 @@ The analyzer modifies only `Trades` rows. Non-`Trades` sections are preserved ex
 - EUR columns are populated from analyzer aggregates
 - when both native and derived EUR aggregate rows exist, only native-currency rows are used for aggregate reconciliation
 - if EUR-native trades exist, matching EUR aggregate rows are populated/checked
+- `Interest` data rows:
+- non-total rows receive `Amount (EUR)` and `Status`
+- analyzer fills `Status` only (`TAXABLE`, `NON-TAXABLE`, `UNKNOWN`)
+- unknown interest types are flagged as `UNKNOWN` and included in global manual-check state
+- total rows in Interest section are not processed as income rows
 
 ## Declaration TXT Output
 
@@ -219,6 +302,8 @@ The declaration file includes:
 
 - Приложение 5 totals
 - Приложение 13 totals
+- Приложение 6 (Част I) interest total for code 603
+- Приложение 9 (Част II) credit-interest and foreign-tax credit data
 - optional `РЪЧНА ПРОВЕРКА` section (execution mode with review rows)
 - sanity-check section (`PASS`/`FAIL`, counts, artifact paths)
 - mandatory Forex warning section
@@ -260,6 +345,7 @@ Forex trades are excluded from Appendix 5/13 totals in this phase.
 - missing required sections (`Financial Instrument Information`, `Trades`)
 - missing required section columns
 - malformed trade/closed-lot dates
+- malformed interest dates
 - invalid decimal values
 - FX conversion failure
 - unsupported asset category

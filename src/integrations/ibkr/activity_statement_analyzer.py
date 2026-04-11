@@ -93,6 +93,7 @@ ADDED_TRADES_COLUMNS = [
 DECIMAL_TWO = Decimal("0.01")
 DECIMAL_EIGHT = Decimal("0.00000001")
 ZERO = Decimal("0")
+APPENDIX_9_ALLOWABLE_CREDIT_RATE = Decimal("0.10")
 
 TAX_MODE_LISTED_SYMBOL = "listed_symbol"
 TAX_MODE_EXECUTION_EXCHANGE = "execution_exchange"
@@ -108,7 +109,24 @@ EXCHANGE_CLASS_UNKNOWN = "UNKNOWN"
 REVIEW_STATUS_TAXABLE = "TAXABLE"
 REVIEW_STATUS_NON_TAXABLE = "NON-TAXABLE"
 
+INTEREST_TYPE_CREDIT = "Credit Interest"
+INTEREST_TYPE_SYEP = "IBKR Managed Securities (SYEP) Interest"
+INTEREST_TYPE_DEBIT = "Debit Interest"
+INTEREST_TYPE_BORROW = "Borrow Fees"
+
+INTEREST_STATUS_TAXABLE = "TAXABLE"
+INTEREST_STATUS_NON_TAXABLE = "NON-TAXABLE"
+INTEREST_STATUS_UNKNOWN = "UNKNOWN"
+
+INTEREST_DECLARED_TYPES = {INTEREST_TYPE_CREDIT, INTEREST_TYPE_SYEP}
+INTEREST_NON_DECLARED_TYPES = {INTEREST_TYPE_DEBIT, INTEREST_TYPE_BORROW}
+
 DEFAULT_OUTPUT_DIR = OUTPUT_DIR / "ibkr" / "activity_statement"
+
+ADDED_INTEREST_COLUMNS = [
+    "Amount (EUR)",
+    "Status",
+]
 
 FxRateProvider = Callable[[str, date], Decimal]
 
@@ -177,6 +195,17 @@ class AnalysisSummary:
     review_status_overrides_rows: int = 0
     unknown_review_status_rows: int = 0
     unknown_review_status_values: set[str] = field(default_factory=set)
+    interest_processed_rows: int = 0
+    interest_total_rows_skipped: int = 0
+    interest_taxable_rows: int = 0
+    interest_non_taxable_rows: int = 0
+    interest_unknown_rows: int = 0
+    interest_unknown_types: set[str] = field(default_factory=set)
+    interest_unknown_descriptions: list[str] = field(default_factory=list)
+    appendix_6_code_603_eur: Decimal = ZERO
+    appendix_9_credit_interest_eur: Decimal = ZERO
+    appendix_9_withholding_paid_eur: Decimal = ZERO
+    appendix_9_withholding_source_found: bool = False
     trades_data_rows_total: int = 0
     trade_discriminator_rows: int = 0
     closedlot_discriminator_rows: int = 0
@@ -403,6 +432,15 @@ class _TradeFieldIndexes:
     review_status: int | None
 
 
+@dataclass(slots=True)
+class _InterestFieldIndexes:
+    currency: int
+    date: int
+    description: int
+    amount: int
+    review_status: int | None
+
+
 def _trade_indexes(active_header: _ActiveHeader) -> _TradeFieldIndexes:
     section_name = f"Trades header at row {active_header.row_number}"
     return _TradeFieldIndexes(
@@ -420,12 +458,61 @@ def _trade_indexes(active_header: _ActiveHeader) -> _TradeFieldIndexes:
     )
 
 
+def _interest_indexes(active_header: _ActiveHeader) -> _InterestFieldIndexes:
+    section_name = f"Interest header at row {active_header.row_number}"
+    return _InterestFieldIndexes(
+        currency=_index_for(active_header.headers, "Currency", section_name=section_name),
+        date=_index_for(active_header.headers, "Date", section_name=section_name),
+        description=_index_for(active_header.headers, "Description", section_name=section_name),
+        amount=_index_for(active_header.headers, "Amount", section_name=section_name),
+        review_status=_optional_index(active_header.headers, "Review Status"),
+    )
+
+
 def _normalize_review_status(raw: str) -> str:
     normalized = raw.strip().upper().replace("_", "-")
     normalized = re.sub(r"\s+", "-", normalized)
     if normalized == "NONTAXABLE":
         return REVIEW_STATUS_NON_TAXABLE
     return normalized
+
+
+def _is_interest_total_row(currency: str) -> bool:
+    return currency.strip().upper().startswith("TOTAL")
+
+
+def _parse_interest_date(raw: str, *, row_number: int) -> date:
+    text = raw.strip()
+    for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d, %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    raise IbkrAnalyzerError(f"row {row_number}: invalid Interest date format: {raw!r}")
+
+
+def _normalize_interest_type(description: str, *, currency: str) -> str:
+    text = description.strip()
+    if not text:
+        return ""
+
+    if text.upper().startswith(currency.strip().upper() + " "):
+        text = text[len(currency.strip()) :].strip()
+    else:
+        parts = text.split(maxsplit=1)
+        if len(parts) == 2 and re.fullmatch(r"[A-Z]{3,5}", parts[0].upper()):
+            text = parts[1].strip()
+
+    text = re.sub(r"\s+for\s+.+$", "", text, flags=re.IGNORECASE).strip()
+    return text
+
+
+def _classify_interest_type(normalized_type: str) -> str:
+    if normalized_type in INTEREST_DECLARED_TYPES:
+        return INTEREST_STATUS_TAXABLE
+    if normalized_type in INTEREST_NON_DECLARED_TYPES:
+        return INTEREST_STATUS_NON_TAXABLE
+    return INTEREST_STATUS_UNKNOWN
 
 
 def _code_has_closing_token(code: str) -> bool:
@@ -1239,6 +1326,8 @@ def _build_declaration_text(result: AnalysisResult) -> str:
         manual_check_reasons.append(f"sanity checks failed: {summary.sanity_failures_count}")
     if summary.review_required_rows > 0:
         manual_check_reasons.append(f"има {summary.review_required_rows} записа с изисквана ръчна проверка")
+    if summary.interest_unknown_rows > 0:
+        manual_check_reasons.append(f"има {summary.interest_unknown_rows} записа с непознат вид лихва")
     if summary.unknown_review_status_rows > 0:
         values = ", ".join(sorted(summary.unknown_review_status_values)) or "-"
         manual_check_reasons.append(
@@ -1297,6 +1386,35 @@ def _build_declaration_text(result: AnalysisResult) -> str:
     lines.append(f"- брой сделки: {app13.rows}")
     lines.append("")
 
+    allowable_credit = summary.appendix_9_credit_interest_eur * APPENDIX_9_ALLOWABLE_CREDIT_RATE
+    recognized_credit = min(allowable_credit, summary.appendix_9_withholding_paid_eur)
+
+    lines.append("Приложение 6")
+    lines.append("Част I")
+    lines.append(f"- Обща сума на доходите с код 603: {_fmt(summary.appendix_6_code_603_eur, quant=DECIMAL_TWO)}")
+    if summary.interest_unknown_rows > 0:
+        lines.append("- НУЖЕН Е ПРЕГЛЕД: открити са непознати видове лихви")
+        lines.append(f"- брой непознати редове: {summary.interest_unknown_rows}")
+        lines.append(f"- непознати видове: {', '.join(sorted(summary.interest_unknown_types))}")
+    lines.append("")
+
+    lines.append("Приложение 9")
+    lines.append("Част II")
+    lines.append("- Държава: Ирландия")
+    lines.append("- Код вид доход: 603")
+    lines.append(
+        f"- Брутен размер на дохода (включително платеният данък): "
+        f"{_fmt(summary.appendix_9_credit_interest_eur, quant=DECIMAL_TWO)}"
+    )
+    lines.append("- Нормативно определени разходи: 0")
+    lines.append("- Задължителни осигурителни вноски: 0")
+    lines.append(f"- Годишна данъчна основа: {_fmt(summary.appendix_9_credit_interest_eur, quant=DECIMAL_TWO)}")
+    lines.append(f"- Платен данък в чужбина: {_fmt(summary.appendix_9_withholding_paid_eur, quant=DECIMAL_TWO)}")
+    lines.append(f"- Допустим размер на данъчния кредит: {_fmt(allowable_credit, quant=DECIMAL_TWO)}")
+    lines.append(f"- Размер на признатия данъчен кредит: {_fmt(recognized_credit, quant=DECIMAL_TWO)}")
+    lines.append("- № и дата на документа за дохода и съответния данък: R-185 / Activity Statement")
+    lines.append("")
+
     if summary.tax_exempt_mode == TAX_MODE_EXECUTION_EXCHANGE:
         lines.append("РЪЧНА ПРОВЕРКА (ИЗКЛЮЧЕНИ ОТ АВТОМАТИЧНИТЕ ТАБЛИЦИ)")
         lines.append(f"- изключени записи: {summary.review_rows}")
@@ -1342,6 +1460,15 @@ def _build_declaration_text(result: AnalysisResult) -> str:
     lines.append(f"- unknown Review Status rows: {summary.unknown_review_status_rows}")
     if summary.unknown_review_status_values:
         lines.append(f"- unknown Review Status values: {', '.join(sorted(summary.unknown_review_status_values))}")
+    lines.append(f"- interest processed rows: {summary.interest_processed_rows}")
+    lines.append(f"- interest total rows skipped: {summary.interest_total_rows_skipped}")
+    lines.append(f"- interest taxable rows: {summary.interest_taxable_rows}")
+    lines.append(f"- interest non-taxable rows: {summary.interest_non_taxable_rows}")
+    lines.append(f"- interest unknown rows: {summary.interest_unknown_rows}")
+    lines.append(
+        "- interest withholding source found: "
+        + ("YES" if summary.appendix_9_withholding_source_found else "NO")
+    )
     lines.append(f"- използвани execution борси: {', '.join(sorted(summary.exchanges_used)) or '-'}")
     lines.append(f"- review execution борси: {', '.join(sorted(summary.review_exchanges)) or '-'}")
     lines.append("")
@@ -1432,6 +1559,32 @@ def _parse_instrument_listings_with_headers(
     return listings
 
 
+def _extract_interest_withholding_paid_eur(
+    rows: list[list[str]],
+    *,
+    active_headers: dict[int, _ActiveHeader],
+) -> tuple[Decimal, bool]:
+    section_name = "Mark-to-Market Performance Summary"
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        if len(row) < 2 or row[0] != section_name or row[1] != "Data":
+            continue
+        active_header = active_headers.get(row_idx)
+        if active_header is None:
+            raise CsvStructureError(f"row {row_number}: {section_name} Data row encountered before {section_name} Header")
+
+        section_label = f"{section_name} header at row {active_header.row_number}"
+        asset_idx = _index_for(active_header.headers, "Asset Category", section_name=section_label)
+        total_idx = _index_for(active_header.headers, "Mark-to-Market P/L Total", section_name=section_label)
+        padded = row[2:] + [""] * (len(active_header.headers) - len(row[2:]))
+        asset_category = padded[asset_idx].strip()
+        if asset_category != "Withholding on Interest Received":
+            continue
+        value = _parse_decimal(padded[total_idx], row_number=row_number, field_name="Mark-to-Market P/L Total")
+        return abs(value), True
+    return ZERO, False
+
+
 def analyze_ibkr_activity_statement(
     *,
     input_csv: str | Path,
@@ -1471,6 +1624,8 @@ def analyze_ibkr_activity_statement(
     )
     trades_row_extras: dict[int, list[str]] = {}
     trades_row_base_len: dict[int, int] = {}
+    interest_row_extras: dict[int, list[str]] = {}
+    interest_row_base_len: dict[int, int] = {}
     summary = AnalysisSummary(tax_year=tax_year, tax_exempt_mode=tax_exempt_mode)
 
     def _set_trade_extras(row_idx: int, values: dict[str, str]) -> None:
@@ -1478,6 +1633,12 @@ def analyze_ibkr_activity_statement(
         for key, value in values.items():
             extras[ADDED_TRADES_COLUMNS.index(key)] = value
         trades_row_extras[row_idx] = extras
+
+    def _set_interest_extras(row_idx: int, values: dict[str, str]) -> None:
+        extras = [""] * len(ADDED_INTEREST_COLUMNS)
+        for key, value in values.items():
+            extras[ADDED_INTEREST_COLUMNS.index(key)] = value
+        interest_row_extras[row_idx] = extras
 
     consumed_closedlots: set[int] = set()
     current_trades_header: _ActiveHeader | None = None
@@ -1858,6 +2019,113 @@ def analyze_ibkr_activity_statement(
     if not found_trade_section_data:
         raise CsvStructureError("Trades section has no Data rows")
 
+    current_interest_header: _ActiveHeader | None = None
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        if len(row) < 2 or row[0] != "Interest":
+            continue
+
+        row_type = row[1]
+        if row_type == "Header":
+            current_interest_header = _activate_header("Interest", row, row_number=row_number)
+            interest_row_base_len[row_idx] = 2 + len(current_interest_header.headers)
+            continue
+
+        if current_interest_header is None:
+            raise CsvStructureError(f"row {row_number}: Interest row encountered before Interest Header")
+        interest_row_base_len[row_idx] = 2 + len(current_interest_header.headers)
+        if row_type != "Data":
+            continue
+
+        active_interest_header = active_headers.get(row_idx)
+        if active_interest_header is None:
+            raise CsvStructureError(f"row {row_number}: Interest Data row encountered before Interest Header")
+        current_interest_header = active_interest_header
+        interest_row_base_len[row_idx] = 2 + len(active_interest_header.headers)
+
+        field_idx = _interest_indexes(active_interest_header)
+        padded = row + [""] * (interest_row_base_len[row_idx] - len(row))
+        data = padded[2 : 2 + len(active_interest_header.headers)]
+
+        currency = data[field_idx.currency].strip().upper()
+        if _is_interest_total_row(currency):
+            summary.interest_total_rows_skipped += 1
+            continue
+
+        summary.interest_processed_rows += 1
+        interest_date = _parse_interest_date(data[field_idx.date], row_number=row_number)
+        description = data[field_idx.description].strip()
+        amount = _parse_decimal(data[field_idx.amount], row_number=row_number, field_name="Amount")
+        normalized_type = _normalize_interest_type(description, currency=currency)
+        status = _classify_interest_type(normalized_type)
+        review_status_raw = data[field_idx.review_status].strip() if field_idx.review_status is not None else ""
+        review_status_normalized = _normalize_review_status(review_status_raw)
+        if review_status_normalized == REVIEW_STATUS_TAXABLE:
+            if status != INTEREST_STATUS_TAXABLE:
+                summary.review_status_overrides_rows += 1
+            status = INTEREST_STATUS_TAXABLE
+        elif review_status_normalized == REVIEW_STATUS_NON_TAXABLE:
+            if status != INTEREST_STATUS_NON_TAXABLE:
+                summary.review_status_overrides_rows += 1
+            status = INTEREST_STATUS_NON_TAXABLE
+        elif review_status_normalized in {"UNKNOWN", "REVIEW-REQUIRED"}:
+            status = INTEREST_STATUS_UNKNOWN
+        elif review_status_normalized != "":
+            status = INTEREST_STATUS_UNKNOWN
+            summary.unknown_review_status_rows += 1
+            summary.unknown_review_status_values.add(review_status_normalized)
+            summary.warnings.append(
+                f"row {row_number}: unknown Review Status={review_status_normalized} (interest description={description!r})"
+            )
+
+        amount_eur_text = ""
+        if status == INTEREST_STATUS_TAXABLE:
+            summary.interest_taxable_rows += 1
+            if interest_date.year == tax_year:
+                amount_eur, _ = _to_eur(
+                    amount,
+                    currency,
+                    interest_date,
+                    fx_provider,
+                    row_number=row_number,
+                )
+                amount_eur_text = _fmt(amount_eur, quant=DECIMAL_EIGHT)
+                summary.appendix_6_code_603_eur += amount_eur
+                if normalized_type == INTEREST_TYPE_CREDIT:
+                    summary.appendix_9_credit_interest_eur += amount_eur
+        elif status == INTEREST_STATUS_NON_TAXABLE:
+            summary.interest_non_taxable_rows += 1
+        else:
+            summary.interest_unknown_rows += 1
+            summary.review_required_rows += 1
+            normalized_display = normalized_type or "<EMPTY>"
+            if normalized_display not in INTEREST_DECLARED_TYPES | INTEREST_NON_DECLARED_TYPES:
+                summary.interest_unknown_types.add(normalized_display)
+                summary.interest_unknown_descriptions.append(description)
+                summary.warnings.append(
+                    f"row {row_number}: unknown interest type={normalized_display} (description={description!r})"
+                )
+
+        _set_interest_extras(
+            row_idx,
+            {
+                "Amount (EUR)": amount_eur_text,
+                "Status": status,
+            },
+        )
+
+    withholding_paid_eur, withholding_found = _extract_interest_withholding_paid_eur(
+        rows,
+        active_headers=active_headers,
+    )
+    summary.appendix_9_withholding_paid_eur = withholding_paid_eur
+    summary.appendix_9_withholding_source_found = withholding_found
+    if summary.appendix_9_credit_interest_eur > ZERO and not withholding_found:
+        summary.review_required_rows += 1
+        summary.warnings.append(
+            "Mark-to-Market Performance Summary row for 'Withholding on Interest Received' was not found; using 0"
+        )
+
     # Populate EUR columns for Trades SubTotal/Total rows in the production CSV
     # using the same methodology as sanity aggregation over Trade rows.
     aggregate_col_idx = {
@@ -2090,20 +2358,37 @@ def analyze_ibkr_activity_statement(
 
     output_rows: list[list[str]] = []
     for idx, row in enumerate(rows):
-        if len(row) < 2 or row[0] != "Trades":
+        if len(row) < 2:
             output_rows.append(row)
             continue
 
-        if row[1] == "Header":
+        if row[0] == "Trades" and row[1] == "Header":
             output_rows.append(row + ADDED_TRADES_COLUMNS)
             continue
 
-        base_len = trades_row_base_len.get(idx)
-        if base_len is None:
-            raise CsvStructureError(f"row {idx + 1}: Trades row encountered before Trades Header")
-        padded = row + [""] * (base_len - len(row))
-        extras = trades_row_extras.get(idx, [""] * len(ADDED_TRADES_COLUMNS))
-        output_rows.append(padded + extras)
+        if row[0] == "Trades":
+            base_len = trades_row_base_len.get(idx)
+            if base_len is None:
+                raise CsvStructureError(f"row {idx + 1}: Trades row encountered before Trades Header")
+            padded = row + [""] * (base_len - len(row))
+            extras = trades_row_extras.get(idx, [""] * len(ADDED_TRADES_COLUMNS))
+            output_rows.append(padded + extras)
+            continue
+
+        if row[0] == "Interest" and row[1] == "Header":
+            output_rows.append(row + ADDED_INTEREST_COLUMNS)
+            continue
+
+        if row[0] == "Interest":
+            base_len = interest_row_base_len.get(idx)
+            if base_len is None:
+                raise CsvStructureError(f"row {idx + 1}: Interest row encountered before Interest Header")
+            padded = row + [""] * (base_len - len(row))
+            extras = interest_row_extras.get(idx, [""] * len(ADDED_INTEREST_COLUMNS))
+            output_rows.append(padded + extras)
+            continue
+
+        output_rows.append(row)
 
     for idx, row in enumerate(output_rows):
         if len(row) >= 2 and row[0] == "Trades":
@@ -2114,6 +2399,15 @@ def analyze_ibkr_activity_statement(
             if len(row) != expected_len:
                 raise IbkrAnalyzerError(
                     f"Trades row column count mismatch at row {idx + 1}: expected {expected_len}, got {len(row)}"
+                )
+        if len(row) >= 2 and row[0] == "Interest":
+            base_len = interest_row_base_len.get(idx)
+            if base_len is None:
+                raise CsvStructureError(f"row {idx + 1}: Interest row encountered before Interest Header")
+            expected_len = base_len + len(ADDED_INTEREST_COLUMNS)
+            if len(row) != expected_len:
+                raise IbkrAnalyzerError(
+                    f"Interest row column count mismatch at row {idx + 1}: expected {expected_len}, got {len(row)}"
                 )
 
     alias_suffix = f"_{normalized_alias}" if normalized_alias else ""
@@ -2236,12 +2530,22 @@ def main() -> int:
     print(f"unknown_review_status_rows: {summary.unknown_review_status_rows}")
     if summary.unknown_review_status_values:
         print(f"unknown_review_status_values: {', '.join(sorted(summary.unknown_review_status_values))}")
+    print(f"interest_processed_rows: {summary.interest_processed_rows}")
+    print(f"interest_total_rows_skipped: {summary.interest_total_rows_skipped}")
+    print(f"interest_taxable_rows: {summary.interest_taxable_rows}")
+    print(f"interest_non_taxable_rows: {summary.interest_non_taxable_rows}")
+    print(f"interest_unknown_rows: {summary.interest_unknown_rows}")
+    if summary.interest_unknown_types:
+        print(f"interest_unknown_types: {', '.join(sorted(summary.interest_unknown_types))}")
     print(f"appendix_5_profit_eur: {_fmt(summary.appendix_5.wins_eur, quant=DECIMAL_TWO)}")
     print(f"appendix_5_loss_eur: {_fmt(summary.appendix_5.losses_eur, quant=DECIMAL_TWO)}")
     print(f"appendix_13_profit_eur: {_fmt(summary.appendix_13.wins_eur, quant=DECIMAL_TWO)}")
     print(f"appendix_13_loss_eur: {_fmt(summary.appendix_13.losses_eur, quant=DECIMAL_TWO)}")
     print(f"review_profit_eur: {_fmt(summary.review.wins_eur, quant=DECIMAL_TWO)}")
     print(f"review_loss_eur: {_fmt(summary.review.losses_eur, quant=DECIMAL_TWO)}")
+    print(f"appendix_6_code_603_eur: {_fmt(summary.appendix_6_code_603_eur, quant=DECIMAL_TWO)}")
+    print(f"appendix_9_credit_interest_eur: {_fmt(summary.appendix_9_credit_interest_eur, quant=DECIMAL_TWO)}")
+    print(f"appendix_9_withholding_paid_eur: {_fmt(summary.appendix_9_withholding_paid_eur, quant=DECIMAL_TWO)}")
     print("SANITY CHECKS PASSED" if summary.sanity_passed else "SANITY CHECKS FAILED")
     print(f"sanity_checks_passed: {'YES' if summary.sanity_passed else 'NO'}")
     print(f"sanity_checked_trade_rows: {summary.sanity_checked_closing_trades}")

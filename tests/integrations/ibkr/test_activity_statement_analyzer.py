@@ -249,6 +249,33 @@ def _trades_header_and_data(rows: list[list[str]]) -> tuple[list[str], list[list
     return header, data_rows
 
 
+def _interest_header_and_data(rows: list[list[str]]) -> tuple[list[str], list[list[str]]]:
+    header: list[str] | None = None
+    data_rows: list[list[str]] = []
+    for row in rows:
+        if len(row) < 2 or row[0] != "Interest":
+            continue
+        if row[1] == "Header":
+            header = row
+        elif row[1] == "Data":
+            data_rows.append(row)
+    assert header is not None
+    return header, data_rows
+
+
+def _rows_with_interest(interest_rows: list[list[str]], *, mtm_withholding_total: str = "-5") -> list[list[str]]:
+    rows = _base_rows()
+    rows.extend(
+        [
+            ["Interest", "Header", "Currency", "Date", "Description", "Amount"],
+            *interest_rows,
+            ["Mark-to-Market Performance Summary", "Header", "Asset Category", "Mark-to-Market P/L Total"],
+            ["Mark-to-Market Performance Summary", "Data", "Withholding on Interest Received", mtm_withholding_total],
+        ]
+    )
+    return rows
+
+
 def test_exchange_normalization_aliases() -> None:
     assert _normalize_exchange(" ise ") == "ENEXT.IR"
     assert _normalize_exchange("BME") == "SIBE"
@@ -1163,3 +1190,266 @@ def test_informational_warnings_do_not_trigger_manual_check_required(tmp_path: P
     assert any("informational only" in warning for warning in result.summary.warnings)
     assert result.summary.review_required_rows == 0
     assert "!!! РЪЧНА ПРОВЕРКА / MANUAL CHECK !!!" not in text
+
+
+def test_interest_scoped_headers_are_resolved_from_active_header(tmp_path: Path) -> None:
+    rows = _base_rows()
+    rows.extend(
+        [
+            ["Interest", "Header", "Currency", "Date", "Description", "Amount"],
+            ["Interest", "Data", "USD", "2025-03-01", "USD Credit Interest for Mar-2025", "10"],
+            ["Interest", "Header", "Description", "Amount", "Date", "Currency"],
+            ["Interest", "Data", "EUR Credit Interest for Apr-2025", "2", "2025-04-01", "EUR"],
+            ["Mark-to-Market Performance Summary", "Header", "Asset Category", "Mark-to-Market P/L Total"],
+            ["Mark-to-Market Performance Summary", "Data", "Withholding on Interest Received", "-1.5"],
+        ]
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.interest_taxable_rows == 2
+    assert result.summary.appendix_6_code_603_eur == Decimal("11")
+
+
+def test_interest_total_rows_are_skipped(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [
+            ["Interest", "Data", "Total", "2025-03-01", "USD Credit Interest for Mar-2025", ""],
+            ["Interest", "Data", "Total in EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", ""],
+            ["Interest", "Data", "Total Interest in EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", ""],
+            ["Interest", "Data", "USD", "2025-03-01", "USD Credit Interest for Mar-2025", "10"],
+        ]
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.interest_total_rows_skipped == 3
+    assert result.summary.interest_processed_rows == 1
+    assert result.summary.appendix_6_code_603_eur == Decimal("9")
+
+
+def test_interest_type_extraction_and_classification(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [
+            ["Interest", "Data", "EUR", "2025-02-01", "EUR Credit Interest for Feb-2025", "1"],
+            ["Interest", "Data", "EUR", "2025-03-01", "EUR IBKR Managed Securities (SYEP) Interest for Mar-2025", "2"],
+            ["Interest", "Data", "USD", "2025-04-01", "USD Debit Interest for Apr-2025", "-3"],
+            ["Interest", "Data", "USD", "2025-05-01", "USD Borrow Fees for May-2025", "-4"],
+        ]
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    out_rows = _read_rows(result.output_csv_path)
+    header, data_rows = _interest_header_and_data(out_rows)
+    idx = {c: i for i, c in enumerate(header[2:])}
+
+    def find_row(desc: str) -> list[str]:
+        return next(r for r in data_rows if r[2 + idx["Description"]] == desc)
+
+    credit = find_row("EUR Credit Interest for Feb-2025")
+    syep = find_row("EUR IBKR Managed Securities (SYEP) Interest for Mar-2025")
+    debit = find_row("USD Debit Interest for Apr-2025")
+    borrow = find_row("USD Borrow Fees for May-2025")
+
+    assert credit[2 + idx["Status"]] == "TAXABLE"
+    assert credit[2 + idx["Amount (EUR)"]] == "1.00000000"
+
+    assert syep[2 + idx["Status"]] == "TAXABLE"
+    assert syep[2 + idx["Amount (EUR)"]] == "2.00000000"
+
+    assert debit[2 + idx["Status"]] == "NON-TAXABLE"
+    assert debit[2 + idx["Amount (EUR)"]] == ""
+
+    assert borrow[2 + idx["Status"]] == "NON-TAXABLE"
+    assert borrow[2 + idx["Amount (EUR)"]] == ""
+
+
+def test_unknown_interest_type_marks_review_required(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [
+            ["Interest", "Data", "USD", "2025-05-01", "USD Special Interest Adjustment for May-2025", "7"],
+        ]
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.interest_unknown_rows == 1
+    assert result.summary.review_required_rows >= 1
+    assert "Special Interest Adjustment" in ",".join(result.summary.interest_unknown_types)
+
+    out_rows = _read_rows(result.output_csv_path)
+    header, data_rows = _interest_header_and_data(out_rows)
+    idx = {c: i for i, c in enumerate(header[2:])}
+    unknown = data_rows[0]
+    assert unknown[2 + idx["Status"]] == "UNKNOWN"
+    assert unknown[2 + idx["Amount (EUR)"]] == ""
+
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "НУЖЕН Е ПРЕГЛЕД: открити са непознати видове лихви" in text
+    assert "!!! РЪЧНА ПРОВЕРКА / MANUAL CHECK !!!" in text
+
+
+def test_interest_review_status_human_override_is_applied(tmp_path: Path) -> None:
+    rows = _base_rows()
+    rows.extend(
+        [
+            ["Interest", "Header", "Currency", "Date", "Description", "Amount", "Review Status"],
+            ["Interest", "Data", "USD", "2025-03-01", "USD Special Interest Adjustment for Mar-2025", "10", "TAXABLE"],
+            ["Interest", "Data", "USD", "2025-03-02", "USD Credit Interest for Mar-2025", "8", "NON-TAXABLE"],
+            ["Mark-to-Market Performance Summary", "Header", "Asset Category", "Mark-to-Market P/L Total"],
+            ["Mark-to-Market Performance Summary", "Data", "Withholding on Interest Received", "-1"],
+        ]
+    )
+    input_csv = tmp_path / "input.csv"
+    _write_rows(input_csv, rows)
+
+    result = analyze_ibkr_activity_statement(
+        input_csv=input_csv,
+        tax_year=2025,
+        tax_exempt_mode="listed_symbol",  # type: ignore[arg-type]
+        output_dir=tmp_path / "out",
+        fx_rate_provider=lambda c, _d: Decimal("1") if c == "EUR" else Decimal("0.5"),
+    )
+    # Unknown -> TAXABLE override contributes: 10 * 0.5 = 5
+    # Credit -> NON-TAXABLE override excluded
+    assert result.summary.appendix_6_code_603_eur == Decimal("5")
+    assert result.summary.interest_unknown_rows == 0
+
+    out_rows = _read_rows(result.output_csv_path)
+    header, data_rows = _interest_header_and_data(out_rows)
+    idx = {c: i for i, c in enumerate(header[2:])}
+    first = data_rows[0]
+    second = data_rows[1]
+    assert first[2 + idx["Status"]] == "TAXABLE"
+    assert second[2 + idx["Status"]] == "NON-TAXABLE"
+
+
+def test_appendix_6_total_code_603_uses_credit_and_syep_only(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [
+            ["Interest", "Data", "USD", "2025-03-01", "USD Credit Interest for Mar-2025", "10"],
+            ["Interest", "Data", "EUR", "2025-03-02", "EUR IBKR Managed Securities (SYEP) Interest for Mar-2025", "5"],
+            ["Interest", "Data", "USD", "2025-03-03", "USD Debit Interest for Mar-2025", "-2"],
+            ["Interest", "Data", "USD", "2025-03-04", "USD Borrow Fees for Mar-2025", "-1"],
+            ["Interest", "Data", "USD", "2025-03-05", "USD Special Interest Adjustment for Mar-2025", "1"],
+        ]
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.appendix_6_code_603_eur == Decimal("14")
+
+
+def test_interest_fx_uses_row_date_and_unknown_is_not_converted(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [
+            ["Interest", "Data", "USD", "2025-03-01", "USD Credit Interest for Mar-2025", "10"],
+            ["Interest", "Data", "USD", "2025-03-02", "USD IBKR Managed Securities (SYEP) Interest for Mar-2025", "10"],
+            ["Interest", "Data", "USD", "2025-03-02", "USD Special Interest Adjustment for Mar-2025", "10"],
+        ]
+    )
+    input_csv = tmp_path / "input.csv"
+    _write_rows(input_csv, rows)
+
+    def fx_by_date(currency: str, on_date: date) -> Decimal:
+        if currency == "EUR":
+            return Decimal("1")
+        if currency == "USD" and on_date.day == 1:
+            return Decimal("0.5")
+        if currency == "USD" and on_date.day == 2:
+            return Decimal("0.8")
+        return Decimal("1")
+
+    result = analyze_ibkr_activity_statement(
+        input_csv=input_csv,
+        tax_year=2025,
+        tax_exempt_mode="listed_symbol",  # type: ignore[arg-type]
+        output_dir=tmp_path / "out",
+        fx_rate_provider=fx_by_date,
+    )
+    assert result.summary.appendix_6_code_603_eur == Decimal("13")
+
+    out_rows = _read_rows(result.output_csv_path)
+    header, data_rows = _interest_header_and_data(out_rows)
+    idx = {c: i for i, c in enumerate(header[2:])}
+    unknown = next(r for r in data_rows if "Special Interest Adjustment" in r[2 + idx["Description"]])
+    assert unknown[2 + idx["Amount (EUR)"]] == ""
+
+
+def test_interest_withholding_is_extracted_from_mark_to_market_summary(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "10"]],
+        mtm_withholding_total="-3.75",
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.appendix_9_withholding_paid_eur == Decimal("3.75")
+    assert result.summary.appendix_9_withholding_source_found is True
+
+
+def test_appendix_9_section_contains_expected_values(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [
+            ["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "20"],
+            ["Interest", "Data", "EUR", "2025-03-01", "EUR IBKR Managed Securities (SYEP) Interest for Mar-2025", "5"],
+        ],
+        mtm_withholding_total="-4",
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Приложение 9" in text
+    assert "Част II" in text
+    assert "Държава: Ирландия" in text
+    assert "Код вид доход: 603" in text
+    assert "Брутен размер на дохода (включително платеният данък): 20.00" in text
+    assert "Платен данък в чужбина: 4.00" in text
+    assert "Допустим размер на данъчния кредит: 2.00" in text
+    assert "Размер на признатия данъчен кредит: 2.00" in text
+
+
+def test_appendix_9_allowable_credit_uses_code_constant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import integrations.ibkr.activity_statement_analyzer as ibkr_module
+
+    monkeypatch.setattr(ibkr_module, "APPENDIX_9_ALLOWABLE_CREDIT_RATE", Decimal("0.20"))
+    rows = _rows_with_interest(
+        [
+            ["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "20"],
+        ],
+        mtm_withholding_total="-4",
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Допустим размер на данъчния кредит: 4.00" in text
+    assert "Размер на признатия данъчен кредит: 4.00" in text
+
+
+def test_interest_output_rendering_contains_appendix_6_and_review_warning(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [
+            ["Interest", "Data", "EUR", "2025-02-01", "EUR Credit Interest for Feb-2025", "1"],
+            ["Interest", "Data", "USD", "2025-03-01", "USD Special Interest Adjustment for Mar-2025", "2"],
+            ["Interest", "Data", "Total in EUR", "2025-03-31", "EUR Credit Interest for Mar-2025", ""],
+        ],
+        mtm_withholding_total="-0.2",
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Приложение 6" in text
+    assert "Част I" in text
+    assert "Обща сума на доходите с код 603" in text
+    assert "НУЖЕН Е ПРЕГЛЕД: открити са непознати видове лихви" in text
+    assert "Приложение 9" in text
+
+
+def test_interest_data_before_header_fails(tmp_path: Path) -> None:
+    rows = _base_rows()
+    rows.extend(
+        [
+            ["Interest", "Data", "EUR", "2025-02-01", "EUR Credit Interest for Feb-2025", "1"],
+            ["Interest", "Header", "Currency", "Date", "Description", "Amount"],
+        ]
+    )
+    with pytest.raises(IbkrAnalyzerError, match="Interest row encountered before Interest Header"):
+        _ = _run(tmp_path, rows, mode="listed_symbol")
+
+
+def test_interest_missing_required_column_fails(tmp_path: Path) -> None:
+    rows = _base_rows()
+    rows.extend(
+        [
+            ["Interest", "Header", "Currency", "Date", "Description"],
+            ["Interest", "Data", "EUR", "2025-02-01", "EUR Credit Interest for Feb-2025"],
+        ]
+    )
+    with pytest.raises(IbkrAnalyzerError, match="Interest header at row"):
+        _ = _run(tmp_path, rows, mode="listed_symbol")
