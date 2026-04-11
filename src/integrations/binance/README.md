@@ -114,35 +114,35 @@ Output columns:
 - `amount_eur`
 - `profit_usd`
 - `loss_usd`
-- `profit`
-- `loss`
+- `profit_eur`
+- `loss_eur`
 - `sale_price_usd`
 - `purchase_price_usd`
-- `sale_price`
-- `purchase_price`
+- `sale_price_eur`
+- `purchase_price_eur`
 - `remark`
 
 For `Change > 0`:
 
 - `profit_usd = amount_usd`
 - `loss_usd = 0`
-- `profit = amount_eur`
-- `loss = 0`
+- `profit_eur = amount_eur`
+- `loss_eur = 0`
 - `sale_price_usd = amount_usd`
 - `purchase_price_usd = 0`
-- `sale_price = amount_eur`
-- `purchase_price = 0`
+- `sale_price_eur = amount_eur`
+- `purchase_price_eur = 0`
 
 For `Change < 0`:
 
 - `profit_usd = 0`
 - `loss_usd = abs(amount_usd)`
-- `profit = 0`
-- `loss = abs(amount_eur)`
+- `profit_eur = 0`
+- `loss_eur = abs(amount_eur)`
 - `sale_price_usd = 0`
 - `purchase_price_usd = abs(amount_usd)`
-- `sale_price = 0`
-- `purchase_price = abs(amount_eur)`
+- `sale_price_eur = 0`
+- `purchase_price_eur = abs(amount_eur)`
 
 For `Change == 0`:
 

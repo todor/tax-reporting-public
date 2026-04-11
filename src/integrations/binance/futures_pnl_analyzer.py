@@ -47,12 +47,12 @@ DETAILED_COLUMNS = [
     "amount_eur",
     "profit_usd",
     "loss_usd",
-    "profit",
-    "loss",
+    "profit_eur",
+    "loss_eur",
     "sale_price_usd",
     "purchase_price_usd",
-    "sale_price",
-    "purchase_price",
+    "sale_price_eur",
+    "purchase_price_eur",
     "remark",
 ]
 
@@ -91,8 +91,8 @@ class AggregatedTotals:
     ignored_rows: int = 0
     profit_usd: Decimal = ZERO
     loss_usd: Decimal = ZERO
-    profit: Decimal = ZERO
-    loss: Decimal = ZERO
+    profit_eur: Decimal = ZERO
+    loss_eur: Decimal = ZERO
 
     @property
     def sale_price_usd(self) -> Decimal:
@@ -103,20 +103,20 @@ class AggregatedTotals:
         return self.loss_usd
 
     @property
-    def sale_price(self) -> Decimal:
-        return self.profit
+    def sale_price_eur(self) -> Decimal:
+        return self.profit_eur
 
     @property
-    def purchase_price(self) -> Decimal:
-        return self.loss
+    def purchase_price_eur(self) -> Decimal:
+        return self.loss_eur
 
     @property
     def net_result_usd(self) -> Decimal:
         return self.profit_usd - self.loss_usd
 
     @property
-    def net_result(self) -> Decimal:
-        return self.profit - self.loss
+    def net_result_eur(self) -> Decimal:
+        return self.profit_eur - self.loss_eur
 
 
 @dataclass(slots=True)
@@ -190,30 +190,30 @@ def _build_detailed_row(row: PnlRow, *, fx_rate: Decimal, amount_eur: Decimal) -
     if amount_usd > 0:
         profit_usd = amount_usd
         loss_usd = ZERO
-        profit = amount_eur
-        loss = ZERO
+        profit_eur = amount_eur
+        loss_eur = ZERO
         sale_price_usd = amount_usd
         purchase_price_usd = ZERO
-        sale_price = amount_eur
-        purchase_price = ZERO
+        sale_price_eur = amount_eur
+        purchase_price_eur = ZERO
     elif amount_usd < 0:
         profit_usd = ZERO
         loss_usd = -amount_usd
-        profit = ZERO
-        loss = -amount_eur
+        profit_eur = ZERO
+        loss_eur = -amount_eur
         sale_price_usd = ZERO
         purchase_price_usd = -amount_usd
-        sale_price = ZERO
-        purchase_price = -amount_eur
+        sale_price_eur = ZERO
+        purchase_price_eur = -amount_eur
     else:
         profit_usd = ZERO
         loss_usd = ZERO
-        profit = ZERO
-        loss = ZERO
+        profit_eur = ZERO
+        loss_eur = ZERO
         sale_price_usd = ZERO
         purchase_price_usd = ZERO
-        sale_price = ZERO
-        purchase_price = ZERO
+        sale_price_eur = ZERO
+        purchase_price_eur = ZERO
 
     return {
         "original_row_number": str(row.original_row_number),
@@ -228,12 +228,12 @@ def _build_detailed_row(row: PnlRow, *, fx_rate: Decimal, amount_eur: Decimal) -
         "amount_eur": _fmt_decimal(amount_eur, quant=DECIMAL_EIGHT),
         "profit_usd": _fmt_decimal(profit_usd),
         "loss_usd": _fmt_decimal(loss_usd),
-        "profit": _fmt_decimal(profit, quant=DECIMAL_EIGHT),
-        "loss": _fmt_decimal(loss, quant=DECIMAL_EIGHT),
+        "profit_eur": _fmt_decimal(profit_eur, quant=DECIMAL_EIGHT),
+        "loss_eur": _fmt_decimal(loss_eur, quant=DECIMAL_EIGHT),
         "sale_price_usd": _fmt_decimal(sale_price_usd),
         "purchase_price_usd": _fmt_decimal(purchase_price_usd),
-        "sale_price": _fmt_decimal(sale_price, quant=DECIMAL_EIGHT),
-        "purchase_price": _fmt_decimal(purchase_price, quant=DECIMAL_EIGHT),
+        "sale_price_eur": _fmt_decimal(sale_price_eur, quant=DECIMAL_EIGHT),
+        "purchase_price_eur": _fmt_decimal(purchase_price_eur, quant=DECIMAL_EIGHT),
         "remark": row.remark,
     }
 
@@ -308,12 +308,12 @@ def _write_tax_text(path: Path, *, tax_year: int, totals: AggregatedTotals) -> N
         "",
         "Приложение 5",
         "Таблица 2",
-        f"- продажна цена (EUR) - код 5082: {_fmt_decimal(totals.sale_price, quant=DECIMAL_TWO)}",
-        f"- цена на придобиване (EUR) - код 5082: {_fmt_decimal(totals.purchase_price, quant=DECIMAL_TWO)}",
-        f"- печалба (EUR) - код 5082: {_fmt_decimal(totals.profit, quant=DECIMAL_TWO)}",
-        f"- загуба (EUR) - код 5082: {_fmt_decimal(totals.loss, quant=DECIMAL_TWO)}",
+        f"- продажна цена (EUR) - код 5082: {_fmt_decimal(totals.sale_price_eur, quant=DECIMAL_TWO)}",
+        f"- цена на придобиване (EUR) - код 5082: {_fmt_decimal(totals.purchase_price_eur, quant=DECIMAL_TWO)}",
+        f"- печалба (EUR) - код 5082: {_fmt_decimal(totals.profit_eur, quant=DECIMAL_TWO)}",
+        f"- загуба (EUR) - код 5082: {_fmt_decimal(totals.loss_eur, quant=DECIMAL_TWO)}",
         "Информативни",
-        f"- нетна печалба (EUR): {_fmt_decimal(totals.net_result, quant=DECIMAL_TWO)}",
+        f"- нетна печалба (EUR): {_fmt_decimal(totals.net_result_eur, quant=DECIMAL_TWO)}",
         "",
         f"- profit_usd: {_fmt_decimal(totals.profit_usd)}",
         f"- loss_usd: {_fmt_decimal(totals.loss_usd)}",
@@ -336,12 +336,12 @@ def _write_summary_json(path: Path, *, tax_year: int, totals: AggregatedTotals) 
         "purchase_price_usd": _fmt_decimal(totals.purchase_price_usd),
         "profit_usd": _fmt_decimal(totals.profit_usd),
         "loss_usd": _fmt_decimal(totals.loss_usd),
-        "sale_price_eur": _fmt_decimal(totals.sale_price, quant=DECIMAL_TWO),
-        "purchase_price_eur": _fmt_decimal(totals.purchase_price, quant=DECIMAL_TWO),
-        "profit_eur": _fmt_decimal(totals.profit, quant=DECIMAL_TWO),
-        "loss_eur": _fmt_decimal(totals.loss, quant=DECIMAL_TWO),
+        "sale_price_eur": _fmt_decimal(totals.sale_price_eur, quant=DECIMAL_TWO),
+        "purchase_price_eur": _fmt_decimal(totals.purchase_price_eur, quant=DECIMAL_TWO),
+        "profit_eur": _fmt_decimal(totals.profit_eur, quant=DECIMAL_TWO),
+        "loss_eur": _fmt_decimal(totals.loss_eur, quant=DECIMAL_TWO),
         "net_result_usd": _fmt_decimal(totals.net_result_usd),
-        "net_result_eur": _fmt_decimal(totals.net_result, quant=DECIMAL_TWO),
+        "net_result_eur": _fmt_decimal(totals.net_result_eur, quant=DECIMAL_TWO),
     }
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
@@ -389,10 +389,10 @@ def analyze_futures_pnl_report(
 
         if amount_usd > 0:
             totals.profit_usd += amount_usd
-            totals.profit += amount_eur
+            totals.profit_eur += amount_eur
         elif amount_usd < 0:
             totals.loss_usd += -amount_usd
-            totals.loss += -amount_eur
+            totals.loss_eur += -amount_eur
 
     detailed_path = out_dir / f"futures_pnl_detailed_{tax_year}.csv"
     tax_text_path = out_dir / f"futures_pnl_tax_{tax_year}.txt"
@@ -448,9 +448,9 @@ def main() -> int:
     print(f"profit_usd: {_fmt_decimal(totals.profit_usd)}")
     print(f"loss_usd: {_fmt_decimal(totals.loss_usd)}")
     print(f"net_result_usd: {_fmt_decimal(totals.net_result_usd)}")
-    print(f"profit: {_fmt_decimal(totals.profit, quant=DECIMAL_TWO)}")
-    print(f"loss: {_fmt_decimal(totals.loss, quant=DECIMAL_TWO)}")
-    print(f"net_result: {_fmt_decimal(totals.net_result, quant=DECIMAL_TWO)}")
+    print(f"profit_eur: {_fmt_decimal(totals.profit_eur, quant=DECIMAL_TWO)}")
+    print(f"loss_eur: {_fmt_decimal(totals.loss_eur, quant=DECIMAL_TWO)}")
+    print(f"net_result_eur: {_fmt_decimal(totals.net_result_eur, quant=DECIMAL_TWO)}")
     print(f"Detailed CSV: {result.detailed_csv_path}")
     print(f"Tax text file: {result.tax_text_path}")
     print(f"Summary file: {result.summary_json_path}")
