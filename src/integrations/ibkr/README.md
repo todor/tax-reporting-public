@@ -1,4 +1,4 @@
-# IBKR Activity Statement Analyzer (Phase 1)
+# IBKR Activity Statement Analyzer
 
 This module analyzes Interactive Brokers Activity Statement CSV files and prepares tax-oriented outputs for Bulgarian annual reporting in EUR.
 
@@ -35,24 +35,27 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
 - `--cache-dir`: optional `bnb_fx` cache override
 - `--log-level`: logging level (default `INFO`)
 
-## Scope (Phase 1)
+## Scope
 
-- Input: IBKR Activity Statement CSV (multi-section format)
-- Processed sections: `Trades`, `Interest`
-- Withholding source section for interest credit: `Mark-to-Market Performance Summary`
-- Symbol listing source: `Financial Instrument Information`
-- FX source: existing `services.bnb_fx` (`get_exchange_rate`)
-- Outputs:
-- modified CSV (multi-section preserved, `Trades` and `Interest` sections extended)
+Processed sections:
+
+- `Financial Instrument Information`
+- `Trades`
+- `Interest`
+- `Dividends`
+- `Withholding Tax`
+- `Mark-to-Market Performance Summary` (interest withholding source for Appendix 9)
+
+FX source:
+
+- existing `services.bnb_fx` (`get_exchange_rate`)
+
+Outputs:
+
+- modified CSV (multi-section preserved; only selected sections are extended)
 - declaration text file (Bulgarian)
 - sanity debug artifacts (`_sanity_debug`)
 - stdout diagnostics
-
-Out of scope in this phase:
-
-- Appendix 8
-- full Forex tax treatment
-- non-`Stocks` / non-`Treasury Bills` asset support
 
 ## Core Principles
 
@@ -76,11 +79,13 @@ Implications:
 
 - `Trades` rows use the most recent preceding `Trades,Header`
 - `Interest` rows use the most recent preceding `Interest,Header`
+- `Dividends` rows use the most recent preceding `Dividends,Header`
+- `Withholding Tax` rows use the most recent preceding `Withholding Tax,Header`
 - `Financial Instrument Information` rows use the most recent preceding matching header
 - section schemas are never mixed
 - `Data` before matching `Header` fails loudly
 
-## Tax Modes
+## Tax Modes (Trades)
 
 `--tax-exempt-mode listed_symbol`
 
@@ -94,22 +99,56 @@ Implications:
 - EU-listed + EU-regulated execution -> Приложение 13
 - EU-listed + non-regulated/unknown execution -> `REVIEW_REQUIRED` bucket (excluded from appendix totals)
 
-## Review Workflow (Post-Review Processing)
+## Review Workflow
 
-If the active `Trades,Header,...` block contains a `Review Status` column, the analyzer uses it for closing `Trade` rows:
+If the active section header contains a `Review Status` column, the analyzer uses it as human review input.
 
-- empty value: row is treated as not reviewed yet; default mode logic applies
-- `TAXABLE`: row is forced to `APPENDIX_5`
-- `NON-TAXABLE`: row is forced to `APPENDIX_13`
-- any other value: row is flagged as unknown review status, reported in outputs, and kept with manual-check warning
+### Trades
 
-Notes:
+- empty: default mode logic applies
+- `TAXABLE`: force `APPENDIX_5`
+- `NON-TAXABLE`: force `APPENDIX_13`
+- other value: warning + review required
 
-- `Review Status` override is mode-independent and has priority over `--tax-exempt-mode`
-- this means `TAXABLE` / `NON-TAXABLE` overrides both `listed_symbol` and `execution_exchange` logic
-- this is section-local and header-scoped, same as all other `Trades` fields
-- it does not change row-ordering or ClosedLot attachment logic
-- it is intended to let you re-run the analyzer after manual review and route rows deterministically
+### Interest
+
+- analyzer fills only `Status` in the output
+- if input has `Review Status`:
+  - `TAXABLE` -> force taxable
+  - `NON-TAXABLE` -> force non-taxable
+- empty -> keep automatic classification
+- any other value -> warning + manual review required
+
+### Dividends
+
+- `Review Status` is a human-input override field; analyzer does not auto-fill it
+- analyzer auto-fills `Status` (`TAXABLE` / `NON-TAXABLE` / `UNKNOWN`)
+- if input has `Review Status`, it is honored:
+  - `TAXABLE` -> keep/include as taxable
+  - `NON-TAXABLE` -> exclude from declaration totals
+- empty -> keep automatic classification
+- any other value -> warning + manual review required
+- for taxable rows, manual `Country` / `Amount (EUR)` values are used if present
+- if manual values are empty, analyzer uses auto-derived values when possible
+- known taxable descriptions: `Cash Dividend`, `Lieu Received`, `Credit Interest`
+- unknown descriptions -> `Status=UNKNOWN` and manual review required
+
+### Withholding Tax
+
+- supports human `Review Status` override using the same rules
+- `Review Status` is human-input; analyzer does not auto-fill it
+- analyzer auto-fills `Status` (`TAXABLE` / `NON-TAXABLE` / `UNKNOWN`)
+- for taxable rows, manual `Country` / `Amount (EUR)` are used if present
+- if manual values are empty, analyzer auto-fills when it can
+- expected values are `TAXABLE` / `NON-TAXABLE` (or empty)
+- any other value is treated as invalid and triggers warning + manual review
+- recognized routing:
+  - dividend withholding rows (`Cash Dividend`) -> `Appendix 8`
+  - credit-interest withholding rows -> `Appendix 9` (`Country=Ireland`, `ISIN` empty)
+- if taxable and `Appendix 9` rows exist in `Withholding Tax`, they are used for Appendix 9 paid-tax amount
+- otherwise Appendix 9 paid-tax falls back to `Mark-to-Market Performance Summary`
+
+Unknown or unresolved rows contribute to the global manual-check state.
 
 ## Exchange Rules
 
@@ -132,122 +171,151 @@ Classification:
 - `EU_NON_REGULATED`
 - `UNKNOWN`
 
-## Algorithm (Step-by-Step)
+## Trades Algorithm (Summary)
 
-1. Parse full CSV as multi-section rows using `csv.reader`.
-2. Parse `Financial Instrument Information`:
-- use active header mapping
-- keep only `Stocks` and `Treasury Bills`
-- build `Symbol -> Listing Exch` mapping
-- support comma-separated symbol aliases, for example `4GLD, 4GLDd`
-- conflicting symbol mapping with different EU/non-EU classification -> fail
-- Treasury Bills symbol matching:
-- first try exact `Trades.Symbol == Financial Instrument Information.Symbol`
-- if not found, extract 9-char uppercase alphanumeric identifier from `Trades.Symbol`
-- if exactly one identifier exists, use it for mapping
-- if multiple or none are found, mark row `REVIEW_REQUIRED` (no guessing)
-3. Parse `Trades`:
-- process only `Trades,Data` rows
-- closing trade = `DataDiscriminator=Trade` and `Code` contains token `C`
-- attach immediate following `ClosedLot` rows only
-- fail if closing trade has no attached `ClosedLot` rows
-4. Asset category handling:
+1. Parse instrument listings (`Stocks`, `Treasury Bills`) from `Financial Instrument Information`.
+2. Process `Trades,Data` rows only.
+3. Closing trade = `DataDiscriminator=Trade` and `Code` contains token `C`.
+4. Attach immediate following `ClosedLot` rows.
+5. Asset handling:
 - `Stocks`, `Treasury Bills`: processed
-- `Forex`: ignored for appendix totals, explicitly marked in outputs
-- any other category: fail
-5. Tax-year filter:
-- trade inclusion uses Trade `Date/Time` year
-- `ClosedLot` rows may be from prior years
-6. FX conversion:
-- Trade `Proceeds` -> EUR at trade date
-- Trade `Comm/Fee` -> EUR at trade date
-- `ClosedLot` `Basis` -> EUR at closed-lot date
-7. Closing-trade basis:
+- `Forex`: ignored for Appendix 5/13 totals, explicitly surfaced in output
+- other category: fail
+6. EUR conversion:
+- Trade `Proceeds` and `Comm/Fee` at trade date
+- ClosedLot `Basis` at closed-lot date
+7. Basis/PnL:
 - `Trade Basis (EUR) = -sum(ClosedLot Basis (EUR))`
-8. Closing-trade realized P/L:
-- `pnl_eur = proceeds_eur + basis_eur + comm_fee_eur`
-9. Appendix classification:
-- by selected `tax-exempt-mode`
- - optional `Review Status` override (`TAXABLE` / `NON-TAXABLE`) applied after default classification
-10. Sale/Purchase price totals per closing trade:
+- `Realized P/L (EUR) = Proceeds (EUR) + Basis (EUR) + Comm/Fee (EUR)`
+8. Sale/Purchase price legs (closing rows):
 - `cash_leg = proceeds_eur + comm_fee_eur`
 - if `cash_leg >= 0`: `sale_price += abs(cash_leg)`, `purchase += abs(basis_eur)`
-- if `cash_leg < 0`: `sale_price += abs(basis_eur)`, `purchase += abs(cash_leg)`
+- else: `sale_price += abs(basis_eur)`, `purchase += abs(cash_leg)`
 
 ## Interest Processing (Appendix 6 / 9)
 
-Parsed section:
+Source section:
 
-- `Interest,Header,...`
-- `Interest,Data,...`
+- `Interest,Header/...`
+- `Interest,Data/...`
 
-Required active-header columns:
+Required columns:
 
-- `Currency`
-- `Date`
-- `Description`
-- `Amount`
+- `Currency`, `Date`, `Description`, `Amount`
 
-Total rows are skipped when `Currency` starts with:
+Totals rows are skipped if `Currency` starts with `Total`.
 
-- `Total`
-- `Total in EUR`
-- `Total Interest in EUR`
+Type extraction from `Description`:
 
-Interest type extraction:
+- `Credit Interest` -> taxable
+- `IBKR Managed Securities (SYEP) Interest` -> taxable
+- `Debit Interest` -> non-taxable
+- `Borrow Fees` -> non-taxable
+- unknown -> review required
 
-- strip leading currency token in `Description`
-- strip trailing `for <...>`
-- classify normalized type
+Appendix 6 (code 603):
 
-Supported types:
+- includes taxable contributors
+- may include `Other taxable (Review override)` when human review marks otherwise-unknown interest as `TAXABLE`
+- output separates contributor subtotals and final declaration total
 
-- `Credit Interest` -> `TAXABLE` (Appendix 6 code 603)
-- `IBKR Managed Securities (SYEP) Interest` -> `TAXABLE` (Appendix 6 code 603)
-- `Debit Interest` -> `NON-TAXABLE`
-- `Borrow Fees` -> `NON-TAXABLE`
-- unknown type -> `UNKNOWN` (no EUR conversion for now)
+Appendix 9 (interest only):
 
-Interest review override:
+- withholding source: `Mark-to-Market Performance Summary` row where `Asset Category = Withholding on Interest Received`
+- paid foreign tax = `abs(Mark-to-Market P/L Total)`
+- allowable credit = `APPENDIX_9_ALLOWABLE_CREDIT_RATE * credit_interest_total_eur`
+- recognized credit = `min(allowable_credit, paid_tax_abroad)`
 
-- if the active `Interest` header has `Review Status`, that value is treated as human review input
-- `Review Status=TAXABLE` forces `Status=TAXABLE`
-- `Review Status=NON-TAXABLE` forces `Status=NON-TAXABLE`
-- `Review Status=UNKNOWN` or `Review Status=REVIEW-REQUIRED` forces `Status=UNKNOWN`
-- empty `Review Status` keeps automatic classification
-- analyzer does not auto-fill `Review Status` for interest rows
+`APPENDIX_9_ALLOWABLE_CREDIT_RATE` is a code constant (default `0.10`).
 
-EUR conversion rules:
+## Dividends Processing (Appendix 8 + Appendix 6 Lieu)
 
-- taxable interest rows only
-- conversion date = `Interest.Date`
-- conversion currency = `Interest.Currency`
-- amount source = `Interest.Amount`
+### Dividends section
 
-Appendix 6:
+Source:
 
-- `Обща сума на доходите с код 603` = taxable interest EUR total
-- includes `Credit Interest` + `IBKR Managed Securities (SYEP) Interest`
+- `Dividends,Header/...`
+- `Dividends,Data/...`
 
-Appendix 9 source for paid foreign tax:
+Required columns:
 
-- section `Mark-to-Market Performance Summary`
-- row with `Asset Category = Withholding on Interest Received`
-- use `abs(Mark-to-Market P/L Total)`
-- if this row is missing while credit interest exists, analyzer keeps `Платен данък в чужбина = 0` and marks manual review
+- `Currency`, `Date`, `Description`, `Amount`
 
-Appendix 9 calculations:
+Classification by `Description`:
 
-- country fixed: `Ирландия`
-- income code: `603`
-- gross income / tax base: credit-interest EUR total only
-- allowable credit: `APPENDIX_9_ALLOWABLE_CREDIT_RATE * credit_interest_total_eur`
-- default code constant is `APPENDIX_9_ALLOWABLE_CREDIT_RATE = 0.10` (change in code if regulation changes)
-- recognized credit: `min(allowable_credit, paid_tax_abroad)`
+- contains `Cash Dividend` -> Appendix 8
+- contains `Lieu Received` -> Appendix 6 (code 603 contributor)
+- otherwise -> unknown/review required
+
+Auto `Status` in this section:
+
+- `Cash Dividend`, `Lieu Received`, `Credit Interest` -> `TAXABLE`
+- anything else -> `UNKNOWN`
+
+### ISIN and country derivation
+
+For recognized dividend rows, ISIN is extracted from description, e.g. `TPR(US8760301072) ...`.
+
+- country key = first 2 chars of ISIN
+- country names come from an in-code full ISO alpha-2 mapping (`249` codes, English + Bulgarian)
+- missing/invalid ISIN or unknown country code -> review required
+
+### Dividend withholding section
+
+Source:
+
+- `Withholding Tax,Header/...`
+- `Withholding Tax,Data/...`
+
+Auto-routing to Appendix 8 withholding uses rows with `Description` containing `Cash Dividend`.
+
+Ignored from dividend-withholding aggregation:
+
+- non-dividend withholding rows (for example credit-interest withholding descriptions)
+- aggregate rows where `Currency` starts with `Total`
+
+Manual override note:
+
+- when human review marks a withholding row as taxable and provides appendix/amount/country, those manual values are used for aggregation
+
+For included rows:
+
+- country is derived from ISIN (not suffix text)
+- amount is converted to EUR
+- declaration math uses absolute withheld amount
+- credit-interest withholding rows are also enriched (`Appendix 9`, `Country=Ireland`, empty `ISIN`)
+
+Auto `Status` in this section:
+
+- `Cash Dividend`, `Lieu Received`, `Credit Interest` -> `TAXABLE`
+- anything else -> `UNKNOWN` (manual review required)
+
+### Appendix 8 math (by country)
+
+For each country:
+
+- gross dividend EUR = sum of Cash Dividend EUR
+- foreign tax paid EUR = sum of absolute dividend-withholding EUR
+- Bulgarian dividend tax = `DIVIDEND_TAX_RATE * gross`
+- allowable credit = `min(foreign_tax_paid, Bulgarian_tax)`
+- recognized credit = allowable credit
+- tax due = `Bulgarian_tax - recognized_credit`
+
+`DIVIDEND_TAX_RATE` is a code constant (default `0.05`).
+
+Important:
+
+- dividend withholding is used in Appendix 8 only
+- Appendix 9 remains interest-only
 
 ## How To Read The Modified CSV
 
-The analyzer modifies only `Trades` and `Interest` rows. All other sections are preserved exactly.
+The analyzer preserves row order and extends only these sections:
+
+- `Trades`
+- `Interest`
+- `Dividends`
+- `Withholding Tax`
 
 ### Added Trades Columns
 
@@ -275,46 +343,48 @@ The analyzer modifies only `Trades` and `Interest` rows. All other sections are 
 - `Amount (EUR)`
 - `Status`
 
-### Row-Type Semantics
+### Added Dividends Columns
 
-- Closing `Trade` rows:
-- all EUR calculation columns are populated
-- `Sale Price (EUR)` / `Purchase Price (EUR)` are populated
-- Open-entry `Trade` rows:
-- `Realized P/L (EUR)` is `0`
-- `Sale Price (EUR)` / `Purchase Price (EUR)` remain empty
-- `ClosedLot` rows:
-- populate `Fx Rate` and `Basis (EUR)`
-- `Sale Price (EUR)` / `Purchase Price (EUR)` remain empty
-- `SubTotal` / `Total` rows:
-- EUR columns are populated from analyzer aggregates
-- when both native and derived EUR aggregate rows exist, only native-currency rows are used for aggregate reconciliation
-- if EUR-native trades exist, matching EUR aggregate rows are populated/checked
-- `Interest` data rows:
-- non-total rows receive `Amount (EUR)` and `Status`
-- analyzer fills `Status` only (`TAXABLE`, `NON-TAXABLE`, `UNKNOWN`)
-- unknown interest types are flagged as `UNKNOWN` and included in global manual-check state
-- total rows in Interest section are not processed as income rows
+- `Country`
+- `Amount (EUR)`
+- `ISIN`
+- `Appendix`
+- `Status`
+- `Review Status`
+
+### Added Withholding Tax Columns
+
+- `Country`
+- `Amount (EUR)`
+- `ISIN`
+- `Appendix`
+- `Status`
+- `Review Status`
+
+Re-run safety:
+
+- if these derived columns already exist in input, analyzer does not add duplicate columns
+- existing manual values are preserved and can be used for review overrides
 
 ## Declaration TXT Output
 
-The declaration file includes:
+The declaration text includes:
 
-- Приложение 5 totals
-- Приложение 13 totals
-- Приложение 6 (Част I) interest total for code 603
-- Приложение 9 (Част II) credit-interest and foreign-tax credit data
-- optional `РЪЧНА ПРОВЕРКА` section (execution mode with review rows)
-- sanity-check section (`PASS`/`FAIL`, counts, artifact paths)
+- Приложение 5 (trades)
+- Приложение 13 (trades)
+- Приложение 6 (interest + lieu contributors, code 603 total)
+- Приложение 8 (Част III, ред 1.N; country-grouped dividends and withholding tax credit math)
+- Приложение 9 (interest-only withholding credit flow)
+- optional manual-check block when review is required
+- sanity-check section (`PASS`/`FAIL` + artifact paths)
 - mandatory Forex warning section
-- evidence section (mode, counts, exchanges, warnings)
-- review diagnostics (`review overrides`, `unknown Review Status` counts/values)
+- evidence section (counts and diagnostics)
 
 `нетен резултат (EUR)` is reported as `печалба - загуба`.
 
 ## Sanity Check Gate
 
-After the modified CSV is produced, the analyzer runs sanity checks in verification mode (`FX=1`) and writes artifacts under:
+After generating the modified CSV, the analyzer runs sanity checks in verification mode (`FX=1`) and writes artifacts under:
 
 - `output/ibkr/activity_statement/_sanity_debug/...`
 
@@ -323,33 +393,27 @@ Artifacts:
 - `ibkr_activity_modified_fx1_debug.csv`
 - `sanity_report.json`
 
-The debug CSV preserves row order and adds `DEBUG_SANITY_*` columns so failing rows are easy to inspect.
-
-If sanity checks fail:
+If sanity fails:
 
 - run exits non-zero
-- declaration TXT includes failure summary and artifact paths
-- diagnostics are written to `sanity_report.json`
+- declaration TXT includes failure diagnostics and artifact paths
 
 ## Forex Behavior
 
-Forex trades are excluded from Appendix 5/13 totals in this phase.
+Forex trades are excluded from Appendix 5/13 calculations in this implementation.
 
 - no hard failure on Forex rows
-- explicit ignored classification in output
-- declaration TXT always contains `ВНИМАНИЕ: FOREX ОПЕРАЦИИ`
-- current behavior also marks manual check as required when Forex rows are present
+- explicit warnings in declaration output
+- manual review is required when Forex rows exist
 
 ## Errors (Fail Loudly)
 
-- missing required sections (`Financial Instrument Information`, `Trades`)
-- missing required section columns
-- malformed trade/closed-lot dates
-- malformed interest dates
-- invalid decimal values
-- FX conversion failure
-- unsupported asset category
-- closing trade without `ClosedLot` rows
+- missing required sections or section headers
+- missing required columns in active headers
+- malformed date/decimal values
+- FX conversion failures
+- unsupported asset categories (outside allowed set + Forex special handling)
+- closing trades without attached ClosedLot rows
 - conflicting symbol mapping with different EU classification
 
 ## Output Paths
@@ -372,17 +436,3 @@ Sanity artifacts:
 
 - `output/ibkr/activity_statement/_sanity_debug/ibkr_activity[_<alias>]_<tax_year>/ibkr_activity_modified_fx1_debug.csv`
 - `output/ibkr/activity_statement/_sanity_debug/ibkr_activity[_<alias>]_<tax_year>/sanity_report.json`
-
-Alias normalization:
-
-- trim spaces
-- spaces -> `_`
-- keep only `[A-Za-z0-9._-]`
-
-## Future Extension
-
-Planned later phases can add:
-
-- broader asset support
-- richer review workflows
-- Appendix 8 and additional declaration structures

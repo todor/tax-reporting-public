@@ -94,6 +94,7 @@ DECIMAL_TWO = Decimal("0.01")
 DECIMAL_EIGHT = Decimal("0.00000001")
 ZERO = Decimal("0")
 APPENDIX_9_ALLOWABLE_CREDIT_RATE = Decimal("0.10")
+DIVIDEND_TAX_RATE = Decimal("0.05")
 
 TAX_MODE_LISTED_SYMBOL = "listed_symbol"
 TAX_MODE_EXECUTION_EXCHANGE = "execution_exchange"
@@ -121,11 +122,303 @@ INTEREST_STATUS_UNKNOWN = "UNKNOWN"
 INTEREST_DECLARED_TYPES = {INTEREST_TYPE_CREDIT, INTEREST_TYPE_SYEP}
 INTEREST_NON_DECLARED_TYPES = {INTEREST_TYPE_DEBIT, INTEREST_TYPE_BORROW}
 
+DIVIDEND_APPENDIX_8 = "Appendix 8"
+DIVIDEND_APPENDIX_6 = "Appendix 6"
+DIVIDEND_APPENDIX_UNKNOWN = "UNKNOWN"
+
+DIVIDEND_REVIEW_REQUIRED = "REVIEW_REQUIRED"
+
+COUNTRY_NAME_BY_ISO: dict[str, tuple[str, str]] = {
+    "AD": ("Andorra", "Андора"),
+    "AE": ("United Arab Emirates", "Обединени арабски емирства"),
+    "AF": ("Afghanistan", "Афганистан"),
+    "AG": ("Antigua and Barbuda", "Антигуа и Барбуда"),
+    "AI": ("Anguilla", "Ангуила"),
+    "AL": ("Albania", "Албания"),
+    "AM": ("Armenia", "Армения"),
+    "AO": ("Angola", "Ангола"),
+    "AQ": ("Antarctica", "Антарктика"),
+    "AR": ("Argentina", "Аржентина"),
+    "AS": ("American Samoa", "Американска Самоа"),
+    "AT": ("Austria", "Австрия"),
+    "AU": ("Australia", "Австралия"),
+    "AW": ("Aruba", "Аруба"),
+    "AX": ("Åland Islands", "Оландски острови"),
+    "AZ": ("Azerbaijan", "Азербайджан"),
+    "BA": ("Bosnia and Herzegovina", "Босна и Херцеговина"),
+    "BB": ("Barbados", "Барбадос"),
+    "BD": ("Bangladesh", "Бангладеш"),
+    "BE": ("Belgium", "Белгия"),
+    "BF": ("Burkina Faso", "Буркина Фасо"),
+    "BG": ("Bulgaria", "България"),
+    "BH": ("Bahrain", "Бахрейн"),
+    "BI": ("Burundi", "Бурунди"),
+    "BJ": ("Benin", "Бенин"),
+    "BL": ("Saint Barthélemy", "Сен Бартелеми"),
+    "BM": ("Bermuda", "Бермуда"),
+    "BN": ("Brunei Darussalam", "Бруней Даруссалам"),
+    "BO": ("Bolivia, Plurinational State of", "Боливия"),
+    "BQ": ("Bonaire, Sint Eustatius and Saba", "Карибска Нидерландия"),
+    "BR": ("Brazil", "Бразилия"),
+    "BS": ("Bahamas", "Бахами"),
+    "BT": ("Bhutan", "Бутан"),
+    "BV": ("Bouvet Island", "остров Буве"),
+    "BW": ("Botswana", "Ботсвана"),
+    "BY": ("Belarus", "Беларус"),
+    "BZ": ("Belize", "Белиз"),
+    "CA": ("Canada", "Канада"),
+    "CC": ("Cocos (Keeling) Islands", "Кокосови острови (острови Кийлинг)"),
+    "CD": ("Congo, Democratic Republic of the", "Конго (Киншаса)"),
+    "CF": ("Central African Republic", "Централноафриканска република"),
+    "CG": ("Congo", "Конго (Бразавил)"),
+    "CH": ("Switzerland", "Швейцария"),
+    "CI": ("Côte d'Ivoire", "Кот д’Ивоар"),
+    "CK": ("Cook Islands", "острови Кук"),
+    "CL": ("Chile", "Чили"),
+    "CM": ("Cameroon", "Камерун"),
+    "CN": ("China", "Китай"),
+    "CO": ("Colombia", "Колумбия"),
+    "CR": ("Costa Rica", "Коста Рика"),
+    "CU": ("Cuba", "Куба"),
+    "CV": ("Cabo Verde", "Кабо Верде"),
+    "CW": ("Curaçao", "Кюрасао"),
+    "CX": ("Christmas Island", "остров Рождество"),
+    "CY": ("Cyprus", "Кипър"),
+    "CZ": ("Czechia", "Чехия"),
+    "DE": ("Germany", "Германия"),
+    "DJ": ("Djibouti", "Джибути"),
+    "DK": ("Denmark", "Дания"),
+    "DM": ("Dominica", "Доминика"),
+    "DO": ("Dominican Republic", "Доминиканска република"),
+    "DZ": ("Algeria", "Алжир"),
+    "EC": ("Ecuador", "Еквадор"),
+    "EE": ("Estonia", "Естония"),
+    "EG": ("Egypt", "Египет"),
+    "EH": ("Western Sahara", "Западна Сахара"),
+    "ER": ("Eritrea", "Еритрея"),
+    "ES": ("Spain", "Испания"),
+    "ET": ("Ethiopia", "Етиопия"),
+    "FI": ("Finland", "Финландия"),
+    "FJ": ("Fiji", "Фиджи"),
+    "FK": ("Falkland Islands (Malvinas)", "Фолклендски острови"),
+    "FM": ("Micronesia, Federated States of", "Микронезия"),
+    "FO": ("Faroe Islands", "Фарьорски острови"),
+    "FR": ("France", "Франция"),
+    "GA": ("Gabon", "Габон"),
+    "GB": ("United Kingdom of Great Britain and Northern Ireland", "Обединеното кралство"),
+    "GD": ("Grenada", "Гренада"),
+    "GE": ("Georgia", "Грузия"),
+    "GF": ("French Guiana", "Френска Гвиана"),
+    "GG": ("Guernsey", "Гърнзи"),
+    "GH": ("Ghana", "Гана"),
+    "GI": ("Gibraltar", "Гибралтар"),
+    "GL": ("Greenland", "Гренландия"),
+    "GM": ("Gambia", "Гамбия"),
+    "GN": ("Guinea", "Гвинея"),
+    "GP": ("Guadeloupe", "Гваделупа"),
+    "GQ": ("Equatorial Guinea", "Екваториална Гвинея"),
+    "GR": ("Greece", "Гърция"),
+    "GS": ("South Georgia and the South Sandwich Islands", "Южна Джорджия и Южни Сандвичеви острови"),
+    "GT": ("Guatemala", "Гватемала"),
+    "GU": ("Guam", "Гуам"),
+    "GW": ("Guinea-Bissau", "Гвинея-Бисау"),
+    "GY": ("Guyana", "Гаяна"),
+    "HK": ("Hong Kong", "Хонконг, САР на Китай"),
+    "HM": ("Heard Island and McDonald Islands", "остров Хърд и острови Макдоналд"),
+    "HN": ("Honduras", "Хондурас"),
+    "HR": ("Croatia", "Хърватия"),
+    "HT": ("Haiti", "Хаити"),
+    "HU": ("Hungary", "Унгария"),
+    "ID": ("Indonesia", "Индонезия"),
+    "IE": ("Ireland", "Ирландия"),
+    "IL": ("Israel", "Израел"),
+    "IM": ("Isle of Man", "остров Ман"),
+    "IN": ("India", "Индия"),
+    "IO": ("British Indian Ocean Territory", "Британска територия в Индийския океан"),
+    "IQ": ("Iraq", "Ирак"),
+    "IR": ("Iran, Islamic Republic of", "Иран"),
+    "IS": ("Iceland", "Исландия"),
+    "IT": ("Italy", "Италия"),
+    "JE": ("Jersey", "Джърси"),
+    "JM": ("Jamaica", "Ямайка"),
+    "JO": ("Jordan", "Йордания"),
+    "JP": ("Japan", "Япония"),
+    "KE": ("Kenya", "Кения"),
+    "KG": ("Kyrgyzstan", "Киргизстан"),
+    "KH": ("Cambodia", "Камбоджа"),
+    "KI": ("Kiribati", "Кирибати"),
+    "KM": ("Comoros", "Коморски острови"),
+    "KN": ("Saint Kitts and Nevis", "Сейнт Китс и Невис"),
+    "KP": ("Korea, Democratic People's Republic of", "Северна Корея"),
+    "KR": ("Korea, Republic of", "Южна Корея"),
+    "KW": ("Kuwait", "Кувейт"),
+    "KY": ("Cayman Islands", "Кайманови острови"),
+    "KZ": ("Kazakhstan", "Казахстан"),
+    "LA": ("Lao People's Democratic Republic", "Лаос"),
+    "LB": ("Lebanon", "Ливан"),
+    "LC": ("Saint Lucia", "Сейнт Лусия"),
+    "LI": ("Liechtenstein", "Лихтенщайн"),
+    "LK": ("Sri Lanka", "Шри Ланка"),
+    "LR": ("Liberia", "Либерия"),
+    "LS": ("Lesotho", "Лесото"),
+    "LT": ("Lithuania", "Литва"),
+    "LU": ("Luxembourg", "Люксембург"),
+    "LV": ("Latvia", "Латвия"),
+    "LY": ("Libya", "Либия"),
+    "MA": ("Morocco", "Мароко"),
+    "MC": ("Monaco", "Монако"),
+    "MD": ("Moldova, Republic of", "Молдова"),
+    "ME": ("Montenegro", "Черна гора"),
+    "MF": ("Saint Martin (French part)", "Сен Мартен"),
+    "MG": ("Madagascar", "Мадагаскар"),
+    "MH": ("Marshall Islands", "Маршалови острови"),
+    "MK": ("North Macedonia", "Северна Македония"),
+    "ML": ("Mali", "Мали"),
+    "MM": ("Myanmar", "Мианмар (Бирма)"),
+    "MN": ("Mongolia", "Монголия"),
+    "MO": ("Macao", "Макао, САР на Китай"),
+    "MP": ("Northern Mariana Islands", "Северни Мариански острови"),
+    "MQ": ("Martinique", "Мартиника"),
+    "MR": ("Mauritania", "Мавритания"),
+    "MS": ("Montserrat", "Монтсерат"),
+    "MT": ("Malta", "Малта"),
+    "MU": ("Mauritius", "Мавриций"),
+    "MV": ("Maldives", "Малдиви"),
+    "MW": ("Malawi", "Малави"),
+    "MX": ("Mexico", "Мексико"),
+    "MY": ("Malaysia", "Малайзия"),
+    "MZ": ("Mozambique", "Мозамбик"),
+    "NA": ("Namibia", "Намибия"),
+    "NC": ("New Caledonia", "Нова Каледония"),
+    "NE": ("Niger", "Нигер"),
+    "NF": ("Norfolk Island", "остров Норфолк"),
+    "NG": ("Nigeria", "Нигерия"),
+    "NI": ("Nicaragua", "Никарагуа"),
+    "NL": ("Netherlands, Kingdom of the", "Нидерландия"),
+    "NO": ("Norway", "Норвегия"),
+    "NP": ("Nepal", "Непал"),
+    "NR": ("Nauru", "Науру"),
+    "NU": ("Niue", "Ниуе"),
+    "NZ": ("New Zealand", "Нова Зеландия"),
+    "OM": ("Oman", "Оман"),
+    "PA": ("Panama", "Панама"),
+    "PE": ("Peru", "Перу"),
+    "PF": ("French Polynesia", "Френска Полинезия"),
+    "PG": ("Papua New Guinea", "Папуа-Нова Гвинея"),
+    "PH": ("Philippines", "Филипини"),
+    "PK": ("Pakistan", "Пакистан"),
+    "PL": ("Poland", "Полша"),
+    "PM": ("Saint Pierre and Miquelon", "Сен Пиер и Микелон"),
+    "PN": ("Pitcairn", "Острови Питкерн"),
+    "PR": ("Puerto Rico", "Пуерто Рико"),
+    "PS": ("Palestine, State of", "Палестински територии"),
+    "PT": ("Portugal", "Португалия"),
+    "PW": ("Palau", "Палау"),
+    "PY": ("Paraguay", "Парагвай"),
+    "QA": ("Qatar", "Катар"),
+    "RE": ("Réunion", "Реюнион"),
+    "RO": ("Romania", "Румъния"),
+    "RS": ("Serbia", "Сърбия"),
+    "RU": ("Russian Federation", "Русия"),
+    "RW": ("Rwanda", "Руанда"),
+    "SA": ("Saudi Arabia", "Саудитска Арабия"),
+    "SB": ("Solomon Islands", "Соломонови острови"),
+    "SC": ("Seychelles", "Сейшели"),
+    "SD": ("Sudan", "Судан"),
+    "SE": ("Sweden", "Швеция"),
+    "SG": ("Singapore", "Сингапур"),
+    "SH": ("Saint Helena, Ascension and Tristan da Cunha", "Света Елена"),
+    "SI": ("Slovenia", "Словения"),
+    "SJ": ("Svalbard and Jan Mayen", "Свалбард и Ян Майен"),
+    "SK": ("Slovakia", "Словакия"),
+    "SL": ("Sierra Leone", "Сиера Леоне"),
+    "SM": ("San Marino", "Сан Марино"),
+    "SN": ("Senegal", "Сенегал"),
+    "SO": ("Somalia", "Сомалия"),
+    "SR": ("Suriname", "Суринам"),
+    "SS": ("South Sudan", "Южен Судан"),
+    "ST": ("Sao Tome and Principe", "Сао Томе и Принсипи"),
+    "SV": ("El Salvador", "Салвадор"),
+    "SX": ("Sint Maarten (Dutch part)", "Синт Мартен"),
+    "SY": ("Syrian Arab Republic", "Сирия"),
+    "SZ": ("Eswatini", "Свазиленд"),
+    "TC": ("Turks and Caicos Islands", "острови Търкс и Кайкос"),
+    "TD": ("Chad", "Чад"),
+    "TF": ("French Southern Territories", "Френски южни територии"),
+    "TG": ("Togo", "Того"),
+    "TH": ("Thailand", "Тайланд"),
+    "TJ": ("Tajikistan", "Таджикистан"),
+    "TK": ("Tokelau", "Токелау"),
+    "TL": ("Timor-Leste", "Източен Тимор"),
+    "TM": ("Turkmenistan", "Туркменистан"),
+    "TN": ("Tunisia", "Тунис"),
+    "TO": ("Tonga", "Тонга"),
+    "TR": ("Türkiye", "Турция"),
+    "TT": ("Trinidad and Tobago", "Тринидад и Тобаго"),
+    "TV": ("Tuvalu", "Тувалу"),
+    "TW": ("Taiwan, Province of China", "Тайван"),
+    "TZ": ("Tanzania, United Republic of", "Танзания"),
+    "UA": ("Ukraine", "Украйна"),
+    "UG": ("Uganda", "Уганда"),
+    "UM": ("United States Minor Outlying Islands", "Отдалечени острови на САЩ"),
+    "US": ("United States", "САЩ"),
+    "UY": ("Uruguay", "Уругвай"),
+    "UZ": ("Uzbekistan", "Узбекистан"),
+    "VA": ("Holy See", "Ватикан"),
+    "VC": ("Saint Vincent and the Grenadines", "Сейнт Винсънт и Гренадини"),
+    "VE": ("Venezuela, Bolivarian Republic of", "Венецуела"),
+    "VG": ("Virgin Islands (British)", "Британски Вирджински острови"),
+    "VI": ("Virgin Islands (U.S.)", "Американски Вирджински острови"),
+    "VN": ("Viet Nam", "Виетнам"),
+    "VU": ("Vanuatu", "Вануату"),
+    "WF": ("Wallis and Futuna", "Уолис и Футуна"),
+    "WS": ("Samoa", "Самоа"),
+    "YE": ("Yemen", "Йемен"),
+    "YT": ("Mayotte", "Майот"),
+    "ZA": ("South Africa", "Южна Африка"),
+    "ZM": ("Zambia", "Замбия"),
+    "ZW": ("Zimbabwe", "Зимбабве"),
+}
+
+COUNTRY_NAME_ALIASES_TO_ISO: dict[str, str] = {
+    "UNITED STATES OF AMERICA": "US",
+    "UNITED STATES": "US",
+    "USA": "US",
+    "U S A": "US",
+    "US": "US",
+    "САЩ": "US",
+    "СЪЕДИНЕНИ ЩАТИ": "US",
+    "UNITED KINGDOM": "GB",
+    "GREAT BRITAIN": "GB",
+    "UK": "GB",
+    "ОБЕДИНЕНО КРАЛСТВО": "GB",
+    "ОБЕДИНЕНОТО КРАЛСТВО": "GB",
+    "ВЕЛИКОБРИТАНИЯ": "GB",
+}
+
 DEFAULT_OUTPUT_DIR = OUTPUT_DIR / "ibkr" / "activity_statement"
 
 ADDED_INTEREST_COLUMNS = [
     "Amount (EUR)",
     "Status",
+]
+
+ADDED_DIVIDENDS_COLUMNS = [
+    "Country",
+    "Amount (EUR)",
+    "ISIN",
+    "Appendix",
+    "Status",
+    "Review Status",
+]
+
+ADDED_WITHHOLDING_COLUMNS = [
+    "Country",
+    "Amount (EUR)",
+    "ISIN",
+    "Appendix",
+    "Status",
+    "Review Status",
 ]
 
 FxRateProvider = Callable[[str, date], Decimal]
@@ -175,6 +468,15 @@ class ReviewEntry:
 
 
 @dataclass(slots=True)
+class Appendix8CountryTotals:
+    country_iso: str
+    country_english: str
+    country_bulgarian: str
+    gross_dividend_eur: Decimal = ZERO
+    withholding_tax_paid_eur: Decimal = ZERO
+
+
+@dataclass(slots=True)
 class AnalysisSummary:
     tax_year: int
     tax_exempt_mode: str
@@ -203,9 +505,26 @@ class AnalysisSummary:
     interest_unknown_types: set[str] = field(default_factory=set)
     interest_unknown_descriptions: list[str] = field(default_factory=list)
     appendix_6_code_603_eur: Decimal = ZERO
+    appendix_6_credit_interest_eur: Decimal = ZERO
+    appendix_6_syep_interest_eur: Decimal = ZERO
+    appendix_6_other_taxable_eur: Decimal = ZERO
     appendix_9_credit_interest_eur: Decimal = ZERO
     appendix_9_withholding_paid_eur: Decimal = ZERO
     appendix_9_withholding_source_found: bool = False
+    appendix_6_lieu_received_eur: Decimal = ZERO
+    dividend_tax_rate: Decimal = DIVIDEND_TAX_RATE
+    dividends_processed_rows: int = 0
+    dividends_total_rows_skipped: int = 0
+    dividends_cash_rows: int = 0
+    dividends_lieu_rows: int = 0
+    dividends_unknown_rows: int = 0
+    dividends_country_errors_rows: int = 0
+    withholding_processed_rows: int = 0
+    withholding_total_rows_skipped: int = 0
+    withholding_dividend_rows: int = 0
+    withholding_non_dividend_rows: int = 0
+    withholding_country_errors_rows: int = 0
+    appendix_8_by_country: dict[str, Appendix8CountryTotals] = field(default_factory=dict)
     trades_data_rows_total: int = 0
     trade_discriminator_rows: int = 0
     closedlot_discriminator_rows: int = 0
@@ -441,6 +760,34 @@ class _InterestFieldIndexes:
     review_status: int | None
 
 
+@dataclass(slots=True)
+class _DividendsFieldIndexes:
+    currency: int
+    date: int
+    description: int
+    amount: int
+    country: int | None
+    amount_eur: int | None
+    isin: int | None
+    appendix: int | None
+    status: int | None
+    review_status: int | None
+
+
+@dataclass(slots=True)
+class _WithholdingFieldIndexes:
+    currency: int
+    date: int
+    description: int
+    amount: int
+    country: int | None
+    amount_eur: int | None
+    isin: int | None
+    appendix: int | None
+    status: int | None
+    review_status: int | None
+
+
 def _trade_indexes(active_header: _ActiveHeader) -> _TradeFieldIndexes:
     section_name = f"Trades header at row {active_header.row_number}"
     return _TradeFieldIndexes(
@@ -454,6 +801,38 @@ def _trade_indexes(active_header: _ActiveHeader) -> _TradeFieldIndexes:
         basis=_optional_index(active_header.headers, "Basis", "Cost Basis", "CostBasis"),
         discriminator=_index_for(active_header.headers, "DataDiscriminator", section_name=section_name),
         commission=_optional_index(active_header.headers, "Comm/Fee", "Commission"),
+        review_status=_optional_index(active_header.headers, "Review Status"),
+    )
+
+
+def _dividends_indexes(active_header: _ActiveHeader) -> _DividendsFieldIndexes:
+    section_name = f"Dividends header at row {active_header.row_number}"
+    return _DividendsFieldIndexes(
+        currency=_index_for(active_header.headers, "Currency", section_name=section_name),
+        date=_index_for(active_header.headers, "Date", section_name=section_name),
+        description=_index_for(active_header.headers, "Description", section_name=section_name),
+        amount=_index_for(active_header.headers, "Amount", section_name=section_name),
+        country=_optional_index(active_header.headers, "Country"),
+        amount_eur=_optional_index(active_header.headers, "Amount (EUR)"),
+        isin=_optional_index(active_header.headers, "ISIN"),
+        appendix=_optional_index(active_header.headers, "Appendix"),
+        status=_optional_index(active_header.headers, "Status"),
+        review_status=_optional_index(active_header.headers, "Review Status"),
+    )
+
+
+def _withholding_indexes(active_header: _ActiveHeader) -> _WithholdingFieldIndexes:
+    section_name = f"Withholding Tax header at row {active_header.row_number}"
+    return _WithholdingFieldIndexes(
+        currency=_index_for(active_header.headers, "Currency", section_name=section_name),
+        date=_index_for(active_header.headers, "Date", section_name=section_name),
+        description=_index_for(active_header.headers, "Description", section_name=section_name),
+        amount=_index_for(active_header.headers, "Amount", section_name=section_name),
+        country=_optional_index(active_header.headers, "Country"),
+        amount_eur=_optional_index(active_header.headers, "Amount (EUR)"),
+        isin=_optional_index(active_header.headers, "ISIN"),
+        appendix=_optional_index(active_header.headers, "Appendix"),
+        status=_optional_index(active_header.headers, "Status"),
         review_status=_optional_index(active_header.headers, "Review Status"),
     )
 
@@ -479,6 +858,73 @@ def _normalize_review_status(raw: str) -> str:
 
 def _is_interest_total_row(currency: str) -> bool:
     return currency.strip().upper().startswith("TOTAL")
+
+
+def _extract_isin(description: str) -> tuple[str | None, str | None]:
+    matches = re.findall(r"\(([A-Za-z0-9]{12})\)", description)
+    if not matches:
+        return None, "missing ISIN in description"
+    normalized = [item.upper() for item in matches if re.fullmatch(r"[A-Z]{2}[A-Z0-9]{10}", item.upper())]
+    if len(normalized) == 1:
+        return normalized[0], None
+    if len(normalized) > 1:
+        return None, "multiple ISIN candidates in description"
+    return None, "invalid ISIN format in description"
+
+
+def _resolve_country_from_isin(isin: str) -> tuple[str, str, str] | None:
+    iso = isin[:2].upper()
+    names = COUNTRY_NAME_BY_ISO.get(iso)
+    if names is None:
+        return None
+    english, bulgarian = names
+    return iso, english, bulgarian
+
+
+def _resolve_country_from_text(country_text: str) -> tuple[str, str, str]:
+    text = country_text.strip()
+    if text == "":
+        raise IbkrAnalyzerError("empty country value")
+    normalized_text = re.sub(r"[^A-Za-zА-Яа-я0-9]+", " ", text, flags=re.UNICODE).strip().upper()
+    alias_iso = COUNTRY_NAME_ALIASES_TO_ISO.get(normalized_text)
+    if alias_iso is not None:
+        english, bulgarian = COUNTRY_NAME_BY_ISO[alias_iso]
+        return alias_iso, english, bulgarian
+    upper = text.upper()
+    if upper in COUNTRY_NAME_BY_ISO:
+        english, bulgarian = COUNTRY_NAME_BY_ISO[upper]
+        return upper, english, bulgarian
+    for iso, (english, bulgarian) in COUNTRY_NAME_BY_ISO.items():
+        if text.casefold() == english.casefold() or text.casefold() == bulgarian.casefold():
+            return iso, english, bulgarian
+    manual_iso = f"MANUAL:{upper}"
+    return manual_iso, text, text
+
+
+def _parse_optional_decimal(raw: str, *, row_number: int, field_name: str) -> Decimal | None:
+    text = raw.strip()
+    if text == "":
+        return None
+    try:
+        return Decimal(text)
+    except InvalidOperation as exc:
+        raise IbkrAnalyzerError(f"row {row_number}: invalid {field_name}: {raw!r}") from exc
+
+
+def _classify_dividend_description(description: str) -> str:
+    lowered = description.lower()
+    if "cash dividend" in lowered:
+        return DIVIDEND_APPENDIX_8
+    if "lieu received" in lowered:
+        return DIVIDEND_APPENDIX_6
+    return DIVIDEND_APPENDIX_UNKNOWN
+
+
+def _classify_status_from_description(description: str) -> str:
+    lowered = description.lower()
+    if "cash dividend" in lowered or "credit interest" in lowered or "lieu received" in lowered:
+        return INTEREST_STATUS_TAXABLE
+    return INTEREST_STATUS_UNKNOWN
 
 
 def _parse_interest_date(raw: str, *, row_number: int) -> date:
@@ -1328,6 +1774,12 @@ def _build_declaration_text(result: AnalysisResult) -> str:
         manual_check_reasons.append(f"има {summary.review_required_rows} записа с изисквана ръчна проверка")
     if summary.interest_unknown_rows > 0:
         manual_check_reasons.append(f"има {summary.interest_unknown_rows} записа с непознат вид лихва")
+    if summary.dividends_unknown_rows > 0:
+        manual_check_reasons.append(f"има {summary.dividends_unknown_rows} записа с неразпознат дивидентен ред")
+    if summary.dividends_country_errors_rows > 0:
+        manual_check_reasons.append(f"има {summary.dividends_country_errors_rows} дивидентни реда с невалиден ISIN/държава")
+    if summary.withholding_country_errors_rows > 0:
+        manual_check_reasons.append(f"има {summary.withholding_country_errors_rows} реда удържан данък с невалиден ISIN/държава")
     if summary.unknown_review_status_rows > 0:
         values = ", ".join(sorted(summary.unknown_review_status_values)) or "-"
         manual_check_reasons.append(
@@ -1391,12 +1843,50 @@ def _build_declaration_text(result: AnalysisResult) -> str:
 
     lines.append("Приложение 6")
     lines.append("Част I")
+    lines.append("Информативни")
+    lines.append(f"- Подател: Credit Interest (EUR): {_fmt(summary.appendix_6_credit_interest_eur, quant=DECIMAL_TWO)}")
+    lines.append(f"- Подател: IBKR Managed Securities (SYEP) Interest (EUR): {_fmt(summary.appendix_6_syep_interest_eur, quant=DECIMAL_TWO)}")
+    lines.append(f"- Подател: Other taxable (Review override) (EUR): {_fmt(summary.appendix_6_other_taxable_eur, quant=DECIMAL_TWO)}")
+    lines.append(f"- Подател: Lieu Received (EUR): {_fmt(summary.appendix_6_lieu_received_eur, quant=DECIMAL_TWO)}")
+    lines.append("Декларационна стойност")
     lines.append(f"- Обща сума на доходите с код 603: {_fmt(summary.appendix_6_code_603_eur, quant=DECIMAL_TWO)}")
     if summary.interest_unknown_rows > 0:
         lines.append("- НУЖЕН Е ПРЕГЛЕД: открити са непознати видове лихви")
         lines.append(f"- брой непознати редове: {summary.interest_unknown_rows}")
         lines.append(f"- непознати видове: {', '.join(sorted(summary.interest_unknown_types))}")
+    if summary.dividends_unknown_rows > 0:
+        lines.append("- НУЖЕН Е ПРЕГЛЕД: открити са неразпознати дивидентни описания")
+        lines.append(f"- брой неразпознати редове: {summary.dividends_unknown_rows}")
     lines.append("")
+
+    lines.append("Приложение 8")
+    lines.append("Част III, ред 1.N")
+    if summary.appendix_8_by_country:
+        for country_iso in sorted(summary.appendix_8_by_country):
+            bucket = summary.appendix_8_by_country[country_iso]
+            gross = bucket.gross_dividend_eur
+            foreign_tax = bucket.withholding_tax_paid_eur
+            bulgarian_tax = gross * summary.dividend_tax_rate
+            allowable = min(foreign_tax, bulgarian_tax)
+            recognized = allowable
+            tax_due = bulgarian_tax - recognized
+            lines.append(
+                f"- Наименование на лицето, изплатило дохода: "
+                "Различни чуждестранни дружества (чрез Interactive Brokers)"
+            )
+            lines.append(f"- Държава: {bucket.country_bulgarian}")
+            lines.append("- Код вид доход: 8141")
+            lines.append("- Код за прилагане на метод за избягване на двойното данъчно облагане: 1")
+            lines.append(f"- Брутен размер на дохода: {_fmt(gross, quant=DECIMAL_TWO)}")
+            lines.append("- Документално доказана цена на придобиване: ")
+            lines.append(f"- Платен данък в чужбина: {_fmt(foreign_tax, quant=DECIMAL_TWO)}")
+            lines.append(f"- Допустим размер на данъчния кредит: {_fmt(allowable, quant=DECIMAL_TWO)}")
+            lines.append(f"- Размер на признатия данъчен кредит: {_fmt(recognized, quant=DECIMAL_TWO)}")
+            lines.append(f"- Дължим данък, подлежащ на внасяне: {_fmt(tax_due, quant=DECIMAL_TWO)}")
+            lines.append("")
+    else:
+        lines.append("- Няма разпознаваеми Cash Dividend записи за данъчната година")
+        lines.append("")
 
     lines.append("Приложение 9")
     lines.append("Част II")
@@ -1465,6 +1955,16 @@ def _build_declaration_text(result: AnalysisResult) -> str:
     lines.append(f"- interest taxable rows: {summary.interest_taxable_rows}")
     lines.append(f"- interest non-taxable rows: {summary.interest_non_taxable_rows}")
     lines.append(f"- interest unknown rows: {summary.interest_unknown_rows}")
+    lines.append(f"- dividends processed rows: {summary.dividends_processed_rows}")
+    lines.append(f"- dividends total rows skipped: {summary.dividends_total_rows_skipped}")
+    lines.append(f"- dividends cash rows: {summary.dividends_cash_rows}")
+    lines.append(f"- dividends lieu rows: {summary.dividends_lieu_rows}")
+    lines.append(f"- dividends unknown rows: {summary.dividends_unknown_rows}")
+    lines.append(f"- withholding processed rows: {summary.withholding_processed_rows}")
+    lines.append(f"- withholding total rows skipped: {summary.withholding_total_rows_skipped}")
+    lines.append(f"- withholding dividend rows: {summary.withholding_dividend_rows}")
+    lines.append(f"- withholding non-dividend rows: {summary.withholding_non_dividend_rows}")
+    lines.append(f"- dividend tax rate: {_fmt(summary.dividend_tax_rate)}")
     lines.append(
         "- interest withholding source found: "
         + ("YES" if summary.appendix_9_withholding_source_found else "NO")
@@ -1626,7 +2126,17 @@ def analyze_ibkr_activity_statement(
     trades_row_base_len: dict[int, int] = {}
     interest_row_extras: dict[int, list[str]] = {}
     interest_row_base_len: dict[int, int] = {}
-    summary = AnalysisSummary(tax_year=tax_year, tax_exempt_mode=tax_exempt_mode)
+    dividends_row_extras: dict[int, dict[str, str]] = {}
+    dividends_row_base_len: dict[int, int] = {}
+    withholding_row_extras: dict[int, dict[str, str]] = {}
+    withholding_row_base_len: dict[int, int] = {}
+    dividends_row_added_columns: dict[int, list[str]] = {}
+    withholding_row_added_columns: dict[int, list[str]] = {}
+    summary = AnalysisSummary(
+        tax_year=tax_year,
+        tax_exempt_mode=tax_exempt_mode,
+        dividend_tax_rate=DIVIDEND_TAX_RATE,
+    )
 
     def _set_trade_extras(row_idx: int, values: dict[str, str]) -> None:
         extras = [""] * len(ADDED_TRADES_COLUMNS)
@@ -1639,6 +2149,48 @@ def analyze_ibkr_activity_statement(
         for key, value in values.items():
             extras[ADDED_INTEREST_COLUMNS.index(key)] = value
         interest_row_extras[row_idx] = extras
+
+    def _set_dividends_extras(row_idx: int, values: dict[str, str]) -> None:
+        existing = dividends_row_extras.get(row_idx, {})
+        for key, value in values.items():
+            existing[key] = value
+        dividends_row_extras[row_idx] = existing
+
+    def _set_withholding_extras(row_idx: int, values: dict[str, str]) -> None:
+        existing = withholding_row_extras.get(row_idx, {})
+        for key, value in values.items():
+            existing[key] = value
+        withholding_row_extras[row_idx] = existing
+
+    def _set_existing_section_value(
+        *,
+        row_idx: int,
+        active_header: _ActiveHeader,
+        field_idx: int | None,
+        value: str,
+        only_if_empty: bool,
+    ) -> None:
+        if field_idx is None:
+            return
+        base_len = 2 + len(active_header.headers)
+        row = rows[row_idx]
+        if len(row) < base_len:
+            row.extend([""] * (base_len - len(row)))
+        current = row[2 + field_idx].strip()
+        if only_if_empty and current != "":
+            return
+        row[2 + field_idx] = value
+
+    def _appendix8_bucket(country_iso: str, country_english: str, country_bulgarian: str) -> Appendix8CountryTotals:
+        bucket = summary.appendix_8_by_country.get(country_iso)
+        if bucket is None:
+            bucket = Appendix8CountryTotals(
+                country_iso=country_iso,
+                country_english=country_english,
+                country_bulgarian=country_bulgarian,
+            )
+            summary.appendix_8_by_country[country_iso] = bucket
+        return bucket
 
     consumed_closedlots: set[int] = set()
     current_trades_header: _ActiveHeader | None = None
@@ -2090,9 +2642,13 @@ def analyze_ibkr_activity_statement(
                     row_number=row_number,
                 )
                 amount_eur_text = _fmt(amount_eur, quant=DECIMAL_EIGHT)
-                summary.appendix_6_code_603_eur += amount_eur
                 if normalized_type == INTEREST_TYPE_CREDIT:
                     summary.appendix_9_credit_interest_eur += amount_eur
+                    summary.appendix_6_credit_interest_eur += amount_eur
+                elif normalized_type == INTEREST_TYPE_SYEP:
+                    summary.appendix_6_syep_interest_eur += amount_eur
+                else:
+                    summary.appendix_6_other_taxable_eur += amount_eur
         elif status == INTEREST_STATUS_NON_TAXABLE:
             summary.interest_non_taxable_rows += 1
         else:
@@ -2114,12 +2670,420 @@ def analyze_ibkr_activity_statement(
             },
         )
 
-    withholding_paid_eur, withholding_found = _extract_interest_withholding_paid_eur(
-        rows,
-        active_headers=active_headers,
+    current_dividends_header: _ActiveHeader | None = None
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        if len(row) < 2 or row[0] != "Dividends":
+            continue
+
+        row_type = row[1]
+        if row_type == "Header":
+            current_dividends_header = _activate_header("Dividends", row, row_number=row_number)
+            dividends_row_base_len[row_idx] = 2 + len(current_dividends_header.headers)
+            dividends_row_added_columns[row_idx] = [
+                col for col in ADDED_DIVIDENDS_COLUMNS if col not in current_dividends_header.headers
+            ]
+            continue
+
+        if current_dividends_header is None:
+            raise CsvStructureError(f"row {row_number}: Dividends row encountered before Dividends Header")
+        dividends_row_base_len[row_idx] = 2 + len(current_dividends_header.headers)
+        if row_type != "Data":
+            continue
+
+        active_dividends_header = active_headers.get(row_idx)
+        if active_dividends_header is None:
+            raise CsvStructureError(f"row {row_number}: Dividends Data row encountered before Dividends Header")
+        current_dividends_header = active_dividends_header
+        dividends_row_base_len[row_idx] = 2 + len(active_dividends_header.headers)
+        dividends_row_added_columns[row_idx] = [
+            col for col in ADDED_DIVIDENDS_COLUMNS if col not in active_dividends_header.headers
+        ]
+
+        field_idx = _dividends_indexes(active_dividends_header)
+        padded = row + [""] * (dividends_row_base_len[row_idx] - len(row))
+        data = padded[2 : 2 + len(active_dividends_header.headers)]
+        currency = data[field_idx.currency].strip().upper()
+        if _is_interest_total_row(currency):
+            summary.dividends_total_rows_skipped += 1
+            continue
+
+        summary.dividends_processed_rows += 1
+        dividend_date = _parse_interest_date(data[field_idx.date], row_number=row_number)
+        description = data[field_idx.description].strip()
+        amount = _parse_decimal(data[field_idx.amount], row_number=row_number, field_name="Amount")
+        auto_appendix = _classify_dividend_description(description)
+        auto_status = _classify_status_from_description(description)
+        review_status_raw = data[field_idx.review_status].strip() if field_idx.review_status is not None else ""
+        review_status_normalized = _normalize_review_status(review_status_raw)
+        manual_country = data[field_idx.country].strip() if field_idx.country is not None else ""
+        manual_amount_eur_text = data[field_idx.amount_eur].strip() if field_idx.amount_eur is not None else ""
+        manual_amount_eur = _parse_optional_decimal(
+            manual_amount_eur_text,
+            row_number=row_number,
+            field_name="Amount (EUR)",
+        )
+        manual_isin = data[field_idx.isin].strip() if field_idx.isin is not None else ""
+        manual_appendix = data[field_idx.appendix].strip() if field_idx.appendix is not None else ""
+
+        effective_status = auto_status
+        if review_status_normalized == REVIEW_STATUS_TAXABLE:
+            summary.review_status_overrides_rows += 1
+            effective_status = INTEREST_STATUS_TAXABLE
+        elif review_status_normalized == REVIEW_STATUS_NON_TAXABLE:
+            summary.review_status_overrides_rows += 1
+            effective_status = INTEREST_STATUS_NON_TAXABLE
+        elif review_status_normalized == "":
+            pass
+        elif review_status_normalized != "":
+            effective_status = INTEREST_STATUS_UNKNOWN
+            summary.unknown_review_status_rows += 1
+            summary.unknown_review_status_values.add(review_status_normalized)
+            summary.warnings.append(
+                f"row {row_number}: unknown Review Status={review_status_normalized} (dividend description={description!r})"
+            )
+            summary.review_required_rows += 1
+
+        auto_isin = ""
+        auto_country_english = ""
+        auto_amount_eur: Decimal | None = None
+        auto_amount_eur_text = ""
+
+        if auto_appendix != DIVIDEND_APPENDIX_UNKNOWN:
+            auto_isin_value, auto_isin_error = _extract_isin(description)
+            if auto_isin_error is None and auto_isin_value is not None:
+                auto_isin = auto_isin_value
+                auto_country_info = _resolve_country_from_isin(auto_isin_value)
+                if auto_country_info is not None:
+                    auto_country_iso, auto_country_english, auto_country_bulgarian = auto_country_info
+                    auto_amount_eur, _ = _to_eur(
+                        amount,
+                        currency,
+                        dividend_date,
+                        fx_provider,
+                        row_number=row_number,
+                    )
+                    auto_amount_eur_text = _fmt(auto_amount_eur, quant=DECIMAL_EIGHT)
+                else:
+                    summary.dividends_country_errors_rows += 1
+                    summary.review_required_rows += 1
+                    summary.warnings.append(
+                        f"row {row_number}: unknown ISIN country code={auto_isin_value[:2]} for dividend description={description!r}"
+                    )
+            else:
+                summary.dividends_country_errors_rows += 1
+                summary.review_required_rows += 1
+                summary.warnings.append(
+                    f"row {row_number}: {auto_isin_error or 'missing ISIN'} for dividend description={description!r}"
+                )
+
+        effective_appendix = manual_appendix if manual_appendix else auto_appendix
+        if effective_appendix == DIVIDEND_APPENDIX_UNKNOWN and effective_status == INTEREST_STATUS_TAXABLE:
+            effective_appendix = DIVIDEND_APPENDIX_8 if "lieu received" not in description.lower() else DIVIDEND_APPENDIX_6
+
+        effective_country_text = manual_country if manual_country else auto_country_english
+        effective_amount_eur = manual_amount_eur if manual_amount_eur is not None else auto_amount_eur
+        effective_amount_eur_text = manual_amount_eur_text if manual_amount_eur_text else auto_amount_eur_text
+        effective_isin = manual_isin if manual_isin else auto_isin
+
+        if effective_status == INTEREST_STATUS_UNKNOWN:
+            summary.dividends_unknown_rows += 1
+            summary.review_required_rows += 1
+            summary.warnings.append(
+                f"row {row_number}: unknown dividend description requires manual review (description={description!r})"
+            )
+
+        is_taxable = effective_status == INTEREST_STATUS_TAXABLE
+        if is_taxable and dividend_date.year == tax_year and effective_amount_eur is not None:
+            if effective_appendix == DIVIDEND_APPENDIX_8:
+                if effective_country_text == "":
+                    summary.review_required_rows += 1
+                    summary.warnings.append(
+                        f"row {row_number}: taxable dividend row is missing Country (description={description!r})"
+                    )
+                else:
+                    country_iso, country_english, country_bulgarian = _resolve_country_from_text(effective_country_text)
+                    summary.dividends_cash_rows += 1
+                    _appendix8_bucket(country_iso, country_english, country_bulgarian).gross_dividend_eur += effective_amount_eur
+            elif effective_appendix == DIVIDEND_APPENDIX_6:
+                summary.dividends_lieu_rows += 1
+                summary.appendix_6_lieu_received_eur += effective_amount_eur
+
+        _set_existing_section_value(
+            row_idx=row_idx,
+            active_header=active_dividends_header,
+            field_idx=field_idx.country,
+            value=effective_country_text,
+            only_if_empty=True,
+        )
+        _set_existing_section_value(
+            row_idx=row_idx,
+            active_header=active_dividends_header,
+            field_idx=field_idx.amount_eur,
+            value=effective_amount_eur_text,
+            only_if_empty=True,
+        )
+        _set_existing_section_value(
+            row_idx=row_idx,
+            active_header=active_dividends_header,
+            field_idx=field_idx.isin,
+            value=effective_isin,
+            only_if_empty=True,
+        )
+        _set_existing_section_value(
+            row_idx=row_idx,
+            active_header=active_dividends_header,
+            field_idx=field_idx.appendix,
+            value=effective_appendix,
+            only_if_empty=True,
+        )
+        _set_existing_section_value(
+            row_idx=row_idx,
+            active_header=active_dividends_header,
+            field_idx=field_idx.status,
+            value=effective_status,
+            only_if_empty=False,
+        )
+
+        _set_dividends_extras(
+            row_idx,
+            {
+                "Country": effective_country_text,
+                "Amount (EUR)": effective_amount_eur_text,
+                "ISIN": effective_isin,
+                "Appendix": effective_appendix,
+                "Status": effective_status,
+                "Review Status": review_status_raw,
+            },
+        )
+
+    current_withholding_header: _ActiveHeader | None = None
+    appendix_9_withholding_from_section_eur = ZERO
+    appendix_9_withholding_from_section_found = False
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        if len(row) < 2 or row[0] != "Withholding Tax":
+            continue
+
+        row_type = row[1]
+        if row_type == "Header":
+            current_withholding_header = _activate_header("Withholding Tax", row, row_number=row_number)
+            withholding_row_base_len[row_idx] = 2 + len(current_withholding_header.headers)
+            withholding_row_added_columns[row_idx] = [
+                col for col in ADDED_WITHHOLDING_COLUMNS if col not in current_withholding_header.headers
+            ]
+            continue
+
+        if current_withholding_header is None:
+            raise CsvStructureError(f"row {row_number}: Withholding Tax row encountered before Withholding Tax Header")
+        withholding_row_base_len[row_idx] = 2 + len(current_withholding_header.headers)
+        if row_type != "Data":
+            continue
+
+        active_withholding_header = active_headers.get(row_idx)
+        if active_withholding_header is None:
+            raise CsvStructureError(f"row {row_number}: Withholding Tax Data row encountered before Withholding Tax Header")
+        current_withholding_header = active_withholding_header
+        withholding_row_base_len[row_idx] = 2 + len(active_withholding_header.headers)
+        withholding_row_added_columns[row_idx] = [
+            col for col in ADDED_WITHHOLDING_COLUMNS if col not in active_withholding_header.headers
+        ]
+
+        field_idx = _withholding_indexes(active_withholding_header)
+        padded = row + [""] * (withholding_row_base_len[row_idx] - len(row))
+        data = padded[2 : 2 + len(active_withholding_header.headers)]
+        currency = data[field_idx.currency].strip().upper()
+        if _is_interest_total_row(currency):
+            summary.withholding_total_rows_skipped += 1
+            continue
+
+        summary.withholding_processed_rows += 1
+        description = data[field_idx.description].strip()
+        lowered = description.lower()
+        auto_status = _classify_status_from_description(description)
+        manual_country = data[field_idx.country].strip() if field_idx.country is not None else ""
+        manual_amount_eur_text = data[field_idx.amount_eur].strip() if field_idx.amount_eur is not None else ""
+        manual_amount_eur = _parse_optional_decimal(
+            manual_amount_eur_text,
+            row_number=row_number,
+            field_name="Amount (EUR)",
+        )
+        manual_isin = data[field_idx.isin].strip() if field_idx.isin is not None else ""
+        manual_appendix = data[field_idx.appendix].strip() if field_idx.appendix is not None else ""
+        review_status_raw = data[field_idx.review_status].strip() if field_idx.review_status is not None else ""
+        review_status_normalized = _normalize_review_status(review_status_raw)
+
+        auto_appendix = ""
+        auto_country_text = ""
+        auto_isin = ""
+        auto_amount_eur: Decimal | None = None
+        auto_amount_eur_text = ""
+
+        if "cash dividend" in lowered:
+            summary.withholding_dividend_rows += 1
+            auto_appendix = "Appendix 8"
+        elif "credit interest" in lowered:
+            summary.withholding_non_dividend_rows += 1
+            auto_appendix = "Appendix 9"
+        elif "lieu received" in lowered:
+            summary.withholding_non_dividend_rows += 1
+            auto_appendix = "Appendix 6"
+        else:
+            summary.withholding_non_dividend_rows += 1
+
+        tax_date = _parse_interest_date(data[field_idx.date], row_number=row_number)
+        tax_amount = _parse_decimal(data[field_idx.amount], row_number=row_number, field_name="Amount")
+        if auto_appendix == "Appendix 8":
+            isin, isin_error = _extract_isin(description)
+            if isin_error is not None or isin is None:
+                summary.withholding_country_errors_rows += 1
+                summary.review_required_rows += 1
+                summary.warnings.append(
+                    f"row {row_number}: {isin_error or 'missing ISIN'} for withholding description={description!r}"
+                )
+            else:
+                country_info = _resolve_country_from_isin(isin)
+                if country_info is None:
+                    summary.withholding_country_errors_rows += 1
+                    summary.review_required_rows += 1
+                    summary.warnings.append(
+                        f"row {row_number}: unknown ISIN country code={isin[:2]} for withholding description={description!r}"
+                    )
+                else:
+                    _, country_english, _ = country_info
+                    auto_country_text = country_english
+                    auto_isin = isin
+        elif auto_appendix == "Appendix 9":
+            auto_country_text = "Ireland"
+            auto_isin = ""
+
+        if auto_appendix in {"Appendix 8", "Appendix 9", "Appendix 6"}:
+            tax_amount_eur, _ = _to_eur(
+                tax_amount,
+                currency,
+                tax_date,
+                fx_provider,
+                row_number=row_number,
+            )
+            auto_amount_eur = tax_amount_eur
+            auto_amount_eur_text = _fmt(tax_amount_eur, quant=DECIMAL_EIGHT)
+
+        effective_status = auto_status
+        if review_status_normalized == REVIEW_STATUS_TAXABLE:
+            summary.review_status_overrides_rows += 1
+            effective_status = INTEREST_STATUS_TAXABLE
+        elif review_status_normalized == REVIEW_STATUS_NON_TAXABLE:
+            summary.review_status_overrides_rows += 1
+            effective_status = INTEREST_STATUS_NON_TAXABLE
+        elif review_status_normalized == "":
+            pass
+        elif review_status_normalized != "":
+            effective_status = INTEREST_STATUS_UNKNOWN
+            summary.review_required_rows += 1
+            summary.unknown_review_status_rows += 1
+            summary.unknown_review_status_values.add(review_status_normalized)
+            summary.warnings.append(
+                f"row {row_number}: unknown Review Status={review_status_normalized} (withholding description={description!r})"
+            )
+
+        effective_appendix = manual_appendix if manual_appendix else auto_appendix
+        effective_country_text = manual_country if manual_country else auto_country_text
+        effective_amount_eur = manual_amount_eur if manual_amount_eur is not None else auto_amount_eur
+        effective_amount_eur_text = manual_amount_eur_text if manual_amount_eur_text else auto_amount_eur_text
+        effective_isin = manual_isin if manual_isin else auto_isin
+
+        if effective_status == INTEREST_STATUS_UNKNOWN:
+            summary.review_required_rows += 1
+            summary.warnings.append(
+                f"row {row_number}: UNKNOWN withholding status requires manual review (description={description!r})"
+            )
+        is_taxable = effective_status == INTEREST_STATUS_TAXABLE
+
+        _set_existing_section_value(
+            row_idx=row_idx,
+            active_header=active_withholding_header,
+            field_idx=field_idx.country,
+            value=effective_country_text,
+            only_if_empty=True,
+        )
+        _set_existing_section_value(
+            row_idx=row_idx,
+            active_header=active_withholding_header,
+            field_idx=field_idx.amount_eur,
+            value=effective_amount_eur_text,
+            only_if_empty=True,
+        )
+        _set_existing_section_value(
+            row_idx=row_idx,
+            active_header=active_withholding_header,
+            field_idx=field_idx.isin,
+            value=effective_isin,
+            only_if_empty=True,
+        )
+        _set_existing_section_value(
+            row_idx=row_idx,
+            active_header=active_withholding_header,
+            field_idx=field_idx.appendix,
+            value=effective_appendix,
+            only_if_empty=True,
+        )
+        _set_existing_section_value(
+            row_idx=row_idx,
+            active_header=active_withholding_header,
+            field_idx=field_idx.status,
+            value=effective_status,
+            only_if_empty=False,
+        )
+
+        _set_withholding_extras(
+            row_idx,
+            {
+                "Country": effective_country_text,
+                "Amount (EUR)": effective_amount_eur_text,
+                "ISIN": effective_isin,
+                "Appendix": effective_appendix,
+                "Status": effective_status,
+                "Review Status": review_status_raw,
+            },
+        )
+
+        if tax_date.year == tax_year and is_taxable and effective_amount_eur is not None:
+            if effective_appendix == "Appendix 8":
+                if effective_country_text == "":
+                    summary.review_required_rows += 1
+                    summary.warnings.append(
+                        f"row {row_number}: taxable withholding row is missing Country (description={description!r})"
+                    )
+                else:
+                    country_iso, country_english, country_bulgarian = _resolve_country_from_text(effective_country_text)
+                    _appendix8_bucket(country_iso, country_english, country_bulgarian).withholding_tax_paid_eur += abs(effective_amount_eur)
+            elif effective_appendix == "Appendix 9":
+                appendix_9_withholding_from_section_eur += abs(effective_amount_eur)
+                appendix_9_withholding_from_section_found = True
+            else:
+                summary.review_required_rows += 1
+                summary.warnings.append(
+                    f"row {row_number}: taxable withholding row has unknown Appendix value={effective_appendix!r}"
+                )
+
+    withholding_found = False
+    if appendix_9_withholding_from_section_found:
+        summary.appendix_9_withholding_paid_eur = appendix_9_withholding_from_section_eur
+        summary.appendix_9_withholding_source_found = True
+        withholding_found = True
+    else:
+        withholding_paid_eur, withholding_found = _extract_interest_withholding_paid_eur(
+            rows,
+            active_headers=active_headers,
+        )
+        summary.appendix_9_withholding_paid_eur = withholding_paid_eur
+        summary.appendix_9_withholding_source_found = withholding_found
+    summary.appendix_6_code_603_eur = (
+        summary.appendix_6_credit_interest_eur
+        + summary.appendix_6_syep_interest_eur
+        + summary.appendix_6_other_taxable_eur
+        + summary.appendix_6_lieu_received_eur
     )
-    summary.appendix_9_withholding_paid_eur = withholding_paid_eur
-    summary.appendix_9_withholding_source_found = withholding_found
     if summary.appendix_9_credit_interest_eur > ZERO and not withholding_found:
         summary.review_required_rows += 1
         summary.warnings.append(
@@ -2388,6 +3352,50 @@ def analyze_ibkr_activity_statement(
             output_rows.append(padded + extras)
             continue
 
+        if row[0] == "Dividends" and row[1] == "Header":
+            added_cols = dividends_row_added_columns.get(
+                idx,
+                [col for col in ADDED_DIVIDENDS_COLUMNS if col not in row[2:]],
+            )
+            output_rows.append(row + added_cols)
+            continue
+
+        if row[0] == "Dividends":
+            base_len = dividends_row_base_len.get(idx)
+            if base_len is None:
+                raise CsvStructureError(f"row {idx + 1}: Dividends row encountered before Dividends Header")
+            padded = row + [""] * (base_len - len(row))
+            added_cols = dividends_row_added_columns.get(
+                idx,
+                [col for col in ADDED_DIVIDENDS_COLUMNS if col not in (active_headers.get(idx).headers if active_headers.get(idx) is not None else [])],
+            )
+            extras_map = dividends_row_extras.get(idx, {})
+            extras = [extras_map.get(col, "") for col in added_cols]
+            output_rows.append(padded + extras)
+            continue
+
+        if row[0] == "Withholding Tax" and row[1] == "Header":
+            added_cols = withholding_row_added_columns.get(
+                idx,
+                [col for col in ADDED_WITHHOLDING_COLUMNS if col not in row[2:]],
+            )
+            output_rows.append(row + added_cols)
+            continue
+
+        if row[0] == "Withholding Tax":
+            base_len = withholding_row_base_len.get(idx)
+            if base_len is None:
+                raise CsvStructureError(f"row {idx + 1}: Withholding Tax row encountered before Withholding Tax Header")
+            padded = row + [""] * (base_len - len(row))
+            added_cols = withholding_row_added_columns.get(
+                idx,
+                [col for col in ADDED_WITHHOLDING_COLUMNS if col not in (active_headers.get(idx).headers if active_headers.get(idx) is not None else [])],
+            )
+            extras_map = withholding_row_extras.get(idx, {})
+            extras = [extras_map.get(col, "") for col in added_cols]
+            output_rows.append(padded + extras)
+            continue
+
         output_rows.append(row)
 
     for idx, row in enumerate(output_rows):
@@ -2408,6 +3416,42 @@ def analyze_ibkr_activity_statement(
             if len(row) != expected_len:
                 raise IbkrAnalyzerError(
                     f"Interest row column count mismatch at row {idx + 1}: expected {expected_len}, got {len(row)}"
+                )
+        if len(row) >= 2 and row[0] == "Dividends":
+            base_len = dividends_row_base_len.get(idx)
+            if base_len is None:
+                raise CsvStructureError(f"row {idx + 1}: Dividends row encountered before Dividends Header")
+            added_cols = dividends_row_added_columns.get(idx)
+            if added_cols is None:
+                if row[1] == "Header":
+                    added_cols = [col for col in ADDED_DIVIDENDS_COLUMNS if col not in row[2:]]
+                else:
+                    active_header = active_headers.get(idx)
+                    if active_header is None:
+                        raise CsvStructureError(f"row {idx + 1}: Dividends row encountered before Dividends Header")
+                    added_cols = [col for col in ADDED_DIVIDENDS_COLUMNS if col not in active_header.headers]
+            expected_len = base_len + len(added_cols)
+            if len(row) != expected_len:
+                raise IbkrAnalyzerError(
+                    f"Dividends row column count mismatch at row {idx + 1}: expected {expected_len}, got {len(row)}"
+                )
+        if len(row) >= 2 and row[0] == "Withholding Tax":
+            base_len = withholding_row_base_len.get(idx)
+            if base_len is None:
+                raise CsvStructureError(f"row {idx + 1}: Withholding Tax row encountered before Withholding Tax Header")
+            added_cols = withholding_row_added_columns.get(idx)
+            if added_cols is None:
+                if row[1] == "Header":
+                    added_cols = [col for col in ADDED_WITHHOLDING_COLUMNS if col not in row[2:]]
+                else:
+                    active_header = active_headers.get(idx)
+                    if active_header is None:
+                        raise CsvStructureError(f"row {idx + 1}: Withholding Tax row encountered before Withholding Tax Header")
+                    added_cols = [col for col in ADDED_WITHHOLDING_COLUMNS if col not in active_header.headers]
+            expected_len = base_len + len(added_cols)
+            if len(row) != expected_len:
+                raise IbkrAnalyzerError(
+                    f"Withholding Tax row column count mismatch at row {idx + 1}: expected {expected_len}, got {len(row)}"
                 )
 
     alias_suffix = f"_{normalized_alias}" if normalized_alias else ""
@@ -2537,6 +3581,16 @@ def main() -> int:
     print(f"interest_unknown_rows: {summary.interest_unknown_rows}")
     if summary.interest_unknown_types:
         print(f"interest_unknown_types: {', '.join(sorted(summary.interest_unknown_types))}")
+    print(f"dividends_processed_rows: {summary.dividends_processed_rows}")
+    print(f"dividends_total_rows_skipped: {summary.dividends_total_rows_skipped}")
+    print(f"dividends_cash_rows: {summary.dividends_cash_rows}")
+    print(f"dividends_lieu_rows: {summary.dividends_lieu_rows}")
+    print(f"dividends_unknown_rows: {summary.dividends_unknown_rows}")
+    print(f"withholding_processed_rows: {summary.withholding_processed_rows}")
+    print(f"withholding_total_rows_skipped: {summary.withholding_total_rows_skipped}")
+    print(f"withholding_dividend_rows: {summary.withholding_dividend_rows}")
+    print(f"withholding_non_dividend_rows: {summary.withholding_non_dividend_rows}")
+    print(f"dividend_tax_rate: {_fmt(summary.dividend_tax_rate)}")
     print(f"appendix_5_profit_eur: {_fmt(summary.appendix_5.wins_eur, quant=DECIMAL_TWO)}")
     print(f"appendix_5_loss_eur: {_fmt(summary.appendix_5.losses_eur, quant=DECIMAL_TWO)}")
     print(f"appendix_13_profit_eur: {_fmt(summary.appendix_13.wins_eur, quant=DECIMAL_TWO)}")

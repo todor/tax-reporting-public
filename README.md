@@ -6,7 +6,7 @@ The repository now includes:
 
 - FX services (`bnb_fx`, `crypto_fx`)
 - Binance analyzers
-- IBKR activity statement analyzer (phase 1)
+- IBKR activity statement analyzer (trades + interest + dividends)
 
 Some areas are still intentionally phased and evolving (for example broader asset coverage and additional appendices).
 
@@ -195,7 +195,7 @@ PYTHONPATH=src pyenv exec python -m integrations.binance.futures_pnl_analyzer \
   --tax-year 2025
 ```
 
-### IBKR activity statement analyzer (phase 1)
+### IBKR activity statement analyzer
 
 ```bash
 PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
