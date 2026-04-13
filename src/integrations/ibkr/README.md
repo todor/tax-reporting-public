@@ -146,8 +146,8 @@ If the active section header contains a `Review Status` column, the analyzer use
 - recognized routing:
   - dividend withholding rows (`Cash Dividend`) -> `Appendix 8`
   - credit-interest withholding rows -> `Appendix 9` (`Country=Ireland`, `ISIN` empty)
-- if taxable and `Appendix 9` rows exist in `Withholding Tax`, they are used for Appendix 9 paid-tax amount
-- otherwise Appendix 9 paid-tax falls back to `Mark-to-Market Performance Summary`
+- credit-interest rows in `Withholding Tax` are enriched/informational for review workflow
+- Appendix 9 paid-tax source of truth remains `Mark-to-Market Performance Summary` (`Withholding on Interest Received`)
 
 Unknown or unresolved rows contribute to the global manual-check state.
 
@@ -222,12 +222,60 @@ Appendix 6 (code 603):
 
 Appendix 9 (interest only):
 
-- withholding source: `Mark-to-Market Performance Summary` row where `Asset Category = Withholding on Interest Received`
+- country-level gross is built from taxable `Credit Interest` rows (currently mapped to Ireland by default)
+- paid foreign tax source: `Mark-to-Market Performance Summary` row where `Asset Category = Withholding on Interest Received`
 - paid foreign tax = `abs(Mark-to-Market P/L Total)`
 - allowable credit = `APPENDIX_9_ALLOWABLE_CREDIT_RATE * credit_interest_total_eur`
 - recognized credit = `min(allowable_credit, paid_tax_abroad)`
 
 `APPENDIX_9_ALLOWABLE_CREDIT_RATE` is a code constant (default `0.10`).
+
+### Foreign Tax Credit Aggregation (Appendix 8 / 9)
+
+Final credit fields are computed at country level from additive totals.
+
+Additive values (safe to sum):
+
+- gross income in EUR
+- paid foreign tax in EUR
+
+Final/non-additive values (must be computed after aggregation):
+
+- allowable credit
+- recognized credit
+- Bulgarian tax (Appendix 8)
+- tax due (Appendix 8)
+
+Why this matters:
+
+- `min()` is non-linear, so `sum(min(...))` is generally wrong.
+
+Appendix 9 example:
+
+- same country
+- row A: gross `100`, foreign tax `15`
+- row B: gross `100`, foreign tax `0`
+- wrong row-wise (`10%` example): `min(15, 10) + min(0, 10) = 10`
+- correct aggregated:
+  - total gross `200`
+  - total foreign tax `15`
+  - allowable `20`
+  - recognized `15`
+
+Appendix 8 example:
+
+- same country totals: gross `200`, foreign tax `15`
+- Bulgarian tax = `DIVIDEND_TAX_RATE * gross` (default `5%`) => `10`
+- recognized credit = `min(15, 10) = 10`
+- tax due = `10 - 10 = 0`
+
+Internal calculations keep full precision (`Decimal`). Rounding is applied only in final rendered output.
+
+Future multi-analyzer note:
+
+- the same rule still applies after cross-analyzer aggregation is introduced
+- do not sum already-finalized recognized credits from separate analyzers for the same country
+- merge additive country totals first, then apply final `min(...)` logic once
 
 ## Dividends Processing (Appendix 8 + Appendix 6 Lieu)
 
@@ -297,8 +345,8 @@ For each country:
 
 - gross dividend EUR = sum of Cash Dividend EUR
 - foreign tax paid EUR = sum of absolute dividend-withholding EUR
-- Bulgarian dividend tax = `DIVIDEND_TAX_RATE * gross`
-- allowable credit = `min(foreign_tax_paid, Bulgarian_tax)`
+- Bulgarian dividend tax = `DIVIDEND_TAX_RATE * gross` (computed after country aggregation)
+- allowable credit = `min(foreign_tax_paid, Bulgarian_tax)` (computed after country aggregation)
 - recognized credit = allowable credit
 - tax due = `Bulgarian_tax - recognized_credit`
 
@@ -366,6 +414,22 @@ Re-run safety:
 
 - if these derived columns already exist in input, analyzer does not add duplicate columns
 - existing manual values are preserved and can be used for review overrides
+
+## Tax Credit Debug Artifacts
+
+Non-production diagnostics for country-level foreign-tax-credit math are written under:
+
+- `output/ibkr/activity_statement/_tax_credit_debug/.../tax_credit_country_debug.json`
+
+This report includes, per country:
+
+- aggregated gross
+- aggregated foreign tax paid
+- correct aggregated credit values
+- row-wise comparison values (`wrong_rowwise`)
+- delta between correct and row-wise formulas
+
+Use this only for verification. Declaration values come from the main analyzer outputs.
 
 ## Declaration TXT Output
 

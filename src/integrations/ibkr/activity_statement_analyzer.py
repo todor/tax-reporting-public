@@ -125,6 +125,7 @@ INTEREST_NON_DECLARED_TYPES = {INTEREST_TYPE_DEBIT, INTEREST_TYPE_BORROW}
 DIVIDEND_APPENDIX_8 = "Appendix 8"
 DIVIDEND_APPENDIX_6 = "Appendix 6"
 DIVIDEND_APPENDIX_UNKNOWN = "UNKNOWN"
+APPENDIX_9_DEFAULT_COUNTRY_ISO = "IE"
 
 DIVIDEND_REVIEW_REQUIRED = "REVIEW_REQUIRED"
 
@@ -477,6 +478,49 @@ class Appendix8CountryTotals:
 
 
 @dataclass(slots=True)
+class Appendix8CountryComputed:
+    country_iso: str
+    country_english: str
+    country_bulgarian: str
+    aggregated_gross_eur: Decimal = ZERO
+    aggregated_foreign_tax_paid_eur: Decimal = ZERO
+    bulgarian_tax_aggregated_eur: Decimal = ZERO
+    credit_correct_eur: Decimal = ZERO
+    credit_wrong_rowwise_eur: Decimal = ZERO
+    delta_correct_minus_rowwise_eur: Decimal = ZERO
+    tax_due_correct_eur: Decimal = ZERO
+    tax_due_wrong_rowwise_eur: Decimal = ZERO
+
+
+@dataclass(slots=True)
+class Appendix9CountryTotals:
+    country_iso: str
+    country_english: str
+    country_bulgarian: str
+    gross_interest_eur: Decimal = ZERO
+    withholding_tax_paid_eur: Decimal = ZERO
+
+
+@dataclass(slots=True)
+class Appendix9CountryComputed:
+    country_iso: str
+    country_english: str
+    country_bulgarian: str
+    aggregated_gross_eur: Decimal = ZERO
+    aggregated_foreign_tax_paid_eur: Decimal = ZERO
+    allowable_credit_aggregated_eur: Decimal = ZERO
+    recognized_credit_correct_eur: Decimal = ZERO
+    recognized_credit_wrong_rowwise_eur: Decimal = ZERO
+    delta_correct_minus_rowwise_eur: Decimal = ZERO
+
+
+@dataclass(slots=True)
+class _CountryCreditComponent:
+    gross_eur: Decimal = ZERO
+    foreign_tax_paid_eur: Decimal = ZERO
+
+
+@dataclass(slots=True)
 class AnalysisSummary:
     tax_year: int
     tax_exempt_mode: str
@@ -511,6 +555,8 @@ class AnalysisSummary:
     appendix_9_credit_interest_eur: Decimal = ZERO
     appendix_9_withholding_paid_eur: Decimal = ZERO
     appendix_9_withholding_source_found: bool = False
+    appendix_9_by_country: dict[str, Appendix9CountryTotals] = field(default_factory=dict)
+    appendix_9_country_results: dict[str, Appendix9CountryComputed] = field(default_factory=dict)
     appendix_6_lieu_received_eur: Decimal = ZERO
     dividend_tax_rate: Decimal = DIVIDEND_TAX_RATE
     dividends_processed_rows: int = 0
@@ -525,6 +571,8 @@ class AnalysisSummary:
     withholding_non_dividend_rows: int = 0
     withholding_country_errors_rows: int = 0
     appendix_8_by_country: dict[str, Appendix8CountryTotals] = field(default_factory=dict)
+    appendix_8_country_results: dict[str, Appendix8CountryComputed] = field(default_factory=dict)
+    tax_credit_debug_report_path: str = ""
     trades_data_rows_total: int = 0
     trade_discriminator_rows: int = 0
     closedlot_discriminator_rows: int = 0
@@ -901,6 +949,11 @@ def _resolve_country_from_text(country_text: str) -> tuple[str, str, str]:
     return manual_iso, text, text
 
 
+def _appendix9_default_country() -> tuple[str, str, str]:
+    english, bulgarian = COUNTRY_NAME_BY_ISO[APPENDIX_9_DEFAULT_COUNTRY_ISO]
+    return APPENDIX_9_DEFAULT_COUNTRY_ISO, english, bulgarian
+
+
 def _parse_optional_decimal(raw: str, *, row_number: int, field_name: str) -> Decimal | None:
     text = raw.strip()
     if text == "":
@@ -925,6 +978,154 @@ def _classify_status_from_description(description: str) -> str:
     if "cash dividend" in lowered or "credit interest" in lowered or "lieu received" in lowered:
         return INTEREST_STATUS_TAXABLE
     return INTEREST_STATUS_UNKNOWN
+
+
+def _extract_period_key_from_description(description: str, *, fallback: str) -> str:
+    match = re.search(r"\bfor\s+(.+)$", description, flags=re.IGNORECASE)
+    if match is None:
+        return fallback
+    period = re.sub(r"\s+", " ", match.group(1).strip())
+    return period.upper() if period else fallback
+
+
+def _country_component(
+    components: dict[str, dict[str, _CountryCreditComponent]],
+    *,
+    country_iso: str,
+    component_key: str,
+) -> _CountryCreditComponent:
+    country_components = components.get(country_iso)
+    if country_components is None:
+        country_components = {}
+        components[country_iso] = country_components
+    component = country_components.get(component_key)
+    if component is None:
+        component = _CountryCreditComponent()
+        country_components[component_key] = component
+    return component
+
+
+def _sum_rowwise_wrong_credit(
+    components: dict[str, _CountryCreditComponent],
+    *,
+    rate: Decimal,
+) -> Decimal:
+    return sum(
+        (min(component.foreign_tax_paid_eur, component.gross_eur * rate) for component in components.values()),
+        ZERO,
+    )
+
+
+def _compute_appendix8_country_results(
+    *,
+    totals_by_country: dict[str, Appendix8CountryTotals],
+    components_by_country: dict[str, dict[str, _CountryCreditComponent]],
+    dividend_tax_rate: Decimal,
+) -> dict[str, Appendix8CountryComputed]:
+    results: dict[str, Appendix8CountryComputed] = {}
+    for country_iso, totals in totals_by_country.items():
+        gross = totals.gross_dividend_eur
+        foreign_tax = totals.withholding_tax_paid_eur
+        bulgarian_tax = gross * dividend_tax_rate
+        credit_correct = min(foreign_tax, bulgarian_tax)
+        rowwise_components = components_by_country.get(country_iso, {})
+        credit_wrong_rowwise = _sum_rowwise_wrong_credit(rowwise_components, rate=dividend_tax_rate)
+        tax_due_correct = bulgarian_tax - credit_correct
+        tax_due_wrong_rowwise = bulgarian_tax - credit_wrong_rowwise
+        results[country_iso] = Appendix8CountryComputed(
+            country_iso=country_iso,
+            country_english=totals.country_english,
+            country_bulgarian=totals.country_bulgarian,
+            aggregated_gross_eur=gross,
+            aggregated_foreign_tax_paid_eur=foreign_tax,
+            bulgarian_tax_aggregated_eur=bulgarian_tax,
+            credit_correct_eur=credit_correct,
+            credit_wrong_rowwise_eur=credit_wrong_rowwise,
+            delta_correct_minus_rowwise_eur=credit_correct - credit_wrong_rowwise,
+            tax_due_correct_eur=tax_due_correct,
+            tax_due_wrong_rowwise_eur=tax_due_wrong_rowwise,
+        )
+    return results
+
+
+def _compute_appendix9_country_results(
+    *,
+    totals_by_country: dict[str, Appendix9CountryTotals],
+    components_by_country: dict[str, dict[str, _CountryCreditComponent]],
+) -> dict[str, Appendix9CountryComputed]:
+    results: dict[str, Appendix9CountryComputed] = {}
+    for country_iso, totals in totals_by_country.items():
+        gross = totals.gross_interest_eur
+        foreign_tax = totals.withholding_tax_paid_eur
+        allowable_credit = gross * APPENDIX_9_ALLOWABLE_CREDIT_RATE
+        recognized_credit = min(foreign_tax, allowable_credit)
+        rowwise_components = components_by_country.get(country_iso, {})
+        recognized_wrong_rowwise = _sum_rowwise_wrong_credit(
+            rowwise_components,
+            rate=APPENDIX_9_ALLOWABLE_CREDIT_RATE,
+        )
+        results[country_iso] = Appendix9CountryComputed(
+            country_iso=country_iso,
+            country_english=totals.country_english,
+            country_bulgarian=totals.country_bulgarian,
+            aggregated_gross_eur=gross,
+            aggregated_foreign_tax_paid_eur=foreign_tax,
+            allowable_credit_aggregated_eur=allowable_credit,
+            recognized_credit_correct_eur=recognized_credit,
+            recognized_credit_wrong_rowwise_eur=recognized_wrong_rowwise,
+            delta_correct_minus_rowwise_eur=recognized_credit - recognized_wrong_rowwise,
+        )
+    return results
+
+
+def _write_tax_credit_debug_report(
+    *,
+    output_dir: Path,
+    normalized_alias: str,
+    tax_year: int,
+    appendix8_results: dict[str, Appendix8CountryComputed],
+    appendix9_results: dict[str, Appendix9CountryComputed],
+) -> Path:
+    alias_suffix = f"_{normalized_alias}" if normalized_alias else ""
+    debug_dir = output_dir / "_tax_credit_debug" / f"ibkr_activity{alias_suffix}_{tax_year}"
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    report_path = debug_dir / "tax_credit_country_debug.json"
+
+    payload = {
+        "note": "Debug diagnostics only. Not declaration-ready output.",
+        "appendix_8": [
+            {
+                "country_iso": item.country_iso,
+                "country_english": item.country_english,
+                "country_bulgarian": item.country_bulgarian,
+                "aggregated_gross": _fmt(item.aggregated_gross_eur),
+                "aggregated_foreign_tax_paid": _fmt(item.aggregated_foreign_tax_paid_eur),
+                "bulgarian_tax_aggregated": _fmt(item.bulgarian_tax_aggregated_eur),
+                "credit_correct": _fmt(item.credit_correct_eur),
+                "credit_wrong_rowwise": _fmt(item.credit_wrong_rowwise_eur),
+                "delta_correct_minus_rowwise": _fmt(item.delta_correct_minus_rowwise_eur),
+                "tax_due_correct": _fmt(item.tax_due_correct_eur),
+                "tax_due_wrong_rowwise_if_applicable": _fmt(item.tax_due_wrong_rowwise_eur),
+            }
+            for item in sorted(appendix8_results.values(), key=lambda value: value.country_iso)
+        ],
+        "appendix_9": [
+            {
+                "country_iso": item.country_iso,
+                "country_english": item.country_english,
+                "country_bulgarian": item.country_bulgarian,
+                "aggregated_gross": _fmt(item.aggregated_gross_eur),
+                "aggregated_foreign_tax_paid": _fmt(item.aggregated_foreign_tax_paid_eur),
+                "allowable_credit_aggregated": _fmt(item.allowable_credit_aggregated_eur),
+                "recognized_credit_correct": _fmt(item.recognized_credit_correct_eur),
+                "recognized_credit_wrong_rowwise": _fmt(item.recognized_credit_wrong_rowwise_eur),
+                "delta_correct_minus_rowwise": _fmt(item.delta_correct_minus_rowwise_eur),
+            }
+            for item in sorted(appendix9_results.values(), key=lambda value: value.country_iso)
+        ],
+    }
+    report_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return report_path
 
 
 def _parse_interest_date(raw: str, *, row_number: int) -> date:
@@ -1838,9 +2039,6 @@ def _build_declaration_text(result: AnalysisResult) -> str:
     lines.append(f"- брой сделки: {app13.rows}")
     lines.append("")
 
-    allowable_credit = summary.appendix_9_credit_interest_eur * APPENDIX_9_ALLOWABLE_CREDIT_RATE
-    recognized_credit = min(allowable_credit, summary.appendix_9_withholding_paid_eur)
-
     lines.append("Приложение 6")
     lines.append("Част I")
     lines.append("Информативни")
@@ -1861,15 +2059,9 @@ def _build_declaration_text(result: AnalysisResult) -> str:
 
     lines.append("Приложение 8")
     lines.append("Част III, ред 1.N")
-    if summary.appendix_8_by_country:
-        for country_iso in sorted(summary.appendix_8_by_country):
-            bucket = summary.appendix_8_by_country[country_iso]
-            gross = bucket.gross_dividend_eur
-            foreign_tax = bucket.withholding_tax_paid_eur
-            bulgarian_tax = gross * summary.dividend_tax_rate
-            allowable = min(foreign_tax, bulgarian_tax)
-            recognized = allowable
-            tax_due = bulgarian_tax - recognized
+    if summary.appendix_8_country_results:
+        for country_iso in sorted(summary.appendix_8_country_results):
+            bucket = summary.appendix_8_country_results[country_iso]
             lines.append(
                 f"- Наименование на лицето, изплатило дохода: "
                 "Различни чуждестранни дружества (чрез Interactive Brokers)"
@@ -1877,12 +2069,12 @@ def _build_declaration_text(result: AnalysisResult) -> str:
             lines.append(f"- Държава: {bucket.country_bulgarian}")
             lines.append("- Код вид доход: 8141")
             lines.append("- Код за прилагане на метод за избягване на двойното данъчно облагане: 1")
-            lines.append(f"- Брутен размер на дохода: {_fmt(gross, quant=DECIMAL_TWO)}")
+            lines.append(f"- Брутен размер на дохода: {_fmt(bucket.aggregated_gross_eur, quant=DECIMAL_TWO)}")
             lines.append("- Документално доказана цена на придобиване: ")
-            lines.append(f"- Платен данък в чужбина: {_fmt(foreign_tax, quant=DECIMAL_TWO)}")
-            lines.append(f"- Допустим размер на данъчния кредит: {_fmt(allowable, quant=DECIMAL_TWO)}")
-            lines.append(f"- Размер на признатия данъчен кредит: {_fmt(recognized, quant=DECIMAL_TWO)}")
-            lines.append(f"- Дължим данък, подлежащ на внасяне: {_fmt(tax_due, quant=DECIMAL_TWO)}")
+            lines.append(f"- Платен данък в чужбина: {_fmt(bucket.aggregated_foreign_tax_paid_eur, quant=DECIMAL_TWO)}")
+            lines.append(f"- Допустим размер на данъчния кредит: {_fmt(bucket.credit_correct_eur, quant=DECIMAL_TWO)}")
+            lines.append(f"- Размер на признатия данъчен кредит: {_fmt(bucket.credit_correct_eur, quant=DECIMAL_TWO)}")
+            lines.append(f"- Дължим данък, подлежащ на внасяне: {_fmt(bucket.tax_due_correct_eur, quant=DECIMAL_TWO)}")
             lines.append("")
     else:
         lines.append("- Няма разпознаваеми Cash Dividend записи за данъчната година")
@@ -1890,19 +2082,49 @@ def _build_declaration_text(result: AnalysisResult) -> str:
 
     lines.append("Приложение 9")
     lines.append("Част II")
-    lines.append("- Държава: Ирландия")
-    lines.append("- Код вид доход: 603")
-    lines.append(
-        f"- Брутен размер на дохода (включително платеният данък): "
-        f"{_fmt(summary.appendix_9_credit_interest_eur, quant=DECIMAL_TWO)}"
-    )
-    lines.append("- Нормативно определени разходи: 0")
-    lines.append("- Задължителни осигурителни вноски: 0")
-    lines.append(f"- Годишна данъчна основа: {_fmt(summary.appendix_9_credit_interest_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- Платен данък в чужбина: {_fmt(summary.appendix_9_withholding_paid_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- Допустим размер на данъчния кредит: {_fmt(allowable_credit, quant=DECIMAL_TWO)}")
-    lines.append(f"- Размер на признатия данъчен кредит: {_fmt(recognized_credit, quant=DECIMAL_TWO)}")
-    lines.append("- № и дата на документа за дохода и съответния данък: R-185 / Activity Statement")
+    if summary.appendix_9_country_results:
+        for country_iso in sorted(summary.appendix_9_country_results):
+            country_result = summary.appendix_9_country_results[country_iso]
+            lines.append(f"- Държава: {country_result.country_bulgarian}")
+            lines.append("- Код вид доход: 603")
+            lines.append(
+                f"- Брутен размер на дохода (включително платеният данък): "
+                f"{_fmt(country_result.aggregated_gross_eur, quant=DECIMAL_TWO)}"
+            )
+            lines.append("- Нормативно определени разходи: 0")
+            lines.append("- Задължителни осигурителни вноски: 0")
+            lines.append(f"- Годишна данъчна основа: {_fmt(country_result.aggregated_gross_eur, quant=DECIMAL_TWO)}")
+            lines.append(f"- Платен данък в чужбина: {_fmt(country_result.aggregated_foreign_tax_paid_eur, quant=DECIMAL_TWO)}")
+            lines.append(
+                f"- Допустим размер на данъчния кредит: "
+                f"{_fmt(country_result.allowable_credit_aggregated_eur, quant=DECIMAL_TWO)}"
+            )
+            lines.append(
+                f"- Размер на признатия данъчен кредит: "
+                f"{_fmt(country_result.recognized_credit_correct_eur, quant=DECIMAL_TWO)}"
+            )
+            lines.append("- № и дата на документа за дохода и съответния данък: R-185 / Activity Statement")
+            lines.append("")
+    else:
+        lines.append("- Държава: Ирландия")
+        lines.append("- Код вид доход: 603")
+        lines.append(
+            f"- Брутен размер на дохода (включително платеният данък): "
+            f"{_fmt(summary.appendix_9_credit_interest_eur, quant=DECIMAL_TWO)}"
+        )
+        lines.append("- Нормативно определени разходи: 0")
+        lines.append("- Задължителни осигурителни вноски: 0")
+        lines.append(f"- Годишна данъчна основа: {_fmt(summary.appendix_9_credit_interest_eur, quant=DECIMAL_TWO)}")
+        lines.append(f"- Платен данък в чужбина: {_fmt(summary.appendix_9_withholding_paid_eur, quant=DECIMAL_TWO)}")
+        lines.append(
+            f"- Допустим размер на данъчния кредит: "
+            f"{_fmt(summary.appendix_9_credit_interest_eur * APPENDIX_9_ALLOWABLE_CREDIT_RATE, quant=DECIMAL_TWO)}"
+        )
+        lines.append(
+            f"- Размер на признатия данъчен кредит: "
+            f"{_fmt(min(summary.appendix_9_withholding_paid_eur, summary.appendix_9_credit_interest_eur * APPENDIX_9_ALLOWABLE_CREDIT_RATE), quant=DECIMAL_TWO)}"
+        )
+        lines.append("- № и дата на документа за дохода и съответния данък: R-185 / Activity Statement")
     lines.append("")
 
     if summary.tax_exempt_mode == TAX_MODE_EXECUTION_EXCHANGE:
@@ -1969,6 +2191,8 @@ def _build_declaration_text(result: AnalysisResult) -> str:
         "- interest withholding source found: "
         + ("YES" if summary.appendix_9_withholding_source_found else "NO")
     )
+    if summary.tax_credit_debug_report_path:
+        lines.append(f"- tax credit debug report: {summary.tax_credit_debug_report_path}")
     lines.append(f"- използвани execution борси: {', '.join(sorted(summary.exchanges_used)) or '-'}")
     lines.append(f"- review execution борси: {', '.join(sorted(summary.review_exchanges)) or '-'}")
     lines.append("")
@@ -2191,6 +2415,20 @@ def analyze_ibkr_activity_statement(
             )
             summary.appendix_8_by_country[country_iso] = bucket
         return bucket
+
+    def _appendix9_bucket(country_iso: str, country_english: str, country_bulgarian: str) -> Appendix9CountryTotals:
+        bucket = summary.appendix_9_by_country.get(country_iso)
+        if bucket is None:
+            bucket = Appendix9CountryTotals(
+                country_iso=country_iso,
+                country_english=country_english,
+                country_bulgarian=country_bulgarian,
+            )
+            summary.appendix_9_by_country[country_iso] = bucket
+        return bucket
+
+    appendix8_components: dict[str, dict[str, _CountryCreditComponent]] = {}
+    appendix9_components: dict[str, dict[str, _CountryCreditComponent]] = {}
 
     consumed_closedlots: set[int] = set()
     current_trades_header: _ActiveHeader | None = None
@@ -2645,6 +2883,18 @@ def analyze_ibkr_activity_statement(
                 if normalized_type == INTEREST_TYPE_CREDIT:
                     summary.appendix_9_credit_interest_eur += amount_eur
                     summary.appendix_6_credit_interest_eur += amount_eur
+                    country_iso, country_english, country_bulgarian = _appendix9_default_country()
+                    appendix9_bucket = _appendix9_bucket(country_iso, country_english, country_bulgarian)
+                    appendix9_bucket.gross_interest_eur += amount_eur
+                    period_key = _extract_period_key_from_description(
+                        description,
+                        fallback=f"INTEREST_ROW_{row_number}",
+                    )
+                    _country_component(
+                        appendix9_components,
+                        country_iso=country_iso,
+                        component_key=period_key,
+                    ).gross_eur += amount_eur
                 elif normalized_type == INTEREST_TYPE_SYEP:
                     summary.appendix_6_syep_interest_eur += amount_eur
                 else:
@@ -2805,6 +3055,12 @@ def analyze_ibkr_activity_statement(
                     country_iso, country_english, country_bulgarian = _resolve_country_from_text(effective_country_text)
                     summary.dividends_cash_rows += 1
                     _appendix8_bucket(country_iso, country_english, country_bulgarian).gross_dividend_eur += effective_amount_eur
+                    component_key = effective_isin or f"DIVIDEND_ROW_{row_number}"
+                    _country_component(
+                        appendix8_components,
+                        country_iso=country_iso,
+                        component_key=component_key,
+                    ).gross_eur += effective_amount_eur
             elif effective_appendix == DIVIDEND_APPENDIX_6:
                 summary.dividends_lieu_rows += 1
                 summary.appendix_6_lieu_received_eur += effective_amount_eur
@@ -2858,8 +3114,6 @@ def analyze_ibkr_activity_statement(
         )
 
     current_withholding_header: _ActiveHeader | None = None
-    appendix_9_withholding_from_section_eur = ZERO
-    appendix_9_withholding_from_section_found = False
     for row_idx, row in enumerate(rows):
         row_number = row_idx + 1
         if len(row) < 2 or row[0] != "Withholding Tax":
@@ -3057,9 +3311,17 @@ def analyze_ibkr_activity_statement(
                 else:
                     country_iso, country_english, country_bulgarian = _resolve_country_from_text(effective_country_text)
                     _appendix8_bucket(country_iso, country_english, country_bulgarian).withholding_tax_paid_eur += abs(effective_amount_eur)
+                    component_key = effective_isin or f"WITHHOLDING_ROW_{row_number}"
+                    _country_component(
+                        appendix8_components,
+                        country_iso=country_iso,
+                        component_key=component_key,
+                    ).foreign_tax_paid_eur += abs(effective_amount_eur)
             elif effective_appendix == "Appendix 9":
-                appendix_9_withholding_from_section_eur += abs(effective_amount_eur)
-                appendix_9_withholding_from_section_found = True
+                # Appendix 9 paid foreign tax source of truth is Mark-to-Market
+                # ("Withholding on Interest Received"). Appendix 9 rows in this
+                # section stay informational/enriched and do not drive totals.
+                pass
             else:
                 summary.review_required_rows += 1
                 summary.warnings.append(
@@ -3067,17 +3329,50 @@ def analyze_ibkr_activity_statement(
                 )
 
     withholding_found = False
-    if appendix_9_withholding_from_section_found:
-        summary.appendix_9_withholding_paid_eur = appendix_9_withholding_from_section_eur
-        summary.appendix_9_withholding_source_found = True
-        withholding_found = True
-    else:
-        withholding_paid_eur, withholding_found = _extract_interest_withholding_paid_eur(
-            rows,
-            active_headers=active_headers,
-        )
-        summary.appendix_9_withholding_paid_eur = withholding_paid_eur
-        summary.appendix_9_withholding_source_found = withholding_found
+    withholding_paid_eur, withholding_found = _extract_interest_withholding_paid_eur(
+        rows,
+        active_headers=active_headers,
+    )
+    if withholding_paid_eur > ZERO:
+        country_iso, country_english, country_bulgarian = _appendix9_default_country()
+        appendix9_bucket = _appendix9_bucket(country_iso, country_english, country_bulgarian)
+        appendix9_bucket.withholding_tax_paid_eur += withholding_paid_eur
+        _country_component(
+            appendix9_components,
+            country_iso=country_iso,
+            component_key="MTM_SOURCE",
+        ).foreign_tax_paid_eur += withholding_paid_eur
+    summary.appendix_9_withholding_paid_eur = withholding_paid_eur
+    summary.appendix_9_withholding_source_found = withholding_found
+
+    summary.appendix_9_credit_interest_eur = sum(
+        (bucket.gross_interest_eur for bucket in summary.appendix_9_by_country.values()),
+        ZERO,
+    )
+    summary.appendix_9_withholding_paid_eur = sum(
+        (bucket.withholding_tax_paid_eur for bucket in summary.appendix_9_by_country.values()),
+        ZERO,
+    )
+
+    summary.appendix_8_country_results = _compute_appendix8_country_results(
+        totals_by_country=summary.appendix_8_by_country,
+        components_by_country=appendix8_components,
+        dividend_tax_rate=summary.dividend_tax_rate,
+    )
+    summary.appendix_9_country_results = _compute_appendix9_country_results(
+        totals_by_country=summary.appendix_9_by_country,
+        components_by_country=appendix9_components,
+    )
+
+    tax_credit_debug_report_path = _write_tax_credit_debug_report(
+        output_dir=out_dir,
+        normalized_alias=normalized_alias,
+        tax_year=tax_year,
+        appendix8_results=summary.appendix_8_country_results,
+        appendix9_results=summary.appendix_9_country_results,
+    )
+    summary.tax_credit_debug_report_path = str(tax_credit_debug_report_path)
+
     summary.appendix_6_code_603_eur = (
         summary.appendix_6_credit_interest_eur
         + summary.appendix_6_syep_interest_eur
@@ -3609,6 +3904,8 @@ def main() -> int:
     print(f"sanity_forex_ignored_rows: {summary.sanity_forex_ignored_rows}")
     print(f"Modified CSV: {result.output_csv_path}")
     print(f"Declaration TXT: {result.declaration_txt_path}")
+    if summary.tax_credit_debug_report_path:
+        print(f"Tax credit debug report: {summary.tax_credit_debug_report_path}")
     print(f"Sanity-check debug artifacts written to: {summary.sanity_debug_artifacts_dir}")
     print("These are verification artifacts, not production tax outputs.")
     if summary.warnings:

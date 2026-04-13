@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 from integrations.ibkr.activity_statement_analyzer import (
+    APPENDIX_9_ALLOWABLE_CREDIT_RATE,
+    DIVIDEND_TAX_RATE,
     EXCHANGE_CLASS_EU_NON_REGULATED,
     EXCHANGE_CLASS_EU_REGULATED,
     EXCHANGE_CLASS_UNKNOWN,
@@ -233,6 +235,12 @@ def _run(
         output_dir=tmp_path / "out",
         fx_rate_provider=_fx_provider,
     )
+
+
+def _tax_credit_debug_payload(result) -> dict[str, object]:
+    debug_path = Path(result.summary.tax_credit_debug_report_path)
+    assert debug_path.exists()
+    return json.loads(debug_path.read_text(encoding="utf-8"))
 
 
 def _trades_header_and_data(rows: list[list[str]]) -> tuple[list[str], list[list[str]]]:
@@ -1457,6 +1465,55 @@ def test_appendix_9_allowable_credit_uses_code_constant(tmp_path: Path, monkeypa
     assert "Размер на признатия данъчен кредит: 4.00" in text
 
 
+def test_appendix_9_country_level_credit_is_not_rowwise(tmp_path: Path) -> None:
+    rows = _base_rows()
+    rows.extend(
+        [
+            ["Interest", "Header", "Currency", "Date", "Description", "Amount"],
+            ["Interest", "Data", "EUR", "2025-01-05", "EUR Credit Interest for Jan-2025", "100"],
+            ["Interest", "Data", "EUR", "2025-02-05", "EUR Credit Interest for Feb-2025", "100"],
+            ["Mark-to-Market Performance Summary", "Header", "Asset Category", "Mark-to-Market P/L Total"],
+            ["Mark-to-Market Performance Summary", "Data", "Withholding on Interest Received", "-15"],
+        ]
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert len(result.summary.appendix_9_country_results) == 1
+    country = result.summary.appendix_9_country_results["IE"]
+    assert country.aggregated_gross_eur == Decimal("200")
+    assert country.aggregated_foreign_tax_paid_eur == Decimal("15")
+    assert country.allowable_credit_aggregated_eur == Decimal("200") * APPENDIX_9_ALLOWABLE_CREDIT_RATE
+    assert country.recognized_credit_correct_eur == Decimal("15")
+    assert country.recognized_credit_wrong_rowwise_eur == Decimal("0")
+    assert country.delta_correct_minus_rowwise_eur == Decimal("15")
+
+    payload = _tax_credit_debug_payload(result)
+    assert "_tax_credit_debug" in result.summary.tax_credit_debug_report_path
+    appendix_9_entries = payload["appendix_9"]
+    assert isinstance(appendix_9_entries, list)
+    ie_entry = next(item for item in appendix_9_entries if item["country_iso"] == "IE")
+    assert Decimal(ie_entry["recognized_credit_correct"]) == Decimal("15")
+    assert Decimal(ie_entry["recognized_credit_wrong_rowwise"]) == Decimal("0")
+    assert Decimal(ie_entry["delta_correct_minus_rowwise"]) == Decimal("15")
+
+
+def test_appendix_9_country_level_uses_mtm_source_of_paid_tax(tmp_path: Path) -> None:
+    rows = _base_rows()
+    rows.extend(
+        [
+            ["Interest", "Header", "Currency", "Date", "Description", "Amount"],
+            ["Interest", "Data", "EUR", "2025-01-05", "EUR Credit Interest for Jan-2025", "100"],
+            ["Interest", "Data", "EUR", "2025-02-05", "EUR Credit Interest for Feb-2025", "100"],
+            ["Mark-to-Market Performance Summary", "Header", "Asset Category", "Mark-to-Market P/L Total"],
+            ["Mark-to-Market Performance Summary", "Data", "Withholding on Interest Received", "-20"],
+        ]
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    country = result.summary.appendix_9_country_results["IE"]
+    assert country.recognized_credit_correct_eur == Decimal("20")
+    assert country.recognized_credit_wrong_rowwise_eur == Decimal("0")
+    assert country.delta_correct_minus_rowwise_eur == Decimal("20")
+
+
 def test_interest_output_rendering_contains_appendix_6_and_review_warning(tmp_path: Path) -> None:
     rows = _rows_with_interest(
         [
@@ -1673,7 +1730,8 @@ def test_withholding_review_status_taxable_uses_manual_values_for_aggregation(tm
     )
     result = _run(tmp_path, rows, mode="listed_symbol")
     assert result.summary.appendix_8_by_country["LU"].withholding_tax_paid_eur == Decimal("5")
-    assert result.summary.appendix_9_withholding_paid_eur == Decimal("2")
+    assert result.summary.appendix_9_withholding_paid_eur == Decimal("4")
+    assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("4")
 
 def test_appendix_8_tax_credit_math_uses_configurable_rate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import integrations.ibkr.activity_statement_analyzer as module
@@ -1696,6 +1754,56 @@ def test_appendix_8_tax_credit_math_uses_configurable_rate(tmp_path: Path, monke
     assert "Допустим размер на данъчния кредит: 7.00" in text
     assert "Размер на признатия данъчен кредит: 7.00" in text
     assert "Дължим данък, подлежащ на внасяне: 3.00" in text
+
+
+def test_appendix_8_country_level_credit_is_not_rowwise(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+            ["Dividends", "Data", "EUR", "2025-03-02", "BBB(US2222222222) Cash Dividend EUR 1.00 per Share", "100"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "-15", ""],
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "BBB(US2222222222) Cash Dividend EUR 1.00 per Share - US Tax", "0", ""],
+        ],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    country = result.summary.appendix_8_country_results["US"]
+    assert len(result.summary.appendix_8_country_results) == 1
+    assert country.aggregated_gross_eur == Decimal("200")
+    assert country.aggregated_foreign_tax_paid_eur == Decimal("15")
+    assert country.bulgarian_tax_aggregated_eur == Decimal("200") * DIVIDEND_TAX_RATE
+    assert country.credit_correct_eur == Decimal("10")
+    assert country.credit_wrong_rowwise_eur == Decimal("5")
+    assert country.delta_correct_minus_rowwise_eur == Decimal("5")
+    assert country.tax_due_correct_eur == Decimal("0")
+    assert country.tax_due_wrong_rowwise_eur == Decimal("5")
+
+    payload = _tax_credit_debug_payload(result)
+    appendix_8_entries = payload["appendix_8"]
+    assert isinstance(appendix_8_entries, list)
+    us_entry = next(item for item in appendix_8_entries if item["country_iso"] == "US")
+    assert Decimal(us_entry["credit_correct"]) == Decimal("10")
+    assert Decimal(us_entry["credit_wrong_rowwise"]) == Decimal("5")
+    assert Decimal(us_entry["delta_correct_minus_rowwise"]) == Decimal("5")
+
+
+def test_appendix_8_country_level_regression_when_rowwise_matches(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+            ["Dividends", "Data", "EUR", "2025-03-02", "BBB(US2222222222) Cash Dividend EUR 1.00 per Share", "100"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "-2", ""],
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "BBB(US2222222222) Cash Dividend EUR 1.00 per Share - US Tax", "-2", ""],
+        ],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    country = result.summary.appendix_8_country_results["US"]
+    assert country.credit_correct_eur == Decimal("4")
+    assert country.credit_wrong_rowwise_eur == Decimal("4")
+    assert country.delta_correct_minus_rowwise_eur == Decimal("0")
 
 
 def test_appendix_6_includes_lieu_with_interest_contributors(tmp_path: Path) -> None:

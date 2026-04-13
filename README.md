@@ -205,6 +205,10 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
   --report-alias account1
 ```
 
+IBKR appendix credit math note:
+
+- Appendix 8 and Appendix 9 foreign-tax-credit fields are computed at country level from aggregated additive values (gross + paid foreign tax), then final `min(...)` logic is applied.
+
 ## Crypto FX (`services.crypto_fx`)
 
 `get_crypto_eur_rate(symbol_or_pair, timestamp, exchange, is_future=False)` resolves to a target symbol and returns EUR value for 1 unit of that symbol:
