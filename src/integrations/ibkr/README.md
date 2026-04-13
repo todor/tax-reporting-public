@@ -116,13 +116,14 @@ If the active section header contains a `Review Status` column, the analyzer use
 - if input has `Review Status`:
   - `TAXABLE` -> force taxable
   - `NON-TAXABLE` -> force non-taxable
+  - `UNKNOWN` / `REVIEW-REQUIRED` -> force unknown/manual review
 - empty -> keep automatic classification
 - any other value -> warning + manual review required
 
 ### Dividends
 
 - `Review Status` is a human-input override field; analyzer does not auto-fill it
-- analyzer auto-fills `Status` (`TAXABLE` / `NON-TAXABLE` / `UNKNOWN`)
+- analyzer auto-fills `Status` (`TAXABLE` / `UNKNOWN`)
 - if input has `Review Status`, it is honored:
   - `TAXABLE` -> keep/include as taxable
   - `NON-TAXABLE` -> exclude from declaration totals
@@ -137,7 +138,7 @@ If the active section header contains a `Review Status` column, the analyzer use
 
 - supports human `Review Status` override using the same rules
 - `Review Status` is human-input; analyzer does not auto-fill it
-- analyzer auto-fills `Status` (`TAXABLE` / `NON-TAXABLE` / `UNKNOWN`)
+- analyzer auto-fills `Status` (`TAXABLE` / `UNKNOWN`)
 - for taxable rows, manual `Country` / `Amount (EUR)` are used if present
 - if manual values are empty, analyzer auto-fills when it can
 - expected values are `TAXABLE` / `NON-TAXABLE` (or empty)
