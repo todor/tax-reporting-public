@@ -208,6 +208,7 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
 IBKR appendix credit math note:
 
 - Appendix 8 and Appendix 9 foreign-tax-credit fields are computed at country level from aggregated additive values (gross + paid foreign tax), then final `min(...)` logic is applied.
+- IBKR also runs a minimal open-position reconciliation safety check (`Open Positions Summary` vs signed `Trades Order` quantities, by canonical instrument) and triggers manual review on mismatch/unmatched instruments.
 
 ## Crypto FX (`services.crypto_fx`)
 

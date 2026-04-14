@@ -300,6 +300,67 @@ def _rows_with_dividends_and_withholding(
     return rows
 
 
+def _rows_for_open_position_check(
+    *,
+    open_rows: list[tuple[str, str]],
+    trade_rows: list[tuple[str, str]],
+    listing_symbol: str = "4GLD, 4GLDd",
+) -> list[list[str]]:
+    rows: list[list[str]] = [
+        ["Statement", "Header", "Field", "Value"],
+        ["Statement", "Data", "Account", "U123"],
+        ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch"],
+        ["Financial Instrument Information", "Data", "Stocks", listing_symbol, "IBIS2"],
+        [
+            "Trades",
+            "Header",
+            "Asset Category",
+            "Currency",
+            "Symbol",
+            "Date/Time",
+            "Exchange",
+            "Code",
+            "Proceeds",
+            "Quantity",
+            "DataDiscriminator",
+            "Basis",
+        ],
+    ]
+    for symbol, quantity in trade_rows:
+        rows.append(
+            [
+                "Trades",
+                "Data",
+                "Stocks",
+                "USD",
+                symbol,
+                "2025-01-10, 10:00:00",
+                "IBIS2",
+                "",
+                "0",
+                quantity,
+                "Order",
+                "",
+            ]
+        )
+
+    rows.append(
+        ["Open Positions", "Header", "Asset Category", "Symbol", "Summary Quantity", "DataDiscriminator"]
+    )
+    for symbol, quantity in open_rows:
+        rows.append(
+            [
+                "Open Positions",
+                "Data",
+                "Stocks",
+                symbol,
+                quantity,
+                "Summary",
+            ]
+        )
+    return rows
+
+
 def _dividends_header_and_data(rows: list[list[str]]) -> tuple[list[str], list[list[str]]]:
     header: list[str] | None = None
     data_rows: list[list[str]] = []
@@ -338,6 +399,81 @@ def test_exchange_normalization_aliases() -> None:
     assert _classify_exchange("EUIBSILP") == EXCHANGE_CLASS_EU_NON_REGULATED
     assert _classify_exchange("GETTEX2") == EXCHANGE_CLASS_EU_NON_REGULATED
     assert _classify_exchange("UNKNOWNX") == EXCHANGE_CLASS_UNKNOWN
+
+
+def test_open_position_reconciliation_happy_path(tmp_path: Path) -> None:
+    rows = _rows_for_open_position_check(
+        open_rows=[("4GLD", "7")],
+        trade_rows=[("4GLDd", "10"), ("4GLDd", "-3")],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.review_required_rows == 0
+    assert all(
+        "OPEN_POSITION_TRADE_QTY_MISMATCH" not in warning
+        and "OPEN_POSITION_UNMATCHED_INSTRUMENT" not in warning
+        and "TRADE_UNMATCHED_INSTRUMENT" not in warning
+        for warning in result.summary.warnings
+    )
+
+
+def test_open_position_reconciliation_alias_symbols_are_matched(tmp_path: Path) -> None:
+    rows = _rows_for_open_position_check(
+        open_rows=[("4GLD", "5")],
+        trade_rows=[("4GLDd", "5")],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.review_required_rows == 0
+    assert not any("OPEN_POSITION_TRADE_QTY_MISMATCH" in warning for warning in result.summary.warnings)
+
+
+def test_open_position_reconciliation_quantity_mismatch_triggers_review(tmp_path: Path) -> None:
+    rows = _rows_for_open_position_check(
+        open_rows=[("4GLD", "6")],
+        trade_rows=[("4GLDd", "7")],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.review_required_rows >= 1
+    assert any("OPEN_POSITION_TRADE_QTY_MISMATCH" in warning for warning in result.summary.warnings)
+
+
+def test_open_position_reconciliation_unmatched_open_position_symbol_triggers_review(tmp_path: Path) -> None:
+    rows = _rows_for_open_position_check(
+        open_rows=[("UNKNOWN", "5")],
+        trade_rows=[("4GLDd", "5")],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.review_required_rows >= 1
+    assert any("OPEN_POSITION_UNMATCHED_INSTRUMENT" in warning for warning in result.summary.warnings)
+
+
+def test_open_position_reconciliation_unmatched_trade_symbol_triggers_review(tmp_path: Path) -> None:
+    rows = _rows_for_open_position_check(
+        open_rows=[("4GLD", "5")],
+        trade_rows=[("UNKNOWN", "5")],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.review_required_rows >= 1
+    assert any("TRADE_UNMATCHED_INSTRUMENT" in warning for warning in result.summary.warnings)
+
+
+def test_open_position_reconciliation_accepts_comma_formatted_quantities(tmp_path: Path) -> None:
+    rows = _rows_for_open_position_check(
+        open_rows=[("4GLD", "1,001")],
+        trade_rows=[("4GLDd", "1,001")],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.review_required_rows == 0
+    assert not any("invalid order quantity" in warning for warning in result.summary.warnings)
+
+
+def test_open_position_reconciliation_treats_empty_quantity_as_zero(tmp_path: Path) -> None:
+    rows = _rows_for_open_position_check(
+        open_rows=[("4GLD", "")],
+        trade_rows=[("4GLDd", "")],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.review_required_rows == 0
+    assert not any("invalid order quantity" in warning for warning in result.summary.warnings)
 
 
 def test_financial_instrument_parsing_supports_stocks_and_treasury_bills(tmp_path: Path) -> None:

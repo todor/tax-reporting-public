@@ -93,6 +93,7 @@ ADDED_TRADES_COLUMNS = [
 DECIMAL_TWO = Decimal("0.01")
 DECIMAL_EIGHT = Decimal("0.00000001")
 ZERO = Decimal("0")
+QTY_RECONCILIATION_EPSILON = DECIMAL_EIGHT
 APPENDIX_9_ALLOWABLE_CREDIT_RATE = Decimal("0.10")
 DIVIDEND_TAX_RATE = Decimal("0.05")
 
@@ -128,6 +129,9 @@ DIVIDEND_APPENDIX_UNKNOWN = "UNKNOWN"
 APPENDIX_9_DEFAULT_COUNTRY_ISO = "IE"
 
 DIVIDEND_REVIEW_REQUIRED = "REVIEW_REQUIRED"
+REVIEW_REASON_OPEN_POSITION_TRADE_QTY_MISMATCH = "OPEN_POSITION_TRADE_QTY_MISMATCH"
+REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT = "OPEN_POSITION_UNMATCHED_INSTRUMENT"
+REVIEW_REASON_TRADE_UNMATCHED_INSTRUMENT = "TRADE_UNMATCHED_INSTRUMENT"
 
 COUNTRY_NAME_BY_ISO: dict[str, tuple[str, str]] = {
     "AD": ("Andorra", "Андора"),
@@ -381,21 +385,27 @@ COUNTRY_NAME_BY_ISO: dict[str, tuple[str, str]] = {
     "ZW": ("Zimbabwe", "Зимбабве"),
 }
 
-COUNTRY_NAME_ALIASES_TO_ISO: dict[str, str] = {
-    "UNITED STATES OF AMERICA": "US",
-    "UNITED STATES": "US",
-    "USA": "US",
-    "U S A": "US",
-    "US": "US",
-    "САЩ": "US",
-    "СЪЕДИНЕНИ ЩАТИ": "US",
-    "UNITED KINGDOM": "GB",
-    "GREAT BRITAIN": "GB",
-    "UK": "GB",
-    "ОБЕДИНЕНО КРАЛСТВО": "GB",
-    "ОБЕДИНЕНОТО КРАЛСТВО": "GB",
-    "ВЕЛИКОБРИТАНИЯ": "GB",
-}
+def _normalize_country_lookup_key(value: str) -> str:
+    return re.sub(r"[^A-Za-zА-Яа-я0-9]+", " ", value, flags=re.UNICODE).strip().upper()
+
+
+def _build_country_reverse_lookup() -> dict[str, str]:
+    by_key: dict[str, set[str]] = {}
+    for iso, (english, bulgarian) in COUNTRY_NAME_BY_ISO.items():
+        for candidate in (iso, english, bulgarian):
+            key = _normalize_country_lookup_key(candidate)
+            if key == "":
+                continue
+            by_key.setdefault(key, set()).add(iso)
+
+    resolved: dict[str, str] = {}
+    for key, isos in by_key.items():
+        if len(isos) == 1:
+            resolved[key] = next(iter(isos))
+    return resolved
+
+
+COUNTRY_NAME_TO_ISO = _build_country_reverse_lookup()
 
 DEFAULT_OUTPUT_DIR = OUTPUT_DIR / "ibkr" / "activity_statement"
 
@@ -440,6 +450,7 @@ class FxConversionError(IbkrAnalyzerError):
 @dataclass(slots=True)
 class InstrumentListing:
     symbol: str
+    canonical_symbol: str
     listing_exchange: str
     listing_exchange_normalized: str
     listing_exchange_class: str
@@ -809,6 +820,22 @@ class _InterestFieldIndexes:
 
 
 @dataclass(slots=True)
+class _OpenPositionsFieldIndexes:
+    asset: int
+    symbol: int
+    quantity: int
+    discriminator: int
+
+
+@dataclass(slots=True)
+class _TradeOrderFieldIndexes:
+    asset: int
+    symbol: int
+    quantity: int
+    discriminator: int
+
+
+@dataclass(slots=True)
 class _DividendsFieldIndexes:
     currency: int
     date: int
@@ -896,6 +923,26 @@ def _interest_indexes(active_header: _ActiveHeader) -> _InterestFieldIndexes:
     )
 
 
+def _open_positions_indexes(active_header: _ActiveHeader) -> _OpenPositionsFieldIndexes:
+    section_name = f"Open Positions header at row {active_header.row_number}"
+    return _OpenPositionsFieldIndexes(
+        asset=_index_for(active_header.headers, "Asset Category", section_name=section_name),
+        symbol=_index_for(active_header.headers, "Symbol", section_name=section_name),
+        quantity=_index_for(active_header.headers, "Summary Quantity", "Quantity", section_name=section_name),
+        discriminator=_index_for(active_header.headers, "DataDiscriminator", "Data Discriminator", section_name=section_name),
+    )
+
+
+def _trade_order_indexes(active_header: _ActiveHeader) -> _TradeOrderFieldIndexes:
+    section_name = f"Trades header at row {active_header.row_number}"
+    return _TradeOrderFieldIndexes(
+        asset=_index_for(active_header.headers, "Asset Category", section_name=section_name),
+        symbol=_index_for(active_header.headers, "Symbol", section_name=section_name),
+        quantity=_index_for(active_header.headers, "Quantity", "Qty", section_name=section_name),
+        discriminator=_index_for(active_header.headers, "DataDiscriminator", "Data Discriminator", section_name=section_name),
+    )
+
+
 def _normalize_review_status(raw: str) -> str:
     normalized = raw.strip().upper().replace("_", "-")
     normalized = re.sub(r"\s+", "-", normalized)
@@ -933,18 +980,12 @@ def _resolve_country_from_text(country_text: str) -> tuple[str, str, str]:
     text = country_text.strip()
     if text == "":
         raise IbkrAnalyzerError("empty country value")
-    normalized_text = re.sub(r"[^A-Za-zА-Яа-я0-9]+", " ", text, flags=re.UNICODE).strip().upper()
-    alias_iso = COUNTRY_NAME_ALIASES_TO_ISO.get(normalized_text)
-    if alias_iso is not None:
-        english, bulgarian = COUNTRY_NAME_BY_ISO[alias_iso]
-        return alias_iso, english, bulgarian
+    normalized_text = _normalize_country_lookup_key(text)
+    resolved_iso = COUNTRY_NAME_TO_ISO.get(normalized_text)
+    if resolved_iso is not None:
+        english, bulgarian = COUNTRY_NAME_BY_ISO[resolved_iso]
+        return resolved_iso, english, bulgarian
     upper = text.upper()
-    if upper in COUNTRY_NAME_BY_ISO:
-        english, bulgarian = COUNTRY_NAME_BY_ISO[upper]
-        return upper, english, bulgarian
-    for iso, (english, bulgarian) in COUNTRY_NAME_BY_ISO.items():
-        if text.casefold() == english.casefold() or text.casefold() == bulgarian.casefold():
-            return iso, english, bulgarian
     manual_iso = f"MANUAL:{upper}"
     return manual_iso, text, text
 
@@ -1278,12 +1319,157 @@ def _resolve_tax_target(
     return APPENDIX_REVIEW, "EU-listed + unknown execution", True
 
 
+def _run_open_position_trade_quantity_reconciliation(
+    *,
+    rows: list[list[str]],
+    active_headers: dict[int, _ActiveHeader],
+    listings: dict[str, InstrumentListing],
+) -> list[str]:
+    warnings: list[str] = []
+    open_qty_by_key: dict[tuple[str, str], Decimal] = {}
+    trade_qty_by_key: dict[tuple[str, str], Decimal] = {}
+
+    def add_qty(bucket: dict[tuple[str, str], Decimal], *, asset_category: str, canonical_symbol: str, quantity: Decimal) -> None:
+        key = (asset_category, canonical_symbol)
+        bucket[key] = bucket.get(key, ZERO) + quantity
+
+    def canonical_symbol_for_row(*, asset_category: str, symbol_raw: str) -> tuple[str | None, str | None]:
+        instrument, _normalized_symbol, forced_reason = _resolve_instrument_for_trade_symbol(
+            asset_category=asset_category,
+            trade_symbol=symbol_raw,
+            listings=listings,
+        )
+        if instrument is None:
+            return None, forced_reason or "symbol was not resolved via Financial Instrument Information"
+        return instrument.canonical_symbol, None
+
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        if len(row) < 2 or row[0] != "Open Positions" or row[1] != "Data":
+            continue
+        active_header = active_headers.get(row_idx)
+        if active_header is None:
+            warnings.append(
+                f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} reason=Open Positions row encountered before header"
+            )
+            continue
+        try:
+            field_idx = _open_positions_indexes(active_header)
+        except CsvStructureError as exc:
+            warnings.append(f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} reason={exc}")
+            continue
+
+        base_len = 2 + len(active_header.headers)
+        padded = row + [""] * (base_len - len(row))
+        data = padded[2 : 2 + len(active_header.headers)]
+        discriminator = data[field_idx.discriminator].strip().lower()
+        if discriminator != "summary":
+            continue
+        asset_category = data[field_idx.asset].strip()
+        if not _is_supported_asset(asset_category):
+            continue
+        symbol_raw = data[field_idx.symbol].strip()
+        quantity = _parse_reconciliation_quantity(data[field_idx.quantity])
+        if quantity is None:
+            warnings.append(
+                f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason=invalid summary quantity"
+            )
+            continue
+        canonical_symbol, resolve_error = canonical_symbol_for_row(
+            asset_category=asset_category,
+            symbol_raw=symbol_raw,
+        )
+        if canonical_symbol is None:
+            warnings.append(
+                f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason={resolve_error}"
+            )
+            continue
+        add_qty(
+            open_qty_by_key,
+            asset_category=asset_category,
+            canonical_symbol=canonical_symbol,
+            quantity=quantity,
+        )
+
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        if len(row) < 2 or row[0] != "Trades" or row[1] != "Data":
+            continue
+        active_header = active_headers.get(row_idx)
+        if active_header is None:
+            warnings.append(
+                f"{REVIEW_REASON_TRADE_UNMATCHED_INSTRUMENT}: row={row_number} reason=Trades row encountered before header"
+            )
+            continue
+        try:
+            field_idx = _trade_order_indexes(active_header)
+        except CsvStructureError:
+            continue
+
+        base_len = 2 + len(active_header.headers)
+        padded = row + [""] * (base_len - len(row))
+        data = padded[2 : 2 + len(active_header.headers)]
+        discriminator = data[field_idx.discriminator].strip().lower()
+        if discriminator != "order":
+            continue
+        asset_category = data[field_idx.asset].strip()
+        if not _is_supported_asset(asset_category):
+            continue
+        symbol_raw = data[field_idx.symbol].strip()
+        quantity = _parse_reconciliation_quantity(data[field_idx.quantity])
+        if quantity is None:
+            warnings.append(
+                f"{REVIEW_REASON_TRADE_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason=invalid order quantity"
+            )
+            continue
+        canonical_symbol, resolve_error = canonical_symbol_for_row(
+            asset_category=asset_category,
+            symbol_raw=symbol_raw,
+        )
+        if canonical_symbol is None:
+            warnings.append(
+                f"{REVIEW_REASON_TRADE_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason={resolve_error}"
+            )
+            continue
+        add_qty(
+            trade_qty_by_key,
+            asset_category=asset_category,
+            canonical_symbol=canonical_symbol,
+            quantity=quantity,
+        )
+
+    for asset_category, canonical_symbol in sorted(set(open_qty_by_key) | set(trade_qty_by_key)):
+        expected_open_qty = trade_qty_by_key.get((asset_category, canonical_symbol), ZERO)
+        actual_open_qty = open_qty_by_key.get((asset_category, canonical_symbol), ZERO)
+        diff = expected_open_qty - actual_open_qty
+        if abs(diff) <= QTY_RECONCILIATION_EPSILON:
+            continue
+        warnings.append(
+            f"{REVIEW_REASON_OPEN_POSITION_TRADE_QTY_MISMATCH}: "
+            f"asset={asset_category} symbol={canonical_symbol} expected_open_qty={_fmt(expected_open_qty)} "
+            f"actual_open_qty={_fmt(actual_open_qty)} diff={_fmt(diff)}"
+        )
+
+    return warnings
+
+
 def _try_parse_decimal(raw: str) -> Decimal | None:
     text = raw.strip()
     if text == "":
         return None
     try:
         return Decimal(text)
+    except InvalidOperation:
+        return None
+
+
+def _parse_reconciliation_quantity(raw: str) -> Decimal | None:
+    text = raw.strip()
+    if text == "":
+        return ZERO
+    cleaned = text.replace(",", "")
+    try:
+        return Decimal(cleaned)
     except InvalidOperation:
         return None
 
@@ -2253,9 +2439,11 @@ def _parse_instrument_listings_with_headers(
         listing_class = _classify_exchange(listing_exchange)
         is_eu_listed = listing_class == EXCHANGE_CLASS_EU_REGULATED
 
+        canonical_symbol = symbols[0]
         for symbol in symbols:
             new_item = InstrumentListing(
                 symbol=symbol,
+                canonical_symbol=canonical_symbol,
                 listing_exchange=listing_exchange,
                 listing_exchange_normalized=listing_exchange_normalized,
                 listing_exchange_class=listing_class,
@@ -2361,6 +2549,13 @@ def analyze_ibkr_activity_statement(
         tax_exempt_mode=tax_exempt_mode,
         dividend_tax_rate=DIVIDEND_TAX_RATE,
     )
+    reconciliation_warnings = _run_open_position_trade_quantity_reconciliation(
+        rows=rows,
+        active_headers=active_headers,
+        listings=listings,
+    )
+    summary.review_required_rows += len(reconciliation_warnings)
+    summary.warnings.extend(reconciliation_warnings)
 
     def _set_trade_extras(row_idx: int, values: dict[str, str]) -> None:
         extras = [""] * len(ADDED_TRADES_COLUMNS)

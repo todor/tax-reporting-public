@@ -85,6 +85,35 @@ Implications:
 - section schemas are never mixed
 - `Data` before matching `Header` fails loudly
 
+## Open Position Reconciliation Safety Check
+
+The analyzer runs a minimal consistency check to flag suspicious open positions for manual review.
+
+What is compared:
+
+- `Open Positions` rows with `DataDiscriminator=Summary` (summary quantity)
+- `Trades` rows with `DataDiscriminator=Order` (signed quantity from CSV, no sign transformation)
+
+Quantity parsing in this check is normalized for IBKR formatting:
+
+- comma thousands separators are accepted (for example `1,001`)
+- empty quantity is treated as `0`
+
+Both sides are normalized to the canonical instrument using the same Financial Instrument Information mapping logic (including symbol aliases such as `4GLD` / `4GLDd`).
+
+Manual review is triggered when:
+
+- open-position summary row cannot be matched to canonical instrument (`OPEN_POSITION_UNMATCHED_INSTRUMENT`)
+- trades order row cannot be matched to canonical instrument (`TRADE_UNMATCHED_INSTRUMENT`)
+- summed open quantity differs from summed signed order quantity beyond epsilon (`OPEN_POSITION_TRADE_QTY_MISMATCH`)
+
+Scope/limits:
+
+- this is a minimal safety net only
+- no lot matching
+- no timestamp matching
+- no transfer/corporate-action parsing in this check
+
 ## Tax Modes (Trades)
 
 `--tax-exempt-mode listed_symbol`
