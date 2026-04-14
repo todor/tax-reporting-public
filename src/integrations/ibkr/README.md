@@ -45,6 +45,7 @@ Processed sections:
 - `Interest`
 - `Dividends`
 - `Withholding Tax`
+- `Open Positions`
 - `Mark-to-Market Performance Summary` (interest withholding source for Appendix 9)
 
 FX source:
@@ -447,6 +448,54 @@ Country-mode examples:
 - company B withholding `= 0` -> method `3`
 - country mode emits two rows for that country (`method 1` and `method 3`)
 
+## Appendix 8 Part I (Open Positions)
+
+Appendix 8 Part I is generated from `Open Positions` summary rows only:
+
+- section: `Open Positions`
+- row type: `Data`
+- discriminator: `Summary`
+
+Current scope:
+
+- supported asset categories: `Stocks` and `Treasury Bills`
+- all supported holdings are reported under `Акции`
+- `Дялове` are not emitted in this version
+- any other Open Positions asset category is flagged for manual review
+
+Fail-loud rules for supported Open Positions Part I rows:
+
+- symbol must map to Financial Instrument
+- ISIN/country must be resolvable
+- `Summary Quantity` must be numeric
+- `Cost Basis` must be numeric
+- `Currency` must be present/non-empty (for EUR conversion)
+
+If any of the above fails, analyzer exits with error (no silent skip).
+
+Country derivation:
+
+- symbol is resolved via existing Financial Instrument mapping
+- ISIN is read from `Financial Instrument Information`
+- country is derived from ISIN prefix (first 2 chars)
+
+Aggregation:
+
+- one Part I row per country
+- quantity (`Брой`) is summed per country
+- cost basis in original currency is summed per country
+- acquisition date is fixed to `31.12.<tax_year>` for all Part I rows
+
+FX for Part I:
+
+- cost basis EUR is calculated using FX on `31.12.<tax_year>`
+- output column label is `В EUR` (intentional current convention)
+
+Reminder:
+
+- declaration output includes:
+  - `Напомняне: Към Приложение 8, Част I следва да се приложи файл с open positions.`
+
 ## How To Read The Modified CSV
 
 The analyzer preserves row order and extends only these sections:
@@ -455,6 +504,7 @@ The analyzer preserves row order and extends only these sections:
 - `Interest`
 - `Dividends`
 - `Withholding Tax`
+- `Open Positions`
 
 ### Added Trades Columns
 
@@ -500,6 +550,13 @@ The analyzer preserves row order and extends only these sections:
 - `Status`
 - `Review Status`
 
+### Added Open Positions Columns
+
+- `Country`
+- `Cost Basis (EUR)`
+
+They are filled for summary rows when symbol/ISIN/currency data is available.
+
 Re-run safety:
 
 - if these derived columns already exist in input, analyzer does not add duplicate columns
@@ -530,7 +587,9 @@ The declaration text includes:
 - Приложение 5 (trades)
 - Приложение 13 (trades)
 - Приложение 6 (interest + lieu contributors, code 603 total)
-- Приложение 8 (Част III, ред 1.N; `company` mode by default, optional `country` mode)
+- Приложение 8:
+  - Част I, Акции, ред 1.N (from Open Positions summary rows)
+  - Част III, ред 1.N (`company` mode by default, optional `country` mode)
 - Приложение 9 (interest-only withholding credit flow)
 - optional manual-check block when review is required
 - sanity-check section (`PASS`/`FAIL` + artifact paths)

@@ -135,6 +135,7 @@ DIVIDEND_REVIEW_REQUIRED = "REVIEW_REQUIRED"
 REVIEW_REASON_OPEN_POSITION_TRADE_QTY_MISMATCH = "OPEN_POSITION_TRADE_QTY_MISMATCH"
 REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT = "OPEN_POSITION_UNMATCHED_INSTRUMENT"
 REVIEW_REASON_TRADE_UNMATCHED_INSTRUMENT = "TRADE_UNMATCHED_INSTRUMENT"
+REVIEW_REASON_OPEN_POSITION_UNSUPPORTED_ASSET = "OPEN_POSITION_UNSUPPORTED_ASSET"
 
 COUNTRY_NAME_BY_ISO: dict[str, tuple[str, str]] = {
     "AD": ("Andorra", "Андора"),
@@ -435,6 +436,11 @@ ADDED_WITHHOLDING_COLUMNS = [
     "Review Status",
 ]
 
+ADDED_OPEN_POSITIONS_COLUMNS = [
+    "Country",
+    "Cost Basis (EUR)",
+]
+
 FxRateProvider = Callable[[str, date], Decimal]
 
 
@@ -459,6 +465,7 @@ class InstrumentListing:
     listing_exchange_class: str
     is_eu_listed: bool
     description: str
+    isin: str
 
 
 @dataclass(slots=True)
@@ -531,6 +538,17 @@ class Appendix8CountryDebugComputed:
     delta_correct_minus_rowwise_eur: Decimal = ZERO
     tax_due_correct_eur: Decimal = ZERO
     tax_due_wrong_rowwise_eur: Decimal = ZERO
+
+
+@dataclass(slots=True)
+class Appendix8Part1Row:
+    country_iso: str
+    country_english: str
+    country_bulgarian: str
+    quantity: Decimal = ZERO
+    acquisition_date: date = date.min
+    cost_basis_original: Decimal = ZERO
+    cost_basis_eur: Decimal = ZERO
 
 
 @dataclass(slots=True)
@@ -617,6 +635,9 @@ class AnalysisSummary:
     appendix_8_company_results: list[Appendix8ComputedRow] = field(default_factory=list)
     appendix_8_output_rows: list[Appendix8ComputedRow] = field(default_factory=list)
     appendix_8_country_debug: dict[str, Appendix8CountryDebugComputed] = field(default_factory=dict)
+    appendix_8_part1_rows: list[Appendix8Part1Row] = field(default_factory=list)
+    open_positions_summary_rows: int = 0
+    open_positions_part1_rows: int = 0
     tax_credit_debug_report_path: str = ""
     trades_data_rows_total: int = 0
     trade_discriminator_rows: int = 0
@@ -859,6 +880,10 @@ class _OpenPositionsFieldIndexes:
     symbol: int
     quantity: int
     discriminator: int
+    currency: int | None
+    cost_basis: int | None
+    country: int | None
+    cost_basis_eur: int | None
 
 
 @dataclass(slots=True)
@@ -964,6 +989,16 @@ def _open_positions_indexes(active_header: _ActiveHeader) -> _OpenPositionsField
         symbol=_index_for(active_header.headers, "Symbol", section_name=section_name),
         quantity=_index_for(active_header.headers, "Summary Quantity", "Quantity", section_name=section_name),
         discriminator=_index_for(active_header.headers, "DataDiscriminator", "Data Discriminator", section_name=section_name),
+        currency=_optional_index(active_header.headers, "Currency", "Position Currency"),
+        cost_basis=_optional_index(
+            active_header.headers,
+            "Cost Basis",
+            "Cost Basis Money",
+            "CostBasis",
+            "Cost Basis Amount",
+        ),
+        country=_optional_index(active_header.headers, "Country"),
+        cost_basis_eur=_optional_index(active_header.headers, "Cost Basis (EUR)"),
     )
 
 
@@ -999,6 +1034,18 @@ def _extract_isin(description: str) -> tuple[str | None, str | None]:
     if len(normalized) > 1:
         return None, "multiple ISIN candidates in description"
     return None, "invalid ISIN format in description"
+
+
+def _extract_isin_from_text(raw: str) -> str:
+    candidates = re.findall(r"\b([A-Z]{2}[A-Z0-9]{10})\b", raw.upper())
+    if not candidates:
+        return ""
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate not in seen:
+            seen.add(candidate)
+            return candidate
+    return ""
 
 
 def _extract_symbol_from_security_description(description: str) -> str | None:
@@ -1223,6 +1270,16 @@ def _build_appendix8_country_debug(
         aggregated[country_iso] = current
 
     return aggregated
+
+
+def _build_appendix8_part1_rows(
+    *,
+    totals_by_country: dict[str, Appendix8Part1Row],
+) -> list[Appendix8Part1Row]:
+    return sorted(
+        totals_by_country.values(),
+        key=lambda item: item.country_iso,
+    )
 
 
 def _compute_appendix9_country_results(
@@ -1636,6 +1693,17 @@ def _try_parse_decimal(raw: str) -> Decimal | None:
 
 
 def _parse_reconciliation_quantity(raw: str) -> Decimal | None:
+    text = raw.strip()
+    if text == "":
+        return ZERO
+    cleaned = text.replace(",", "")
+    try:
+        return Decimal(cleaned)
+    except InvalidOperation:
+        return None
+
+
+def _parse_decimal_loose_or_zero(raw: str) -> Decimal | None:
     text = raw.strip()
     if text == "":
         return ZERO
@@ -2416,6 +2484,28 @@ def _build_declaration_text(result: AnalysisResult) -> str:
     lines.append("")
 
     lines.append("Приложение 8")
+    lines.append("Част І, Акции, ред 1.N")
+    if summary.appendix_8_part1_rows:
+        for idx, part1 in enumerate(summary.appendix_8_part1_rows, start=1):
+            lines.append(f"- Приложение 8, Част І, Акции, ред 1.{idx}")
+            lines.append("- Вид: Акции")
+            lines.append(f"- Държава: {part1.country_bulgarian}")
+            lines.append(f"- Брой: {_fmt(part1.quantity)}")
+            lines.append(
+                f"- Дата и година на придобиване: {part1.acquisition_date.strftime('%d.%m.%Y')}"
+            )
+            lines.append(
+                f"- Обща цена на придобиване в съответната валута: "
+                f"{_fmt(part1.cost_basis_original, quant=DECIMAL_TWO)}"
+            )
+            lines.append(f"- В EUR: {_fmt(part1.cost_basis_eur, quant=DECIMAL_TWO)}")
+            lines.append("")
+    else:
+        lines.append("- Няма разпознаваеми Open Positions Summary записи за данъчната година")
+        lines.append("")
+    lines.append("Напомняне: Към Приложение 8, Част I следва да се приложи файл с open positions.")
+    lines.append("")
+
     lines.append("Част III, ред 1.N")
     if summary.appendix_8_output_rows:
         for bucket in summary.appendix_8_output_rows:
@@ -2543,6 +2633,8 @@ def _build_declaration_text(result: AnalysisResult) -> str:
     lines.append(f"- withholding total rows skipped: {summary.withholding_total_rows_skipped}")
     lines.append(f"- withholding dividend rows: {summary.withholding_dividend_rows}")
     lines.append(f"- withholding non-dividend rows: {summary.withholding_non_dividend_rows}")
+    lines.append(f"- open positions summary rows: {summary.open_positions_summary_rows}")
+    lines.append(f"- Appendix 8 Part I rows: {summary.open_positions_part1_rows}")
     lines.append(f"- dividend tax rate: {_fmt(summary.dividend_tax_rate)}")
     lines.append(
         "- interest withholding source found: "
@@ -2596,6 +2688,13 @@ def _parse_instrument_listings_with_headers(
         symbol_idx = _index_for(active_header.headers, "Symbol", section_name=f"{section_name} header at row {active_header.row_number}")
         listing_idx = _index_for(active_header.headers, "Listing Exch", section_name=f"{section_name} header at row {active_header.row_number}")
         description_idx = _optional_index(active_header.headers, "Description", "Financial Instrument Description", "Name")
+        isin_idx = _optional_index(
+            active_header.headers,
+            "ISIN",
+            "Security ID",
+            "SecurityID",
+            "Security Id",
+        )
 
         data = row[2:] + [""] * (len(active_header.headers) - len(row[2:]))
         asset_category = data[asset_idx].strip()
@@ -2603,11 +2702,22 @@ def _parse_instrument_listings_with_headers(
             continue
         raw_symbol = data[symbol_idx].strip()
         symbols = _split_symbol_aliases(raw_symbol)
+        if _is_treasury_bills_asset(asset_category):
+            # Treasury Bills symbols can be verbose; keep deterministic 9-char
+            # identifier aliases so later symbol resolution can match reliably.
+            for token in _extract_treasury_bill_identifiers(raw_symbol):
+                if token not in symbols:
+                    symbols.append(token)
         if not symbols:
             raise CsvStructureError(f"row {row_number}: empty symbol in Financial Instrument Information")
 
         listing_exchange = data[listing_idx].strip()
         instrument_description = data[description_idx].strip() if description_idx is not None else ""
+        instrument_isin = (
+            _extract_isin_from_text(data[isin_idx].strip()) if isin_idx is not None else ""
+        )
+        if instrument_isin == "" and instrument_description != "":
+            instrument_isin = _extract_isin_from_text(instrument_description)
         listing_exchange_normalized = _normalize_exchange(listing_exchange)
         listing_class = _classify_exchange(listing_exchange)
         is_eu_listed = listing_class == EXCHANGE_CLASS_EU_REGULATED
@@ -2622,6 +2732,7 @@ def _parse_instrument_listings_with_headers(
                 listing_exchange_class=listing_class,
                 is_eu_listed=is_eu_listed,
                 description=instrument_description,
+                isin=instrument_isin,
             )
 
             existing = listings.get(symbol)
@@ -2724,8 +2835,11 @@ def analyze_ibkr_activity_statement(
     dividends_row_base_len: dict[int, int] = {}
     withholding_row_extras: dict[int, dict[str, str]] = {}
     withholding_row_base_len: dict[int, int] = {}
+    open_positions_row_extras: dict[int, dict[str, str]] = {}
+    open_positions_row_base_len: dict[int, int] = {}
     dividends_row_added_columns: dict[int, list[str]] = {}
     withholding_row_added_columns: dict[int, list[str]] = {}
+    open_positions_row_added_columns: dict[int, list[str]] = {}
     summary = AnalysisSummary(
         tax_year=tax_year,
         tax_exempt_mode=tax_exempt_mode,
@@ -2763,6 +2877,12 @@ def analyze_ibkr_activity_statement(
         for key, value in values.items():
             existing[key] = value
         withholding_row_extras[row_idx] = existing
+
+    def _set_open_positions_extras(row_idx: int, values: dict[str, str]) -> None:
+        existing = open_positions_row_extras.get(row_idx, {})
+        for key, value in values.items():
+            existing[key] = value
+        open_positions_row_extras[row_idx] = existing
 
     def _set_existing_section_value(
         *,
@@ -2824,7 +2944,25 @@ def analyze_ibkr_activity_statement(
             summary.appendix_9_by_country[country_iso] = bucket
         return bucket
 
+    def _appendix8_part1_bucket(
+        *,
+        country_iso: str,
+        country_english: str,
+        country_bulgarian: str,
+    ) -> Appendix8Part1Row:
+        bucket = appendix8_part1_by_country.get(country_iso)
+        if bucket is None:
+            bucket = Appendix8Part1Row(
+                country_iso=country_iso,
+                country_english=country_english,
+                country_bulgarian=country_bulgarian,
+                acquisition_date=date(tax_year, 12, 31),
+            )
+            appendix8_part1_by_country[country_iso] = bucket
+        return bucket
+
     appendix9_components: dict[str, dict[str, _CountryCreditComponent]] = {}
+    appendix8_part1_by_country: dict[str, Appendix8Part1Row] = {}
 
     consumed_closedlots: set[int] = set()
     current_trades_header: _ActiveHeader | None = None
@@ -3748,6 +3886,150 @@ def analyze_ibkr_activity_statement(
                     f"row {row_number}: taxable withholding row has unknown Appendix value={effective_appendix!r}"
                 )
 
+    current_open_positions_header: _ActiveHeader | None = None
+    appendix8_part1_fx_date = date(tax_year, 12, 31)
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        if len(row) < 2 or row[0] != "Open Positions":
+            continue
+
+        row_type = row[1]
+        if row_type == "Header":
+            current_open_positions_header = _activate_header("Open Positions", row, row_number=row_number)
+            open_positions_row_base_len[row_idx] = 2 + len(current_open_positions_header.headers)
+            open_positions_row_added_columns[row_idx] = [
+                col for col in ADDED_OPEN_POSITIONS_COLUMNS if col not in current_open_positions_header.headers
+            ]
+            continue
+
+        if current_open_positions_header is None:
+            raise CsvStructureError(f"row {row_number}: Open Positions row encountered before Open Positions Header")
+        open_positions_row_base_len[row_idx] = 2 + len(current_open_positions_header.headers)
+        if row_type != "Data":
+            continue
+
+        active_open_positions_header = active_headers.get(row_idx)
+        if active_open_positions_header is None:
+            raise CsvStructureError(f"row {row_number}: Open Positions Data row encountered before Open Positions Header")
+        current_open_positions_header = active_open_positions_header
+        open_positions_row_base_len[row_idx] = 2 + len(active_open_positions_header.headers)
+        open_positions_row_added_columns[row_idx] = [
+            col for col in ADDED_OPEN_POSITIONS_COLUMNS if col not in active_open_positions_header.headers
+        ]
+
+        field_idx = _open_positions_indexes(active_open_positions_header)
+        padded = row + [""] * (open_positions_row_base_len[row_idx] - len(row))
+        data = padded[2 : 2 + len(active_open_positions_header.headers)]
+        discriminator = data[field_idx.discriminator].strip().lower()
+        if discriminator != "summary":
+            continue
+
+        asset_category = data[field_idx.asset].strip()
+        summary.open_positions_summary_rows += 1
+        if not _is_supported_asset(asset_category):
+            summary.review_required_rows += 1
+            summary.warnings.append(
+                f"{REVIEW_REASON_OPEN_POSITION_UNSUPPORTED_ASSET}: "
+                f"row={row_number} asset={asset_category!r} symbol={data[field_idx.symbol].strip()!r}"
+            )
+            continue
+
+        symbol_raw = data[field_idx.symbol].strip()
+        quantity = _parse_reconciliation_quantity(data[field_idx.quantity])
+        if quantity is None:
+            raise IbkrAnalyzerError(
+                f"row {row_number}: invalid Open Positions summary quantity for symbol={symbol_raw!r}"
+            )
+
+        instrument, _normalized_symbol, forced_reason = _resolve_instrument_for_trade_symbol(
+            asset_category=asset_category,
+            trade_symbol=symbol_raw,
+            listings=listings,
+        )
+        if instrument is None:
+            raise IbkrAnalyzerError(
+                f"row {row_number}: Open Positions symbol cannot be matched to Financial Instrument "
+                f"for symbol={symbol_raw!r}"
+                + (f"; reason={forced_reason}" if forced_reason else "")
+            )
+
+        country_english = ""
+        country_resolved: tuple[str, str, str] | None = None
+        if instrument.isin != "":
+            country_resolved = _resolve_country_from_isin(instrument.isin)
+        if country_resolved is None:
+            raise IbkrAnalyzerError(
+                f"row {row_number}: Open Positions ISIN is missing/invalid or unmapped country "
+                f"for symbol={symbol_raw!r}; cannot build Appendix 8 Part I row"
+            )
+        _country_iso, country_english, _country_bulgarian = country_resolved
+
+        cost_basis_original = ZERO
+        cost_basis_eur = ZERO
+        cost_basis_eur_text = ""
+        if field_idx.cost_basis is None:
+            raise CsvStructureError(
+                f"Open Positions header at row {active_open_positions_header.row_number}: "
+                "missing required column Cost Basis"
+            )
+        parsed_basis = _parse_decimal_loose_or_zero(data[field_idx.cost_basis])
+        if parsed_basis is None:
+            raise IbkrAnalyzerError(
+                f"row {row_number}: invalid Open Positions Cost Basis value for symbol={symbol_raw!r}"
+            )
+        cost_basis_original = parsed_basis
+        if field_idx.currency is None:
+            raise CsvStructureError(
+                f"Open Positions header at row {active_open_positions_header.row_number}: "
+                "missing required column Currency"
+            )
+        currency = data[field_idx.currency].strip().upper()
+        if currency == "":
+            raise IbkrAnalyzerError(
+                f"row {row_number}: empty Open Positions currency for symbol={symbol_raw!r}; "
+                "cannot convert Cost Basis to EUR"
+            )
+        cost_basis_eur, _ = _to_eur(
+            cost_basis_original,
+            currency,
+            appendix8_part1_fx_date,
+            fx_provider,
+            row_number=row_number,
+        )
+        cost_basis_eur_text = _fmt(cost_basis_eur, quant=DECIMAL_EIGHT)
+
+        _set_existing_section_value(
+            row_idx=row_idx,
+            active_header=active_open_positions_header,
+            field_idx=field_idx.country,
+            value=country_english,
+            only_if_empty=True,
+        )
+        _set_existing_section_value(
+            row_idx=row_idx,
+            active_header=active_open_positions_header,
+            field_idx=field_idx.cost_basis_eur,
+            value=cost_basis_eur_text,
+            only_if_empty=True,
+        )
+        _set_open_positions_extras(
+            row_idx,
+            {
+                "Country": country_english,
+                "Cost Basis (EUR)": cost_basis_eur_text,
+            },
+        )
+
+        country_iso, _, country_bulgarian = country_resolved
+        bucket = _appendix8_part1_bucket(
+            country_iso=country_iso,
+            country_english=country_english,
+            country_bulgarian=country_bulgarian,
+        )
+        bucket.quantity += quantity
+        bucket.cost_basis_original += cost_basis_original
+        bucket.cost_basis_eur += cost_basis_eur
+
     withholding_found = False
     withholding_paid_eur, withholding_found = _extract_interest_withholding_paid_eur(
         rows,
@@ -3773,6 +4055,11 @@ def analyze_ibkr_activity_statement(
         (bucket.withholding_tax_paid_eur for bucket in summary.appendix_9_by_country.values()),
         ZERO,
     )
+
+    summary.appendix_8_part1_rows = _build_appendix8_part1_rows(
+        totals_by_country=appendix8_part1_by_country,
+    )
+    summary.open_positions_part1_rows = len(summary.appendix_8_part1_rows)
 
     summary.appendix_8_company_results = _compute_appendix8_company_results(
         totals_by_company=summary.appendix_8_by_company,
@@ -4123,6 +4410,28 @@ def analyze_ibkr_activity_statement(
             output_rows.append(padded + extras)
             continue
 
+        if row[0] == "Open Positions" and row[1] == "Header":
+            added_cols = open_positions_row_added_columns.get(
+                idx,
+                [col for col in ADDED_OPEN_POSITIONS_COLUMNS if col not in row[2:]],
+            )
+            output_rows.append(row + added_cols)
+            continue
+
+        if row[0] == "Open Positions":
+            base_len = open_positions_row_base_len.get(idx)
+            if base_len is None:
+                raise CsvStructureError(f"row {idx + 1}: Open Positions row encountered before Open Positions Header")
+            padded = row + [""] * (base_len - len(row))
+            added_cols = open_positions_row_added_columns.get(
+                idx,
+                [col for col in ADDED_OPEN_POSITIONS_COLUMNS if col not in (active_headers.get(idx).headers if active_headers.get(idx) is not None else [])],
+            )
+            extras_map = open_positions_row_extras.get(idx, {})
+            extras = [extras_map.get(col, "") for col in added_cols]
+            output_rows.append(padded + extras)
+            continue
+
         output_rows.append(row)
 
     for idx, row in enumerate(output_rows):
@@ -4179,6 +4488,24 @@ def analyze_ibkr_activity_statement(
             if len(row) != expected_len:
                 raise IbkrAnalyzerError(
                     f"Withholding Tax row column count mismatch at row {idx + 1}: expected {expected_len}, got {len(row)}"
+                )
+        if len(row) >= 2 and row[0] == "Open Positions":
+            base_len = open_positions_row_base_len.get(idx)
+            if base_len is None:
+                raise CsvStructureError(f"row {idx + 1}: Open Positions row encountered before Open Positions Header")
+            added_cols = open_positions_row_added_columns.get(idx)
+            if added_cols is None:
+                if row[1] == "Header":
+                    added_cols = [col for col in ADDED_OPEN_POSITIONS_COLUMNS if col not in row[2:]]
+                else:
+                    active_header = active_headers.get(idx)
+                    if active_header is None:
+                        raise CsvStructureError(f"row {idx + 1}: Open Positions row encountered before Open Positions Header")
+                    added_cols = [col for col in ADDED_OPEN_POSITIONS_COLUMNS if col not in active_header.headers]
+            expected_len = base_len + len(added_cols)
+            if len(row) != expected_len:
+                raise IbkrAnalyzerError(
+                    f"Open Positions row column count mismatch at row {idx + 1}: expected {expected_len}, got {len(row)}"
                 )
 
     alias_suffix = f"_{normalized_alias}" if normalized_alias else ""
@@ -4324,6 +4651,8 @@ def main() -> int:
     print(f"withholding_total_rows_skipped: {summary.withholding_total_rows_skipped}")
     print(f"withholding_dividend_rows: {summary.withholding_dividend_rows}")
     print(f"withholding_non_dividend_rows: {summary.withholding_non_dividend_rows}")
+    print(f"open_positions_summary_rows: {summary.open_positions_summary_rows}")
+    print(f"appendix_8_part1_rows: {summary.open_positions_part1_rows}")
     print(f"dividend_tax_rate: {_fmt(summary.dividend_tax_rate)}")
     print(f"appendix8_dividend_list_mode: {summary.appendix8_dividend_list_mode}")
     print(f"appendix_5_profit_eur: {_fmt(summary.appendix_5.wins_eur, quant=DECIMAL_TWO)}")
