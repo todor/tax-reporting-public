@@ -30,6 +30,7 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
 - `--input`: IBKR Activity Statement CSV (required)
 - `--tax-year`: target tax year, for example `2025` (required)
 - `--tax-exempt-mode`: `listed_symbol` or `execution_exchange` (required)
+- `--appendix8-dividend-list-mode`: `company` (default) or `country`
 - `--report-alias`: optional alias added in output filenames
 - `--output-dir`: optional output root (default `output/ibkr/activity_statement`)
 - `--cache-dir`: optional `bnb_fx` cache override
@@ -261,23 +262,21 @@ Appendix 9 (interest only):
 
 ### Foreign Tax Credit Aggregation (Appendix 8 / 9)
 
-Final credit fields are computed at country level from additive totals.
+Appendix 8 and Appendix 9 use different aggregation levels in this analyzer:
 
-Additive values (safe to sum):
-
-- gross income in EUR
-- paid foreign tax in EUR
-
-Final/non-additive values (must be computed after aggregation):
-
-- allowable credit
-- recognized credit
-- Bulgarian tax (Appendix 8)
-- tax due (Appendix 8)
+- Appendix 8 (dividends, code `8141`): final credit math is computed per company first.
+- Appendix 9 (interest): final credit math remains country-level.
 
 Why this matters:
 
-- `min()` is non-linear, so `sum(min(...))` is generally wrong.
+- `min()` is non-linear, so applying it at the wrong grouping level changes declaration values.
+
+Appendix 8 example (same country, two companies):
+
+- Company A: gross `100`, foreign tax `15` -> recognized credit `min(15, 5)=5`
+- Company B: gross `100`, foreign tax `0` -> recognized credit `min(0, 5)=0`
+- correct total credit from company rows = `5`
+- wrong country-level recomputation would be `min(15, 10)=10` (not used by analyzer output)
 
 Appendix 9 example:
 
@@ -291,20 +290,7 @@ Appendix 9 example:
   - allowable `20`
   - recognized `15`
 
-Appendix 8 example:
-
-- same country totals: gross `200`, foreign tax `15`
-- Bulgarian tax = `DIVIDEND_TAX_RATE * gross` (default `5%`) => `10`
-- recognized credit = `min(15, 10) = 10`
-- tax due = `10 - 10 = 0`
-
 Internal calculations keep full precision (`Decimal`). Rounding is applied only in final rendered output.
-
-Future multi-analyzer note:
-
-- the same rule still applies after cross-analyzer aggregation is introduced
-- do not sum already-finalized recognized credits from separate analyzers for the same country
-- merge additive country totals first, then apply final `min(...)` logic once
 
 ## Dividends Processing (Appendix 8 + Appendix 6 Lieu)
 
@@ -338,6 +324,16 @@ For recognized dividend rows, ISIN is extracted from description, e.g. `TPR(US87
 - country names come from an in-code full ISO alpha-2 mapping (`249` codes, English + Bulgarian)
 - missing/invalid ISIN or unknown country code -> review required
 
+### Company identity for Appendix 8
+
+For Appendix 8 dividend rows, company/payer identity is resolved from:
+
+1. symbol parsed from dividend description
+2. symbol matching via existing Financial Instrument Information mapping logic
+3. `Financial Instrument Information -> Description` as payer name
+
+If mapping cannot be resolved confidently, the analyzer keeps processing with a deterministic fallback payer label and marks the run for manual review.
+
 ### Dividend withholding section
 
 Source:
@@ -368,14 +364,14 @@ Auto `Status` in this section:
 - `Cash Dividend`, `Lieu Received`, `Credit Interest` -> `TAXABLE`
 - anything else -> `UNKNOWN` (manual review required)
 
-### Appendix 8 math (by country)
+### Appendix 8 math (company-first)
 
-For each country:
+For each company (payer):
 
 - gross dividend EUR = sum of Cash Dividend EUR
 - foreign tax paid EUR = sum of absolute dividend-withholding EUR
-- Bulgarian dividend tax = `DIVIDEND_TAX_RATE * gross` (computed after country aggregation)
-- allowable credit = `min(foreign_tax_paid, Bulgarian_tax)` (computed after country aggregation)
+- Bulgarian dividend tax = `DIVIDEND_TAX_RATE * gross`
+- allowable credit = `min(foreign_tax_paid, Bulgarian_tax)`
 - recognized credit = allowable credit
 - tax due = `Bulgarian_tax - recognized_credit`
 
@@ -385,6 +381,8 @@ Important:
 
 - dividend withholding is used in Appendix 8 only
 - Appendix 9 remains interest-only
+- country-mode output (see below) is presentation-only aggregation over already computed company rows
+- country mode does not recompute `min(...)` at country level
 
 ### Appendix 8 Part III convention (code 8141, column 5)
 
@@ -408,12 +406,46 @@ Examples:
 - column 5 = `3`
 - full Bulgarian dividend tax (`DIVIDEND_TAX_RATE`, default `5%`) remains due locally
 
-Tax-credit related Appendix 8 columns are currently filled from the formulas above (country-level aggregation):
+Tax-credit related Appendix 8 columns are currently filled from the formulas above (company-level computation):
 
 - `Платен данък в чужбина`
 - `Допустим размер на данъчния кредит`
 - `Размер на признатия данъчен кредит`
 - `Дължим данък, подлежащ на внасяне`
+
+### Appendix 8 output modes
+
+`--appendix8-dividend-list-mode company` (default):
+
+- one Appendix 8 row per company
+- payer name comes from Financial Instrument Description
+
+`--appendix8-dividend-list-mode country`:
+
+- starts from already computed company rows
+- aggregates by `country + method_code`
+- sums numeric columns only (`gross`, `foreign tax`, `allowable`, `recognized`, `tax due`)
+- does not recompute credit formula at country level
+- payer label is the generic text:
+  - `Различни чуждестранни дружества (чрез Interactive Brokers)`
+
+Why country mode groups by method code:
+
+- to keep column 5 truthful when one country has both:
+  - rows with foreign withholding (`method=1`)
+  - rows without foreign withholding (`method=3`)
+- these two buckets are emitted as separate country rows and are never collapsed together
+
+Country-mode examples:
+
+1. Same country, both companies with withholding `> 0`:
+- both are method `1`
+- country mode merges into one row for that country/method `1`
+
+2. Same country, mixed withholding:
+- company A withholding `> 0` -> method `1`
+- company B withholding `= 0` -> method `3`
+- country mode emits two rows for that country (`method 1` and `method 3`)
 
 ## How To Read The Modified CSV
 
@@ -475,17 +507,19 @@ Re-run safety:
 
 ## Tax Credit Debug Artifacts
 
-Non-production diagnostics for country-level foreign-tax-credit math are written under:
+Non-production diagnostics for Appendix 8/9 tax-credit math are written under:
 
 - `output/ibkr/activity_statement/_tax_credit_debug/.../tax_credit_country_debug.json`
 
-This report includes, per country:
+This report includes:
 
-- aggregated gross
-- aggregated foreign tax paid
-- correct aggregated credit values
-- row-wise comparison values (`wrong_rowwise`)
-- delta between correct and row-wise formulas
+- Appendix 8 company rows (declaration math source)
+- Appendix 8 output rows (after mode-specific presentation aggregation)
+- Appendix 8 country debug diagnostics:
+  - `recognized_credit_sum_company`
+  - `recognized_credit_wrong_country_recomputed`
+  - delta between correct company-sum result and wrong country-level recomputation
+- Appendix 9 country diagnostics
 
 Use this only for verification. Declaration values come from the main analyzer outputs.
 
@@ -496,7 +530,7 @@ The declaration text includes:
 - Приложение 5 (trades)
 - Приложение 13 (trades)
 - Приложение 6 (interest + lieu contributors, code 603 total)
-- Приложение 8 (Част III, ред 1.N; country-grouped dividends and withholding tax credit math)
+- Приложение 8 (Част III, ред 1.N; `company` mode by default, optional `country` mode)
 - Приложение 9 (interest-only withholding credit flow)
 - optional manual-check block when review is required
 - sanity-check section (`PASS`/`FAIL` + artifact paths)

@@ -45,10 +45,10 @@ def _base_rows() -> list[list[str]]:
     return [
         ["Statement", "Header", "Field", "Value"],
         ["Statement", "Data", "Account", "U123"],
-        ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch"],
-        ["Financial Instrument Information", "Data", "Stocks", "BMW", "IBIS2"],
-        ["Financial Instrument Information", "Data", "Stocks", "TSLA", "NASDAQ"],
-        ["Financial Instrument Information", "Data", "Treasury Bills", "BGTB", "IBIS"],
+        ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch", "Description"],
+        ["Financial Instrument Information", "Data", "Stocks", "BMW", "IBIS2", "Bayerische Motoren Werke AG"],
+        ["Financial Instrument Information", "Data", "Stocks", "TSLA", "NASDAQ", "Tesla Inc"],
+        ["Financial Instrument Information", "Data", "Treasury Bills", "BGTB", "IBIS", "Bulgarian Treasury Bill"],
         [
             "Trades",
             "Header",
@@ -222,6 +222,7 @@ def _run(
     rows: list[list[str]],
     *,
     mode: str = "listed_symbol",
+    appendix8_dividend_list_mode: str = "company",
     year: int = 2025,
     report_alias: str | None = None,
 ):
@@ -231,6 +232,7 @@ def _run(
         input_csv=input_csv,
         tax_year=year,
         tax_exempt_mode=mode,  # type: ignore[arg-type]
+        appendix8_dividend_list_mode=appendix8_dividend_list_mode,  # type: ignore[arg-type]
         report_alias=report_alias,
         output_dir=tmp_path / "out",
         fx_rate_provider=_fx_provider,
@@ -298,6 +300,24 @@ def _rows_with_dividends_and_withholding(
         ]
     )
     return rows
+
+
+def _inject_financial_instrument_rows(
+    rows: list[list[str]],
+    listing_rows: list[tuple[str, str, str, str]],
+) -> list[list[str]]:
+    out = list(rows)
+    insert_after = max(
+        idx
+        for idx, row in enumerate(out)
+        if len(row) >= 2 and row[0] == "Financial Instrument Information" and row[1] == "Data"
+    )
+    for offset, (asset_category, symbol, listing_exch, description) in enumerate(listing_rows):
+        out.insert(
+            insert_after + 1 + offset,
+            ["Financial Instrument Information", "Data", asset_category, symbol, listing_exch, description],
+        )
+    return out
 
 
 def _rows_for_open_position_check(
@@ -1137,6 +1157,25 @@ def test_cli_prints_output_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert "account_A" in out
 
 
+def test_cli_appendix8_dividend_mode_defaults_to_company(tmp_path: Path) -> None:
+    from integrations.ibkr import activity_statement_analyzer as module
+
+    input_csv = tmp_path / "input.csv"
+    _write_rows(input_csv, _base_rows())
+    parser = module.build_parser()
+    args = parser.parse_args(
+        [
+            "--input",
+            str(input_csv),
+            "--tax-year",
+            "2025",
+            "--tax-exempt-mode",
+            "listed_symbol",
+        ]
+    )
+    assert args.appendix8_dividend_list_mode == "company"
+
+
 def test_report_alias_is_in_output_filenames(tmp_path: Path) -> None:
     result = _run(tmp_path, _base_rows(), mode="listed_symbol", report_alias="acc_1")
     assert "acc_1" in result.output_csv_path.name
@@ -1925,7 +1964,79 @@ def test_appendix_8_method_code_is_3_when_withholding_is_missing_or_blank(tmp_pa
     assert "Дължим данък, подлежащ на внасяне: 5.00" in text
 
 
-def test_appendix_8_country_level_credit_is_not_rowwise(tmp_path: Path) -> None:
+def test_appendix_8_company_mode_groups_rows_and_computes_credit_per_company(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+            ["Dividends", "Data", "EUR", "2025-03-02", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "50"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "-3", ""],
+        ],
+    )
+    rows = _inject_financial_instrument_rows(
+        rows,
+        [("Stocks", "AAA", "NYSE", "Alpha Corp")],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="company")
+    assert result.summary.appendix8_dividend_list_mode == "company"
+    assert len(result.summary.appendix_8_company_results) == 1
+    company_row = result.summary.appendix_8_company_results[0]
+    assert company_row.payer_name == "Alpha Corp"
+    assert company_row.method_code == "1"
+    assert company_row.gross_dividend_eur == Decimal("150")
+    assert company_row.foreign_tax_paid_eur == Decimal("3")
+    assert company_row.allowable_credit_eur == Decimal("3")
+    assert company_row.tax_due_bg_eur == Decimal("4.5")
+
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "- Наименование на лицето, изплатило дохода: Alpha Corp" in text
+    assert "Код за прилагане на метод за избягване на двойното данъчно облагане: 1" in text
+
+
+def test_appendix_8_country_mode_aggregates_company_rows_with_same_method(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+            ["Dividends", "Data", "EUR", "2025-03-02", "BBB(US2222222222) Cash Dividend EUR 1.00 per Share", "200"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "-1", ""],
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "BBB(US2222222222) Cash Dividend EUR 1.00 per Share - US Tax", "-2", ""],
+        ],
+    )
+    rows = _inject_financial_instrument_rows(
+        rows,
+        [
+            ("Stocks", "AAA", "NYSE", "Alpha Corp"),
+            ("Stocks", "BBB", "NYSE", "Beta Corp"),
+        ],
+    )
+    company_result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="company")
+    country_result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="country")
+
+    assert len(company_result.summary.appendix_8_output_rows) == 2
+    assert len(country_result.summary.appendix_8_output_rows) == 1
+    country_row = country_result.summary.appendix_8_output_rows[0]
+    assert country_row.payer_name == "Различни чуждестранни дружества (чрез Interactive Brokers)"
+    assert country_row.method_code == "1"
+    assert country_row.gross_dividend_eur == sum(
+        (item.gross_dividend_eur for item in company_result.summary.appendix_8_output_rows),
+        Decimal("0"),
+    )
+    assert country_row.foreign_tax_paid_eur == sum(
+        (item.foreign_tax_paid_eur for item in company_result.summary.appendix_8_output_rows),
+        Decimal("0"),
+    )
+    assert country_row.recognized_credit_eur == sum(
+        (item.recognized_credit_eur for item in company_result.summary.appendix_8_output_rows),
+        Decimal("0"),
+    )
+    text = country_result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "- Наименование на лицето, изплатило дохода: Различни чуждестранни дружества (чрез Interactive Brokers)" in text
+
+
+def test_appendix_8_country_mode_splits_same_country_by_method_code(tmp_path: Path) -> None:
     rows = _rows_with_dividends_and_withholding(
         [
             ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
@@ -1936,43 +2047,57 @@ def test_appendix_8_country_level_credit_is_not_rowwise(tmp_path: Path) -> None:
             ["Withholding Tax", "Data", "EUR", "2025-03-02", "BBB(US2222222222) Cash Dividend EUR 1.00 per Share - US Tax", "0", ""],
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
-    country = result.summary.appendix_8_country_results["US"]
-    assert len(result.summary.appendix_8_country_results) == 1
-    assert country.aggregated_gross_eur == Decimal("200")
-    assert country.aggregated_foreign_tax_paid_eur == Decimal("15")
-    assert country.bulgarian_tax_aggregated_eur == Decimal("200") * DIVIDEND_TAX_RATE
-    assert country.credit_correct_eur == Decimal("10")
-    assert country.credit_wrong_rowwise_eur == Decimal("5")
-    assert country.delta_correct_minus_rowwise_eur == Decimal("5")
-    assert country.tax_due_correct_eur == Decimal("0")
-    assert country.tax_due_wrong_rowwise_eur == Decimal("5")
+    rows = _inject_financial_instrument_rows(
+        rows,
+        [
+            ("Stocks", "AAA", "NYSE", "Alpha Corp"),
+            ("Stocks", "BBB", "NYSE", "Beta Corp"),
+        ],
+    )
+    country_result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="country")
+    output_rows = country_result.summary.appendix_8_output_rows
+    assert len(output_rows) == 2
+    assert {item.method_code for item in output_rows} == {"1", "3"}
+    assert all(
+        item.payer_name == "Различни чуждестранни дружества (чрез Interactive Brokers)"
+        for item in output_rows
+    )
 
-    payload = _tax_credit_debug_payload(result)
-    appendix_8_entries = payload["appendix_8"]
-    assert isinstance(appendix_8_entries, list)
-    us_entry = next(item for item in appendix_8_entries if item["country_iso"] == "US")
-    assert Decimal(us_entry["credit_correct"]) == Decimal("10")
-    assert Decimal(us_entry["credit_wrong_rowwise"]) == Decimal("5")
-    assert Decimal(us_entry["delta_correct_minus_rowwise"]) == Decimal("5")
+    by_method = {item.method_code: item for item in output_rows}
+    assert by_method["1"].recognized_credit_eur == Decimal("5")
+    assert by_method["3"].recognized_credit_eur == Decimal("0")
+    assert by_method["1"].gross_dividend_eur == Decimal("100")
+    assert by_method["3"].gross_dividend_eur == Decimal("100")
 
 
-def test_appendix_8_country_level_regression_when_rowwise_matches(tmp_path: Path) -> None:
+def test_appendix_8_country_mode_never_recomputes_country_credit_min(tmp_path: Path) -> None:
     rows = _rows_with_dividends_and_withholding(
         [
             ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
             ["Dividends", "Data", "EUR", "2025-03-02", "BBB(US2222222222) Cash Dividend EUR 1.00 per Share", "100"],
         ],
         [
-            ["Withholding Tax", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "-2", ""],
-            ["Withholding Tax", "Data", "EUR", "2025-03-02", "BBB(US2222222222) Cash Dividend EUR 1.00 per Share - US Tax", "-2", ""],
+            ["Withholding Tax", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "-15", ""],
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "BBB(US2222222222) Cash Dividend EUR 1.00 per Share - US Tax", "0", ""],
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
-    country = result.summary.appendix_8_country_results["US"]
-    assert country.credit_correct_eur == Decimal("4")
-    assert country.credit_wrong_rowwise_eur == Decimal("4")
-    assert country.delta_correct_minus_rowwise_eur == Decimal("0")
+    rows = _inject_financial_instrument_rows(
+        rows,
+        [
+            ("Stocks", "AAA", "NYSE", "Alpha Corp"),
+            ("Stocks", "BBB", "NYSE", "Beta Corp"),
+        ],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="country")
+    recognized_total = sum((item.recognized_credit_eur for item in result.summary.appendix_8_output_rows), Decimal("0"))
+    assert recognized_total == Decimal("5")
+
+    payload = _tax_credit_debug_payload(result)
+    debug_entries = payload["appendix_8_country_debug"]
+    assert isinstance(debug_entries, list)
+    us_entry = next(item for item in debug_entries if item["country_iso"] == "US")
+    assert Decimal(us_entry["recognized_credit_sum_company"]) == Decimal("5")
+    assert Decimal(us_entry["recognized_credit_wrong_country_recomputed"]) == Decimal("10")
 
 
 def test_appendix_6_includes_lieu_with_interest_contributors(tmp_path: Path) -> None:
