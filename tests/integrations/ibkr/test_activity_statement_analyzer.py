@@ -1886,10 +1886,43 @@ def test_appendix_8_tax_credit_math_uses_configurable_rate(tmp_path: Path, monke
     assert result.summary.dividend_tax_rate == Decimal("0.10")
     assert "Приложение 8" in text
     assert "Брутен размер на дохода: 100.00" in text
+    assert "Код за прилагане на метод за избягване на двойното данъчно облагане: 1" in text
     assert "Платен данък в чужбина: 7.00" in text
     assert "Допустим размер на данъчния кредит: 7.00" in text
     assert "Размер на признатия данъчен кредит: 7.00" in text
     assert "Дължим данък, подлежащ на внасяне: 3.00" in text
+
+
+def test_appendix_8_method_code_is_3_when_withholding_is_zero(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "0", ""],
+        ],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Код за прилагане на метод за избягване на двойното данъчно облагане: 3" in text
+    assert "Платен данък в чужбина: 0.00" in text
+    assert "Дължим данък, подлежащ на внасяне: 5.00" in text
+
+
+def test_appendix_8_method_code_is_3_when_withholding_is_missing_or_blank(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+        ],
+        [
+            ["Withholding Tax", "Data", "Total in EUR", "2025-03-31", "Totals", "", ""],
+        ],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Код за прилагане на метод за избягване на двойното данъчно облагане: 3" in text
+    assert "Платен данък в чужбина: 0.00" in text
+    assert "Дължим данък, подлежащ на внасяне: 5.00" in text
 
 
 def test_appendix_8_country_level_credit_is_not_rowwise(tmp_path: Path) -> None:

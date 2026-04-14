@@ -1057,6 +1057,12 @@ def _sum_rowwise_wrong_credit(
     )
 
 
+def _determine_appendix8_method_code(*, foreign_withholding_paid_eur: Decimal | None) -> str:
+    if foreign_withholding_paid_eur is None or foreign_withholding_paid_eur <= ZERO:
+        return "3"
+    return "1"
+
+
 def _compute_appendix8_country_results(
     *,
     totals_by_country: dict[str, Appendix8CountryTotals],
@@ -2248,13 +2254,16 @@ def _build_declaration_text(result: AnalysisResult) -> str:
     if summary.appendix_8_country_results:
         for country_iso in sorted(summary.appendix_8_country_results):
             bucket = summary.appendix_8_country_results[country_iso]
+            method_code = _determine_appendix8_method_code(
+                foreign_withholding_paid_eur=bucket.aggregated_foreign_tax_paid_eur
+            )
             lines.append(
                 f"- Наименование на лицето, изплатило дохода: "
                 "Различни чуждестранни дружества (чрез Interactive Brokers)"
             )
             lines.append(f"- Държава: {bucket.country_bulgarian}")
             lines.append("- Код вид доход: 8141")
-            lines.append("- Код за прилагане на метод за избягване на двойното данъчно облагане: 1")
+            lines.append(f"- Код за прилагане на метод за избягване на двойното данъчно облагане: {method_code}")
             lines.append(f"- Брутен размер на дохода: {_fmt(bucket.aggregated_gross_eur, quant=DECIMAL_TWO)}")
             lines.append("- Документално доказана цена на придобиване: ")
             lines.append(f"- Платен данък в чужбина: {_fmt(bucket.aggregated_foreign_tax_paid_eur, quant=DECIMAL_TWO)}")

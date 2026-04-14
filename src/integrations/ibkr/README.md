@@ -386,6 +386,35 @@ Important:
 - dividend withholding is used in Appendix 8 only
 - Appendix 9 remains interest-only
 
+### Appendix 8 Part III convention (code 8141, column 5)
+
+Dividend rows in Appendix 8 are rendered under Part III, row `1.N`, with income code `8141`.
+
+For column 5 (`Код за прилагане на метод за избягване на двойното данъчно облагане`), the analyzer uses an intentional practical filing convention:
+
+- column 5 = `1` when foreign withholding tax amount is strictly greater than zero
+- column 5 = `3` when foreign withholding tax amount is zero (or effectively missing/no withholding)
+
+This is an explicit practical convention in the analyzer and is not a treaty lookup/detection mechanism.
+
+Examples:
+
+1. Dividend with foreign withholding `> 0`:
+- foreign tax paid (EUR) = `7.00`
+- column 5 = `1`
+
+2. Dividend with foreign withholding `= 0`:
+- foreign tax paid (EUR) = `0.00`
+- column 5 = `3`
+- full Bulgarian dividend tax (`DIVIDEND_TAX_RATE`, default `5%`) remains due locally
+
+Tax-credit related Appendix 8 columns are currently filled from the formulas above (country-level aggregation):
+
+- `Платен данък в чужбина`
+- `Допустим размер на данъчния кредит`
+- `Размер на признатия данъчен кредит`
+- `Дължим данък, подлежащ на внасяне`
+
 ## How To Read The Modified CSV
 
 The analyzer preserves row order and extends only these sections:
