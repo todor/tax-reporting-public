@@ -6,6 +6,34 @@ Module:
 
 - `integrations.ibkr.activity_statement_analyzer`
 
+Internal IBKR module structure:
+
+- `activity_statement_analyzer.py`: public entrypoint + orchestration flow
+- `sections/`: business/source processing modules
+  - `sections/trades.py`: Trades processing + Trade SubTotal/Total EUR aggregate population
+  - `sections/interest.py`: Interest processing + Appendix 6/9 components
+  - `sections/dividends.py`: Dividends processing + Appendix 8/6 components
+  - `sections/tax_withholding.py`: Withholding Tax processing + Appendix 8/9 components
+  - `sections/open_positions.py`: Open Positions processing + Part I aggregation + reconciliation checks
+  - `sections/instruments.py`: Financial Instrument Information parsing/mapping + exchange/symbol resolution
+  - `sections/income.py`: shared income parsing/classification helpers (interest/dividends)
+  - `sections/sanity.py`: sanity gate + debug artifact generation
+- `appendices/`: declaration-specific shaping/output
+  - `appendices/aggregations.py`: Appendix 8/9 aggregation math + debug report payload generation
+  - `appendices/csv_output.py`: multi-section CSV enrichment assembly + section width validation
+  - `appendices/declaration_text.py`: declaration text assembly/output formatting
+- `constants.py`: IBKR-specific constants, market/country maps, shared labels
+- `models.py`: typed dataclasses/results/errors
+- `shared.py`: truly shared infrastructure (header scoping, decimal/date parsing, FX conversion, row patching)
+
+Conventions:
+
+- preserve behavior and output compatibility first
+- keep extraction pragmatic (no framework/pipeline abstractions)
+- keep source/business parsing in `sections/*`
+- keep declaration shaping in `appendices/*`
+- keep only genuinely shared cross-cutting helpers in `shared.py`
+
 ## Quick Start
 
 ```bash

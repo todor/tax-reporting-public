@@ -170,15 +170,43 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/config.py`: central project paths
 - `src/logging_config.py`: minimal logging setup
 - `src/integrations/`: integration packages (`binance`, `ibkr`)
+- `src/integrations/ibkr/activity_statement_analyzer.py`: IBKR analyzer facade/orchestrator
+- `src/integrations/ibkr/trades.py`: Trades parsing/calculation + Trade SubTotal/Total EUR population
+- `src/integrations/ibkr/interest.py`: Interest parsing/classification + Appendix 6/9 components
+- `src/integrations/ibkr/dividends.py`: Dividends parsing/classification + Appendix 8/6 contributions
+- `src/integrations/ibkr/withholding.py`: Withholding Tax parsing/classification + Appendix 8/9 contributions
+- `src/integrations/ibkr/open_positions.py`: Open Positions parsing, Part I aggregation, reconciliation checks
+- `src/integrations/ibkr/output_rows.py`: multi-section CSV row enrichment/build + row-width validation
+- `src/integrations/ibkr/instruments.py`: Financial Instrument Information parsing/mapping
+- `src/integrations/ibkr/constants.py`: IBKR domain constants and country maps
+- `src/integrations/ibkr/models.py`: IBKR typed models/errors/result structures
+- `src/integrations/ibkr/helpers.py`: shared IBKR parsing/matching/conversion helpers
+- `src/integrations/ibkr/sanity.py`: IBKR sanity-check validation/debug artifact generation
+- `src/integrations/ibkr/appendix_output.py`: declaration text shaping/output formatting helpers
 - `src/services/bnb_fx/`: BNB CSV client + quarter cache + CLI
 - `src/services/crypto_fx/`: crypto-to-EUR layer (pair resolution + Binance hourly pricing + CLI)
 - `tests/test_imports.py`: import smoke tests
 - `tests/services/bnb_fx/`: BNB FX tests
 - `tests/services/crypto_fx/`: crypto FX tests
 - `tests/integrations/binance/`: Binance analyzer tests
-- `tests/integrations/ibkr/`: IBKR analyzer tests
+- `tests/integrations/ibkr/helpers.py`: shared IBKR test builders/utilities
+- `tests/integrations/ibkr/test_core.py`: trades/core/CLI/validation tests
+- `tests/integrations/ibkr/test_open_positions.py`: open-position + Appendix 8 Part I tests
+- `tests/integrations/ibkr/test_interest.py`: interest + Appendix 9 tests
+- `tests/integrations/ibkr/test_dividends_withholding.py`: dividends/withholding + Appendix 8 tests
+- `tests/integrations/ibkr/test_sanity.py`: sanity-check behavior/tests
 - `output/`: output directory kept in git via `.gitkeep`
   Default analyzer outputs are written under this repo folder (for example `output/binance/futures/`).
+
+## Code Structure And Conventions
+
+- Keep analyzer behavior stable first: refactors must preserve outputs, labels, calculations, and review semantics.
+- Simpler analyzers may stay single-file; more complex analyzers can be split when it clearly improves readability and safety.
+- For IBKR, keep the analyzer facade/orchestrator thin and explicit, and move cohesive parsing/calculation/output logic into IBKR-local modules.
+- Put new source/business logic in the most relevant existing module (do not append to a giant function/file).
+- Keep appendix builders focused on declaration shaping and final presentation; keep source parsing/matching logic in source-oriented modules.
+- Reuse existing helpers when there is real duplication; avoid speculative abstractions or framework-like pipelines.
+- Cross-analyzer consistency should come from a stable result/output contract, not from forcing identical internal folder layouts.
 
 ## Integration Docs
 
