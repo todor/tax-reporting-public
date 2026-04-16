@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.integrations.ibkr import helpers as h
+from tests.integrations.ibkr import support as h
 
 APPENDIX_9_ALLOWABLE_CREDIT_RATE = h.APPENDIX_9_ALLOWABLE_CREDIT_RATE
 IbkrAnalyzerError = h.IbkrAnalyzerError

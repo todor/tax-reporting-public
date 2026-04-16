@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.integrations.ibkr import helpers as h
+from tests.integrations.ibkr import support as h
 
 IbkrAnalyzerError = h.IbkrAnalyzerError
 _open_positions_header_and_data = h._open_positions_header_and_data

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.integrations.ibkr import helpers as h
+from tests.integrations.ibkr import support as h
 
 DIVIDEND_TAX_RATE = h.DIVIDEND_TAX_RATE
 IbkrAnalyzerError = h.IbkrAnalyzerError

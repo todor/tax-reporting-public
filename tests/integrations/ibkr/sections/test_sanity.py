@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.integrations.ibkr import helpers as h
+from tests.integrations.ibkr import support as h
 
 IbkrAnalyzerError = h.IbkrAnalyzerError
 analyze_ibkr_activity_statement = h.analyze_ibkr_activity_statement
