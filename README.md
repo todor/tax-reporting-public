@@ -264,6 +264,7 @@ Coinbase analyzer highlights:
 - supports `Buy`, `Sell`, `Convert`, `Send`, `Receive`, `Deposit`, `Withdraw`, `Withdrawal`
 - average-cost model per asset with chronological processing (reverse-chronological exports are reversed before processing)
 - declaration totals include only disposals realized in `--tax-year` (while basis uses full history)
+- `Send` rows do not accumulate in Appendix 5 totals; taxable sends are kept as transfer info for downstream platform analyzers
 - EUR conversion via existing `bnb_fx` and `crypto_fx`
 - outputs:
 - modified CSV with EUR/tax columns (`Purchase Price (EUR)`, `Sale Price (EUR)`, `Net Profit (EUR)`, etc.)

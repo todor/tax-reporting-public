@@ -93,7 +93,8 @@ Holdings are tracked per asset with:
 - `Subtotal (EUR)` and `Total (EUR)` output columns preserve the signed converted values for audit/debug.
 - Tax basis math uses normalized absolute values by transaction semantics:
 - `Buy` acquisition basis uses `abs(Total (EUR))`
-- `Sell` / `Convert` / taxable `Send` sale leg uses `abs(Subtotal (EUR))`
+- `Sell` / `Convert` sale leg uses `abs(Subtotal (EUR))`
+- taxable `Send` also computes disposal-form values in row output for downstream transfer workflows, but is not accumulated in Appendix 5
 
 ### Buy
 
@@ -120,8 +121,9 @@ Holdings are tracked per asset with:
 
 - always reduces holdings with average-cost basis
 - `Review Status` controls taxable handling:
-- `TAXABLE`: treated as disposal using `Subtotal (EUR)`
+- `TAXABLE`: computes transfer row values using `Subtotal (EUR)` and `Purchase Price (EUR)` for downstream analyzer workflows
 - `NON-TAXABLE`: no taxable gain/loss
+- both `TAXABLE` and `NON-TAXABLE` `Send` are excluded from Appendix 5 totals in this analyzer
 - missing/invalid status triggers warning + manual-check required
 
 ### Receive

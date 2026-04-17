@@ -141,14 +141,17 @@ def test_send_taxable_and_non_taxable_behaviour(tmp_path: Path) -> None:
     )
 
     app5 = result.summary.appendix_5
-    assert app5.sale_price_eur == Decimal("40")
-    assert app5.purchase_price_eur == Decimal("25")
-    assert app5.wins_eur == Decimal("15")
-    assert app5.rows == 1
+    assert app5.sale_price_eur == Decimal("0")
+    assert app5.purchase_price_eur == Decimal("0")
+    assert app5.wins_eur == Decimal("0")
+    assert app5.rows == 0
     assert result.summary.taxable_send_rows == 1
     assert result.summary.non_taxable_send_rows == 1
 
     out_rows = h.read_csv(result.output_csv_path)
+    assert out_rows[1]["Purchase Price (EUR)"] == "25.00000000"
+    assert out_rows[1]["Sale Price (EUR)"] == "40.00000000"
+    assert out_rows[1]["Net Profit (EUR)"] == "15.00000000"
     assert out_rows[2]["Purchase Price (EUR)"] == "25.00000000"
     assert out_rows[2]["Sale Price (EUR)"] == ""
     assert out_rows[2]["Net Profit (EUR)"] == ""

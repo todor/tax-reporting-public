@@ -33,20 +33,20 @@ def test_end_to_end_on_coinbase_since_inception_fixture(tmp_path: Path) -> None:
     assert "Sale Price (EUR)" in out_rows[0]
 
     app5 = result.summary.appendix_5
-    assert app5.sale_price_eur == Decimal("3150")
-    assert app5.purchase_price_eur == Decimal("3040")
-    assert app5.wins_eur == Decimal("110")
+    assert app5.sale_price_eur == Decimal("2700")
+    assert app5.purchase_price_eur == Decimal("2600")
+    assert app5.wins_eur == Decimal("100")
     assert app5.losses_eur == Decimal("0")
-    assert app5.rows == 3
+    assert app5.rows == 2
 
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "СТАТУС: NOT REQUIRED" in text
-    assert "- продажна цена (EUR) - код 5082: 3150.00" in text
-    assert "- цена на придобиване (EUR) - код 5082: 3040.00" in text
-    assert "- печалба (EUR) - код 5082: 110.00" in text
+    assert "- продажна цена (EUR) - код 5082: 2700.00" in text
+    assert "- цена на придобиване (EUR) - код 5082: 2600.00" in text
+    assert "- печалба (EUR) - код 5082: 100.00" in text
     assert "- загуба (EUR) - код 5082: 0.00" in text
-    assert "- нетен резултат (EUR): 110.00" in text
-    assert "- брой сделки: 3" in text
+    assert "- нетен резултат (EUR): 100.00" in text
+    assert "- брой сделки: 2" in text
     assert "ИНСТРУКЦИЯ ЗА СЛЕДВАЩ АНАЛИЗАТОР" in text
     assert "Purchase Price (EUR)" in text
     assert "TAXABLE Send" in text

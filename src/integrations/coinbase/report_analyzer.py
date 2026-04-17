@@ -499,12 +499,8 @@ def analyze_coinbase_report(
 
                 sale_price_eur = abs(subtotal_eur)
                 net_profit_eur = sale_price_eur - purchase_price_eur
-                if include_in_appendix:
-                    _apply_disposal(
-                        summary.appendix_5,
-                        sale_price_eur=sale_price_eur,
-                        purchase_price_eur=purchase_price_eur,
-                    )
+                # Send is never a taxable event for this platform's Appendix 5 totals.
+                # For TAXABLE status we keep per-row computed values for downstream transfer workflows only.
                 _set_disposal_output_fields(
                     output_row,
                     purchase_price_eur=purchase_price_eur,
