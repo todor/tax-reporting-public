@@ -6,6 +6,7 @@ The repository now includes:
 
 - FX services (`bnb_fx`, `crypto_fx`)
 - Binance analyzers
+- Coinbase report analyzer (spot transactions, average-cost model)
 - IBKR activity statement analyzer (trades + interest + dividends)
 
 Some areas are still intentionally phased and evolving (for example broader asset coverage and additional appendices).
@@ -169,32 +170,23 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/main.py`: single CLI entry point
 - `src/config.py`: central project paths
 - `src/logging_config.py`: minimal logging setup
-- `src/integrations/`: integration packages (`binance`, `ibkr`)
+- `src/integrations/`: integration packages (`binance`, `coinbase`, `ibkr`)
+- `src/integrations/coinbase/report_analyzer.py`: Coinbase analyzer entrypoint/orchestrator
+- `src/integrations/coinbase/`: Coinbase parsing, ledger, output helpers
 - `src/integrations/ibkr/activity_statement_analyzer.py`: IBKR analyzer facade/orchestrator
-- `src/integrations/ibkr/trades.py`: Trades parsing/calculation + Trade SubTotal/Total EUR population
-- `src/integrations/ibkr/interest.py`: Interest parsing/classification + Appendix 6/9 components
-- `src/integrations/ibkr/dividends.py`: Dividends parsing/classification + Appendix 8/6 contributions
-- `src/integrations/ibkr/withholding.py`: Withholding Tax parsing/classification + Appendix 8/9 contributions
-- `src/integrations/ibkr/open_positions.py`: Open Positions parsing, Part I aggregation, reconciliation checks
-- `src/integrations/ibkr/output_rows.py`: multi-section CSV row enrichment/build + row-width validation
-- `src/integrations/ibkr/instruments.py`: Financial Instrument Information parsing/mapping
+- `src/integrations/ibkr/sections/`: IBKR business/source processing modules (`trades`, `interest`, `dividends`, `tax_withholding`, `open_positions`, `instruments`, etc.)
+- `src/integrations/ibkr/appendices/`: IBKR declaration shaping/output modules
 - `src/integrations/ibkr/constants.py`: IBKR domain constants and country maps
 - `src/integrations/ibkr/models.py`: IBKR typed models/errors/result structures
-- `src/integrations/ibkr/helpers.py`: shared IBKR parsing/matching/conversion helpers
-- `src/integrations/ibkr/sanity.py`: IBKR sanity-check validation/debug artifact generation
-- `src/integrations/ibkr/appendix_output.py`: declaration text shaping/output formatting helpers
+- `src/integrations/ibkr/shared.py`: shared IBKR parsing/matching/conversion helpers
 - `src/services/bnb_fx/`: BNB CSV client + quarter cache + CLI
 - `src/services/crypto_fx/`: crypto-to-EUR layer (pair resolution + Binance hourly pricing + CLI)
 - `tests/test_imports.py`: import smoke tests
 - `tests/services/bnb_fx/`: BNB FX tests
 - `tests/services/crypto_fx/`: crypto FX tests
 - `tests/integrations/binance/`: Binance analyzer tests
-- `tests/integrations/ibkr/helpers.py`: shared IBKR test builders/utilities
-- `tests/integrations/ibkr/test_core.py`: trades/core/CLI/validation tests
-- `tests/integrations/ibkr/test_open_positions.py`: open-position + Appendix 8 Part I tests
-- `tests/integrations/ibkr/test_interest.py`: interest + Appendix 9 tests
-- `tests/integrations/ibkr/test_dividends_withholding.py`: dividends/withholding + Appendix 8 tests
-- `tests/integrations/ibkr/test_sanity.py`: sanity-check behavior/tests
+- `tests/integrations/coinbase/`: Coinbase analyzer tests
+- `tests/integrations/ibkr/`: IBKR tests (organized by `sections/` and `appendices/`)
 - `output/`: output directory kept in git via `.gitkeep`
   Default analyzer outputs are written under this repo folder (for example `output/binance/futures/`).
 
@@ -211,6 +203,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 ## Integration Docs
 
 - Binance integrations: [src/integrations/binance/README.md](src/integrations/binance/README.md)
+- Coinbase integrations: [src/integrations/coinbase/README.md](src/integrations/coinbase/README.md)
 - IBKR integrations: [src/integrations/ibkr/README.md](src/integrations/ibkr/README.md)
 
 ### Binance futures PnL cashflow analyzer
@@ -237,6 +230,37 @@ IBKR appendix credit math note:
 
 - Appendix 8 and Appendix 9 foreign-tax-credit fields are computed at country level from aggregated additive values (gross + paid foreign tax), then final `min(...)` logic is applied.
 - IBKR also runs a minimal open-position reconciliation safety check (`Open Positions Summary` vs signed `Trades Order` quantities, by canonical instrument) and triggers manual review on mismatch/unmatched instruments.
+
+### Coinbase report analyzer
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.coinbase.report_analyzer \
+  --input "path/to/Coinbase Report - since inception.csv"
+```
+
+Optional:
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.coinbase.report_analyzer \
+  --input "path/to/Coinbase Report - since inception.csv" \
+  --output-dir output/coinbase \
+  --cache-dir ~/.cache/tax_reporting
+```
+
+Coinbase analyzer highlights:
+
+- input supports Coinbase preamble + header row with or without leading `ID` column
+- supports `Buy`, `Sell`, `Convert`, `Send`, `Receive`, `Deposit`, `Withdraw`, `Withdrawal`
+- average-cost model per asset with chronological processing (reverse-chronological exports are reversed before processing)
+- EUR conversion via existing `bnb_fx` and `crypto_fx`
+- outputs:
+- modified CSV with EUR/tax columns (`Purchase Price (EUR)`, `Sale Price (EUR)`, `Net Profit (EUR)`, etc.)
+- declaration TXT (`Приложение 5 / Таблица 2`) with manual-check summary
+- conditional instruction footer for downstream analyzer is included only when taxable `Send` events exist
+
+For full Coinbase rules and edge-case behavior, see:
+
+- [src/integrations/coinbase/README.md](src/integrations/coinbase/README.md)
 
 ## Crypto FX (`services.crypto_fx`)
 

@@ -10,6 +10,10 @@ def test_binance_package_import() -> None:
     import integrations.binance  # noqa: F401
 
 
+def test_coinbase_package_import() -> None:
+    import integrations.coinbase  # noqa: F401
+
+
 def test_bnb_fx_package_import() -> None:
     import services.bnb_fx  # noqa: F401
 

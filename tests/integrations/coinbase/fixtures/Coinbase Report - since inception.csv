@@ -1,0 +1,12 @@
+Coinbase account report
+Generated at,2026-01-01 00:00:00 UTC
+Timestamp,Transaction Type,Asset,Quantity Transacted,Price Currency,Price at Transaction,Subtotal,Total (inclusive of fees and/or spread),Fees and/or Spread,Notes,Review Status,Purchase Price
+2025-01-01 10:00:00 UTC,Buy,BTC,0.10,EUR,€30000,€2990,€3000,€10,,,
+2025-01-02 10:00:00 UTC,Buy,ETH,2,EUR,€2000,€3980,€4000,€20,,,
+2025-02-01 10:00:00 UTC,Sell,BTC,0.02,EUR,€35000,€700,€700,€0,,,
+2025-02-02 10:00:00 UTC,Convert,ETH,0,EUR,€2000,€2000,€2000,€0,Converted 1 ETH to 0.02 BTC,,
+2025-03-01 10:00:00 UTC,Send,BTC,0.01,EUR,€45000,€450,€450,€0,,TAXABLE,
+2025-03-02 10:00:00 UTC,Send,BTC,0.005,EUR,€44000,€220,€220,€0,,NON-TAXABLE,
+2025-03-03 10:00:00 UTC,Receive,BTC,0.005,EUR,€30000,,,€0,,CARRY_OVER_BASIS,150
+2025-03-04 10:00:00 UTC,Deposit,EUR,1000,EUR,€1,€1000,€1000,€0,,,
+2025-03-05 10:00:00 UTC,Withdraw,USD,100,USD,$1,$100,$100,$0,,,
