@@ -8,6 +8,7 @@ Purpose:
 
 - Parse Coinbase CSV export format (`Coinbase Report - since inception.csv` style).
 - Compute EUR acquisition/disposal/profit using per-asset average-cost model.
+- Process full history for holdings/basis continuity, while declaration totals are limited to selected tax year.
 - Produce:
 - modified CSV with EUR/tax columns
 - declaration-oriented TXT for `Приложение 5 / Таблица 2`
@@ -84,6 +85,7 @@ Holdings are tracked per asset with:
 - if input rows are reverse-chronological, analyzer reverses them before processing
 - otherwise analyzer sorts by timestamp before processing
 - This guarantees correct average-cost basis evolution regardless of export order.
+- Declaration totals (`Приложение 5`) include only taxable disposals whose timestamp year equals `--tax-year`.
 
 ### Sign Handling (Important)
 
@@ -146,6 +148,7 @@ Files:
 
 - `<input_stem>_modified.csv`
 - `<input_stem>_declaration.txt`
+- `<input_stem>_state_end_<tax_year>.json`
 
 ### Added CSV Columns
 
@@ -177,11 +180,30 @@ Additional conditional footer:
 - printed only when there is at least one taxable `Send` event
 - instructs using `Purchase Price (EUR)` from modified CSV as input for the next analyzer/platform
 
+### Year-End State JSON
+
+The analyzer writes an end-of-year holdings state file for the requested `--tax-year`.
+
+Schema:
+
+- `state_tax_year_end`: integer year represented by this state
+- `holdings_by_asset`: object keyed by asset symbol
+- each asset entry contains:
+- `quantity` (string decimal)
+- `total_cost_eur` (string decimal)
+
+This enables incremental workflow:
+
+1. Run year `N` and keep `*_state_end_N.json`.
+2. For year `N+1`, pass only `N+1` operations CSV plus `--opening-state-json *_state_end_N.json`.
+3. The analyzer computes year `N+1` declaration totals with the same basis continuity as full-history input.
+
 ## CLI
 
 ```bash
 PYTHONPATH=src pyenv exec python -m integrations.coinbase.report_analyzer \
-  --input "path/to/Coinbase Report - since inception.csv"
+  --input "path/to/Coinbase Report - since inception.csv" \
+  --tax-year 2025
 ```
 
 Optional:
@@ -189,6 +211,8 @@ Optional:
 ```bash
 PYTHONPATH=src pyenv exec python -m integrations.coinbase.report_analyzer \
   --input "path/to/Coinbase Report - since inception.csv" \
+  --tax-year 2025 \
+  --opening-state-json output/coinbase/coinbase_report_since_inception_state_end_2024.json \
   --output-dir output/coinbase \
   --cache-dir ~/.cache/tax_reporting
 ```
@@ -200,6 +224,7 @@ CLI stdout includes:
 - Appendix 5 totals (`sale_price_eur`, `purchase_price_eur`, `wins_eur`, `losses_eur`, `net_result_eur`)
 - all EUR totals are printed with 2 decimal places
 - output file paths
+- includes path to year-end state JSON
 
 ## Current Limitations
 

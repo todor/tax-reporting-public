@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from decimal import Decimal
 from pathlib import Path
@@ -15,12 +16,14 @@ def test_end_to_end_on_coinbase_since_inception_fixture(tmp_path: Path) -> None:
 
     result = analyzer.analyze_coinbase_report(
         input_csv=input_csv,
+        tax_year=2025,
         output_dir=tmp_path / "out",
         eur_unit_rate_provider=h.rate_provider({"EUR": Decimal("1"), "USD": Decimal("0.8")}),
     )
 
     assert result.output_csv_path.exists()
     assert result.declaration_txt_path.exists()
+    assert result.year_end_state_json_path.exists()
 
     out_rows = h.read_csv(result.output_csv_path)
     assert len(out_rows) == 9
@@ -47,6 +50,10 @@ def test_end_to_end_on_coinbase_since_inception_fixture(tmp_path: Path) -> None:
     assert "ИНСТРУКЦИЯ ЗА СЛЕДВАЩ АНАЛИЗАТОР" in text
     assert "Purchase Price (EUR)" in text
     assert "TAXABLE Send" in text
+
+    state_payload = json.loads(result.year_end_state_json_path.read_text(encoding="utf-8"))
+    assert state_payload["state_tax_year_end"] == 2025
+    assert "holdings_by_asset" in state_payload
 
 
 def test_manual_check_summary_is_rendered_when_required(tmp_path: Path) -> None:
@@ -169,6 +176,7 @@ def test_cli_stdout_formats_totals_with_two_decimals(
         input_csv_path=Path("/tmp/in.csv"),
         output_csv_path=Path("/tmp/out.csv"),
         declaration_txt_path=Path("/tmp/out.txt"),
+        year_end_state_json_path=Path("/tmp/state.json"),
         summary=summary,
     )
 
@@ -179,6 +187,8 @@ def test_cli_stdout_formats_totals_with_two_decimals(
             "report_analyzer.py",
             "--input",
             "/tmp/in.csv",
+            "--tax-year",
+            "2025",
         ],
     )
 
@@ -191,3 +201,4 @@ def test_cli_stdout_formats_totals_with_two_decimals(
     assert "wins_eur: 23.46" in output
     assert "losses_eur: 0.00" in output
     assert "net_result_eur: 23.46" in output
+    assert "Year-end state JSON: /tmp/state.json" in output

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import re
 from datetime import datetime
@@ -101,6 +102,76 @@ def _output_paths(*, input_path: Path, output_dir: Path) -> tuple[Path, Path]:
     )
 
 
+def _state_output_path(*, input_path: Path, output_dir: Path, tax_year: int) -> Path:
+    stem = _output_stem(input_path)
+    return output_dir / f"{stem}_state_end_{tax_year}.json"
+
+
+def _load_opening_state(path: Path) -> tuple[int | None, dict[str, tuple[Decimal, Decimal]]]:
+    if not path.exists():
+        raise CoinbaseAnalyzerError(f"opening state JSON does not exist: {path}")
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise CoinbaseAnalyzerError(f"invalid opening state JSON: {path}") from exc
+
+    year_end_raw = payload.get("state_tax_year_end")
+    year_end = int(year_end_raw) if year_end_raw is not None else None
+
+    holdings_payload = payload.get("holdings_by_asset")
+    if not isinstance(holdings_payload, dict):
+        raise CoinbaseAnalyzerError(
+            f"opening state JSON must contain object 'holdings_by_asset': {path}"
+        )
+
+    holdings: dict[str, tuple[Decimal, Decimal]] = {}
+    for asset_raw, values in holdings_payload.items():
+        asset = str(asset_raw).strip().upper()
+        if asset == "":
+            raise CoinbaseAnalyzerError(f"opening state JSON contains empty asset key: {path}")
+        if not isinstance(values, dict):
+            raise CoinbaseAnalyzerError(
+                f"opening state JSON asset entry must be an object for asset={asset}: {path}"
+            )
+        quantity_raw = values.get("quantity")
+        total_cost_raw = values.get("total_cost_eur")
+        if quantity_raw is None or total_cost_raw is None:
+            raise CoinbaseAnalyzerError(
+                f"opening state JSON asset entry must contain quantity and total_cost_eur for asset={asset}: {path}"
+            )
+        try:
+            quantity = Decimal(str(quantity_raw))
+            total_cost_eur = Decimal(str(total_cost_raw))
+        except Exception as exc:  # noqa: BLE001
+            raise CoinbaseAnalyzerError(
+                f"opening state JSON contains invalid decimals for asset={asset}: {path}"
+            ) from exc
+        holdings[asset] = (quantity, total_cost_eur)
+
+    return year_end, holdings
+
+
+def _write_year_end_state_json(
+    path: Path,
+    *,
+    tax_year: int,
+    holdings_by_asset: dict[str, tuple[Decimal, Decimal]],
+) -> None:
+    payload = {
+        "state_tax_year_end": tax_year,
+        "holdings_by_asset": {
+            asset: {
+                "quantity": format(quantity, "f"),
+                "total_cost_eur": format(total_cost_eur, "f"),
+            }
+            for asset, (quantity, total_cost_eur) in sorted(holdings_by_asset.items())
+        },
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def _to_eur(
     *,
     amount_raw: str,
@@ -198,18 +269,31 @@ def _set_disposal_output_fields(
         row["Profit Loss (EUR)"] = fmt_decimal(ZERO, quant=DECIMAL_EIGHT)
 
 
+def _validate_tax_year(tax_year: int) -> None:
+    if tax_year < 2009 or tax_year > 2100:
+        raise CoinbaseAnalyzerError(f"invalid tax year: {tax_year}")
+
+
 def analyze_coinbase_report(
     *,
     input_csv: str | Path,
+    tax_year: int,
+    opening_state_json: str | Path | None = None,
     output_dir: str | Path | None = None,
     cache_dir: str | Path | None = None,
     eur_unit_rate_provider: EurUnitRateProvider | None = None,
 ) -> AnalysisResult:
+    _validate_tax_year(tax_year)
     loaded = load_coinbase_csv(input_csv)
     out_dir = (Path(output_dir).expanduser() if output_dir is not None else DEFAULT_OUTPUT_DIR).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     output_csv_path, declaration_txt_path = _output_paths(input_path=loaded.input_path, output_dir=out_dir)
+    year_end_state_json_path = _state_output_path(
+        input_path=loaded.input_path,
+        output_dir=out_dir,
+        tax_year=tax_year,
+    )
 
     rate_provider = (
         eur_unit_rate_provider
@@ -222,6 +306,16 @@ def analyze_coinbase_report(
         preamble_rows_ignored=loaded.preamble_rows_ignored,
     )
     ledger = AverageCostLedger()
+    if opening_state_json is not None:
+        opening_state_path = Path(opening_state_json).expanduser().resolve()
+        opening_year_end, opening_holdings = _load_opening_state(opening_state_path)
+        if opening_year_end is not None and opening_year_end >= tax_year:
+            summary.warnings.append(
+                "opening state year is not before requested tax year "
+                f"(state_tax_year_end={opening_year_end}, tax_year={tax_year})"
+            )
+        for asset, (quantity, total_cost_eur) in opening_holdings.items():
+            ledger.seed(asset, quantity=quantity, total_cost_eur=total_cost_eur)
 
     prepared_rows: list[_PreparedRow] = []
     output_rows_by_number: dict[int, dict[str, str]] = {}
@@ -280,14 +374,24 @@ def analyze_coinbase_report(
     # Process in chronological order for correct average-cost basis evolution:
     # - if input is reverse chronological, reverse it
     # - otherwise sort by timestamp
+    year_end_snapshot_captured = False
     for prepared in _processing_order(prepared_rows):
         row_number = prepared["row_number"]
         raw = prepared["raw"]
         tx_type = prepared["tx_type"]
         asset = prepared["asset"]
+        timestamp = prepared["timestamp"]
         subtotal_eur = prepared["subtotal_eur"]
         total_eur = prepared["total_eur"]
         output_row = output_rows_by_number[row_number]
+        include_in_appendix = timestamp.year == tax_year
+
+        if not year_end_snapshot_captured and timestamp.year > tax_year:
+            holdings_before_row = ledger.snapshot()
+            year_end_holdings_by_asset = {
+                key: (item.quantity, item.total_cost_eur) for key, item in holdings_before_row.items()
+            }
+            year_end_snapshot_captured = True
 
         if tx_type not in SUPPORTED_TRANSACTION_TYPES:
             summary.unsupported_transaction_rows += 1
@@ -328,11 +432,13 @@ def analyze_coinbase_report(
                 row_number=row_number,
                 reason="Sell",
             )
-            net_profit_eur = _apply_disposal(
-                summary.appendix_5,
-                sale_price_eur=sale_price_eur,
-                purchase_price_eur=purchase_price_eur,
-            )
+            net_profit_eur = sale_price_eur - purchase_price_eur
+            if include_in_appendix:
+                _apply_disposal(
+                    summary.appendix_5,
+                    sale_price_eur=sale_price_eur,
+                    purchase_price_eur=purchase_price_eur,
+                )
             _set_disposal_output_fields(
                 output_row,
                 purchase_price_eur=purchase_price_eur,
@@ -359,11 +465,13 @@ def analyze_coinbase_report(
                 total_cost_eur=sale_price_eur,
                 row_number=row_number,
             )
-            net_profit_eur = _apply_disposal(
-                summary.appendix_5,
-                sale_price_eur=sale_price_eur,
-                purchase_price_eur=purchase_price_eur,
-            )
+            net_profit_eur = sale_price_eur - purchase_price_eur
+            if include_in_appendix:
+                _apply_disposal(
+                    summary.appendix_5,
+                    sale_price_eur=sale_price_eur,
+                    purchase_price_eur=purchase_price_eur,
+                )
             _set_disposal_output_fields(
                 output_row,
                 purchase_price_eur=purchase_price_eur,
@@ -390,18 +498,21 @@ def analyze_coinbase_report(
                     raise CoinbaseAnalyzerError(f"row {row_number}: missing Subtotal for taxable Send")
 
                 sale_price_eur = abs(subtotal_eur)
-                net_profit_eur = _apply_disposal(
-                    summary.appendix_5,
-                    sale_price_eur=sale_price_eur,
-                    purchase_price_eur=purchase_price_eur,
-                )
+                net_profit_eur = sale_price_eur - purchase_price_eur
+                if include_in_appendix:
+                    _apply_disposal(
+                        summary.appendix_5,
+                        sale_price_eur=sale_price_eur,
+                        purchase_price_eur=purchase_price_eur,
+                    )
                 _set_disposal_output_fields(
                     output_row,
                     purchase_price_eur=purchase_price_eur,
                     sale_price_eur=sale_price_eur,
                     net_profit_eur=net_profit_eur,
                 )
-                summary.taxable_send_rows += 1
+                if include_in_appendix:
+                    summary.taxable_send_rows += 1
             elif review_status == REVIEW_STATUS_NON_TAXABLE:
                 summary.non_taxable_send_rows += 1
             else:
@@ -445,6 +556,17 @@ def analyze_coinbase_report(
             continue
 
     summary.holdings_by_asset = ledger.snapshot()
+    if year_end_snapshot_captured:
+        effective_year_end_holdings = year_end_holdings_by_asset
+    else:
+        effective_year_end_holdings = {
+            key: (item.quantity, item.total_cost_eur) for key, item in summary.holdings_by_asset.items()
+        }
+    _write_year_end_state_json(
+        year_end_state_json_path,
+        tax_year=tax_year,
+        holdings_by_asset=effective_year_end_holdings,
+    )
     output_rows = [output_rows_by_number[row.row_number] for row in loaded.rows]
 
     output_fieldnames = list(loaded.fieldnames)
@@ -463,6 +585,7 @@ def analyze_coinbase_report(
         input_csv_path=loaded.input_path,
         output_csv_path=output_csv_path,
         declaration_txt_path=declaration_txt_path,
+        year_end_state_json_path=year_end_state_json_path,
         summary=summary,
     )
 
@@ -470,6 +593,8 @@ def analyze_coinbase_report(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="coinbase-report-analyzer")
     parser.add_argument("--input", type=Path, required=True, help="Coinbase transaction report CSV")
+    parser.add_argument("--tax-year", type=int, required=True, help="Tax year")
+    parser.add_argument("--opening-state-json", type=Path, help="Optional prior year-end holdings state JSON")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Output directory")
     parser.add_argument("--cache-dir", type=Path, help="Optional FX cache dir override")
     parser.add_argument("--log-level", default="INFO")
@@ -488,6 +613,8 @@ def main() -> int:
     try:
         result = analyze_coinbase_report(
             input_csv=args.input,
+            tax_year=args.tax_year,
+            opening_state_json=args.opening_state_json,
             output_dir=args.output_dir,
             cache_dir=args.cache_dir,
         )
@@ -505,6 +632,7 @@ def main() -> int:
     print(f"net_result_eur: {fmt_decimal(bucket.net_result_eur, quant=DECIMAL_TWO)}")
     print(f"Modified CSV: {result.output_csv_path}")
     print(f"Declaration TXT: {result.declaration_txt_path}")
+    print(f"Year-end state JSON: {result.year_end_state_json_path}")
     return 0
 
 

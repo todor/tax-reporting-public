@@ -123,6 +123,7 @@ class AnalysisResult:
     input_csv_path: Path
     output_csv_path: Path
     declaration_txt_path: Path
+    year_end_state_json_path: Path
     summary: AnalysisSummary
 
 

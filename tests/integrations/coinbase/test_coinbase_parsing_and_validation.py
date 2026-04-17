@@ -227,3 +227,19 @@ def test_withdrawal_alias_is_treated_as_withdraw(tmp_path: Path) -> None:
 
     assert result.summary.ignored_fiat_deposit_withdraw_rows == 1
     assert result.summary.unsupported_transaction_rows == 0
+
+
+def test_invalid_tax_year_fails(tmp_path: Path) -> None:
+    rows = [
+        h.row(
+            timestamp="2025-01-01 00:00:00 UTC",
+            tx_type="Buy",
+            asset="BTC",
+            qty="0.01",
+            subtotal="€100",
+            total="€101",
+        )
+    ]
+
+    with pytest.raises(analyzer.CoinbaseAnalyzerError, match="invalid tax year"):
+        _ = h.run(tmp_path, rows=rows, tax_year=1800, rates={"EUR": Decimal("1")})

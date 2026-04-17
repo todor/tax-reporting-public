@@ -94,6 +94,8 @@ def run(
     tmp_path: Path,
     *,
     rows: list[dict[str, str]],
+    tax_year: int = 2025,
+    opening_state_json: Path | None = None,
     rates: dict[str, Decimal] | None = None,
     preamble_lines: list[str] | None = None,
     header: list[str] | None = None,
@@ -111,6 +113,8 @@ def run(
     provider = rate_provider(effective_rates)
     return analyzer.analyze_coinbase_report(
         input_csv=input_csv,
+        tax_year=tax_year,
+        opening_state_json=opening_state_json,
         output_dir=tmp_path / "out",
         eur_unit_rate_provider=provider,
     )

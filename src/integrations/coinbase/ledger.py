@@ -36,6 +36,30 @@ class AverageCostLedger:
         position.quantity += quantity
         position.total_cost_eur += total_cost_eur
 
+    def seed(self, asset: str, *, quantity: Decimal, total_cost_eur: Decimal) -> None:
+        """Seed ledger with pre-existing holdings from prior period state."""
+        normalized = asset.strip().upper()
+        if normalized == "":
+            raise LedgerError("opening state: missing asset")
+        if quantity < ZERO:
+            raise LedgerError(f"opening state: quantity must not be negative for {normalized}")
+        if total_cost_eur < ZERO:
+            raise LedgerError(f"opening state: total cost must not be negative for {normalized}")
+        if quantity == ZERO:
+            if total_cost_eur != ZERO:
+                raise LedgerError(
+                    f"opening state: total cost must be zero when quantity is zero for {normalized}"
+                )
+            return
+
+        position = self._positions.get(normalized)
+        if position is None:
+            position = _Position()
+            self._positions[normalized] = position
+
+        position.quantity += quantity
+        position.total_cost_eur += total_cost_eur
+
     def remove(self, asset: str, *, quantity: Decimal, row_number: int, reason: str) -> Decimal:
         normalized = asset.strip().upper()
         if normalized == "":

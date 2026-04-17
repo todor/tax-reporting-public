@@ -235,7 +235,8 @@ IBKR appendix credit math note:
 
 ```bash
 PYTHONPATH=src pyenv exec python -m integrations.coinbase.report_analyzer \
-  --input "path/to/Coinbase Report - since inception.csv"
+  --input "path/to/Coinbase Report - since inception.csv" \
+  --tax-year 2025
 ```
 
 Optional:
@@ -243,6 +244,16 @@ Optional:
 ```bash
 PYTHONPATH=src pyenv exec python -m integrations.coinbase.report_analyzer \
   --input "path/to/Coinbase Report - since inception.csv" \
+  --tax-year 2025
+```
+
+Incremental mode (previous year state + current year operations only):
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.coinbase.report_analyzer \
+  --input "path/to/Coinbase Report - 2025-only.csv" \
+  --tax-year 2025 \
+  --opening-state-json output/coinbase/coinbase_report_since_inception_state_end_2024.json \
   --output-dir output/coinbase \
   --cache-dir ~/.cache/tax_reporting
 ```
@@ -252,10 +263,12 @@ Coinbase analyzer highlights:
 - input supports Coinbase preamble + header row with or without leading `ID` column
 - supports `Buy`, `Sell`, `Convert`, `Send`, `Receive`, `Deposit`, `Withdraw`, `Withdrawal`
 - average-cost model per asset with chronological processing (reverse-chronological exports are reversed before processing)
+- declaration totals include only disposals realized in `--tax-year` (while basis uses full history)
 - EUR conversion via existing `bnb_fx` and `crypto_fx`
 - outputs:
 - modified CSV with EUR/tax columns (`Purchase Price (EUR)`, `Sale Price (EUR)`, `Net Profit (EUR)`, etc.)
 - declaration TXT (`Приложение 5 / Таблица 2`) with manual-check summary
+- year-end state JSON (`*_state_end_<tax_year>.json`) for incremental runs
 - conditional instruction footer for downstream analyzer is included only when taxable `Send` events exist
 
 For full Coinbase rules and edge-case behavior, see:

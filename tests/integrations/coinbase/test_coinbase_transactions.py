@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from pathlib import Path
 
@@ -262,3 +263,146 @@ def test_non_reverse_input_is_sorted_by_timestamp_before_processing(tmp_path: Pa
     assert app5.sale_price_eur == Decimal("45")
     assert app5.purchase_price_eur == Decimal("45")
     assert app5.wins_eur == Decimal("0")
+
+
+def test_appendix5_includes_only_selected_tax_year_disposals(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        tax_year=2025,
+        rows=[
+            h.row(
+                timestamp="2024-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="BTC",
+                qty="1",
+                subtotal="€90",
+                total="€100",
+            ),
+            h.row(
+                timestamp="2024-06-01 00:00:00 UTC",
+                tx_type="Sell",
+                asset="BTC",
+                qty="0.2",
+                subtotal="€30",
+                total="€30",
+            ),
+            h.row(
+                timestamp="2025-02-01 00:00:00 UTC",
+                tx_type="Sell",
+                asset="BTC",
+                qty="0.2",
+                subtotal="€30",
+                total="€30",
+            ),
+        ],
+        rates={"EUR": Decimal("1")},
+    )
+
+    app5 = result.summary.appendix_5
+    # 2024 disposal is excluded from declaration totals, but still affects holdings/basis.
+    assert app5.sale_price_eur == Decimal("30")
+    assert app5.purchase_price_eur == Decimal("20")
+    assert app5.wins_eur == Decimal("10")
+    assert app5.losses_eur == Decimal("0")
+    assert app5.rows == 1
+
+
+def test_opening_state_json_allows_incremental_year_processing(tmp_path: Path) -> None:
+    prior_rows = [
+        h.row(
+            timestamp="2024-01-01 00:00:00 UTC",
+            tx_type="Buy",
+            asset="BTC",
+            qty="1",
+            subtotal="€90",
+            total="€100",
+        ),
+        h.row(
+            timestamp="2024-06-01 00:00:00 UTC",
+            tx_type="Buy",
+            asset="BTC",
+            qty="1",
+            subtotal="€190",
+            total="€200",
+        ),
+    ]
+    current_year_rows = [
+        h.row(
+            timestamp="2025-03-01 00:00:00 UTC",
+            tx_type="Sell",
+            asset="BTC",
+            qty="0.5",
+            subtotal="€90",
+            total="€90",
+        )
+    ]
+
+    prior_result = h.run(
+        tmp_path,
+        tax_year=2024,
+        rows=prior_rows,
+        rates={"EUR": Decimal("1")},
+        file_name="prior.csv",
+    )
+    incremental_result = h.run(
+        tmp_path,
+        tax_year=2025,
+        rows=current_year_rows,
+        opening_state_json=prior_result.year_end_state_json_path,
+        rates={"EUR": Decimal("1")},
+        file_name="incremental.csv",
+    )
+    full_result = h.run(
+        tmp_path,
+        tax_year=2025,
+        rows=prior_rows + current_year_rows,
+        rates={"EUR": Decimal("1")},
+        file_name="full.csv",
+    )
+
+    inc = incremental_result.summary.appendix_5
+    full = full_result.summary.appendix_5
+    assert inc.sale_price_eur == full.sale_price_eur
+    assert inc.purchase_price_eur == full.purchase_price_eur
+    assert inc.wins_eur == full.wins_eur
+    assert inc.losses_eur == full.losses_eur
+    assert inc.rows == full.rows
+
+
+def test_year_end_state_json_uses_requested_tax_year_cutoff(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        tax_year=2025,
+        rows=[
+            h.row(
+                timestamp="2024-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="BTC",
+                qty="1",
+                subtotal="€90",
+                total="€100",
+            ),
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="BTC",
+                qty="1",
+                subtotal="€190",
+                total="€200",
+            ),
+            h.row(
+                timestamp="2026-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="BTC",
+                qty="1",
+                subtotal="€290",
+                total="€300",
+            ),
+        ],
+        rates={"EUR": Decimal("1")},
+    )
+
+    payload = json.loads(result.year_end_state_json_path.read_text(encoding="utf-8"))
+    assert payload["state_tax_year_end"] == 2025
+    assert payload["holdings_by_asset"]["BTC"]["quantity"] == "2"
+    assert payload["holdings_by_asset"]["BTC"]["total_cost_eur"] == "300"
