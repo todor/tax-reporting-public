@@ -7,7 +7,7 @@ Module:
 Purpose:
 
 - Parse Coinbase CSV export format (`Coinbase Report - since inception.csv` style).
-- Compute EUR acquisition/disposal/profit using per-asset average-cost model.
+- Compute EUR acquisition/disposal/profit using per-asset average-cost model with signed positions (long + short).
 - Process full history for holdings/basis continuity, while declaration totals are limited to selected tax year.
 - Produce:
 - modified CSV with EUR/tax columns
@@ -74,9 +74,15 @@ Required conversion failures fail fast with row details.
 
 Holdings are tracked per asset with:
 
-- quantity
-- total acquisition cost (EUR)
-- average price = total_cost / quantity
+- signed quantity
+- signed total cost (EUR)
+- average entry price = `abs(total_cost) / abs(quantity)` when quantity is non-zero
+
+Position interpretation:
+
+- `quantity > 0`: long
+- `quantity < 0`: short
+- `quantity == 0`: flat (`total_cost == 0`)
 
 ### Processing Order
 
@@ -91,49 +97,53 @@ Holdings are tracked per asset with:
 
 - For `Buy` / `Sell` / `Send` / `Receive`, `Quantity Transacted` is treated by absolute value (`abs(quantity)`).
 - `Subtotal (EUR)` and `Total (EUR)` output columns preserve the signed converted values for audit/debug.
-- Tax basis math uses normalized absolute values by transaction semantics:
-- `Buy` acquisition basis uses `abs(Total (EUR))`
-- `Sell` / `Convert` sale leg uses `abs(Subtotal (EUR))`
-- taxable `Send` also computes disposal-form values in row output for downstream transfer workflows, but is not accumulated in Appendix 5
+- Value sourcing stays unchanged:
+- `Buy`/`Receive` leg execution value uses `abs(Total (EUR))` or `Purchase Price` (for Receive)
+- `Sell` / `Convert` source / `Send` sale-leg execution value uses `abs(Subtotal (EUR))`
+- Realization is on closing legs only (not on every `Sell`):
+- same-direction extension: no realized PnL
+- opposite-direction trade: closes existing position first (realized PnL on closed quantity only), then opens opposite position with any remainder
+- For partial-close/flip rows, `Purchase Price (EUR)` / `Sale Price (EUR)` / `Net Profit (EUR)` represent the realized closing portion only.
 
 ### Buy
 
-- acquisition cost = `Total (EUR)`
-- increases holdings
+- if current position is long/flat: opens or extends long (no realized PnL)
+- if current position is short: closes short up to available quantity; realized PnL is computed on closed part only; remainder (if any) opens long
 
 ### Sell
 
-- taxable disposal
-- sale price = `Subtotal (EUR)`
-- purchase price = average price * sold quantity
-- net profit = sale - purchase
-- reduces holdings
+- if current position is short/flat: opens or extends short (no realized PnL)
+- if current position is long: closes long up to available quantity; realized PnL is computed on closed part only; remainder (if any) opens short
 
 ### Convert
 
 - `Notes` must match exactly:
 - `Converted <qty_sold> <asset_sold> to <qty_bought> <asset_bought>`
-- source disposal uses `Subtotal (EUR)` as sale price
-- target acquisition uses same `Subtotal (EUR)` as acquisition cost
+- Convert is processed as two legs with existing value conventions:
+- source leg behaves like `Sell` of `asset_sold`
+- target leg behaves like `Buy` of `asset_bought`
+- either leg may close an opposite-direction open position and realize PnL
 - invalid notes format fails fast
 
 ### Send
 
-- always reduces holdings with average-cost basis
+- modeled as a sell-like leg for signed accounting
 - `Review Status` controls taxable handling:
-- `TAXABLE`: computes transfer row values using `Subtotal (EUR)` and `Purchase Price (EUR)` for downstream analyzer workflows
+- `TAXABLE`: computes transfer row values (`Purchase Price (EUR)`, `Sale Price (EUR)`, `Net Profit (EUR)`) from the closing leg only, for downstream analyzer workflows
 - `NON-TAXABLE`: no taxable gain/loss
 - both `TAXABLE` and `NON-TAXABLE` `Send` are excluded from Appendix 5 totals in this analyzer
 - missing/invalid status triggers warning + manual-check required
+- current analyzer intentionally validates `Send` only against existing long holdings and rejects send-against-short flows with a clear error
 
 ### Receive
 
-- no taxable gain/loss at receipt time
 - requires `Review Status` in:
 - `CARRY_OVER_BASIS`
 - `RESET_BASIS_FROM_PRIOR_TAX_EVENT`
 - requires `Purchase Price` (EUR total basis)
 - missing/invalid receive basis metadata fails fast
+- behaves as buy/open-long leg with provided basis
+- if current position is short, `Receive` first closes short quantity (realizing PnL on closed part) and any remainder opens/adds long
 
 ### Deposit / Withdraw
 
@@ -175,6 +185,7 @@ Manual-check summary is always printed at top (`REQUIRED` or `NOT REQUIRED`), th
 - `Информативни`
 - `нетен резултат (EUR)`
 - `брой сделки`
+- informational metrics including `manual check overrides (Review Status non-empty)`
 
 Additional conditional footer:
 
@@ -192,7 +203,7 @@ Schema:
 - `holdings_by_asset`: object keyed by asset symbol
 - each asset entry contains:
 - `quantity` (string decimal)
-- `total_cost_eur` (string decimal)
+- `total_cost_eur` (string decimal; can be negative for short positions)
 
 This enables incremental workflow:
 
@@ -222,6 +233,7 @@ PYTHONPATH=src pyenv exec python -m integrations.coinbase.report_analyzer \
 CLI stdout includes:
 
 - processed row count
+- `manual_check_overrides_rows` (informational count of rows where `Review Status` is non-empty)
 - manual-check status
 - Appendix 5 totals (`sale_price_eur`, `purchase_price_eur`, `wins_eur`, `losses_eur`, `net_result_eur`)
 - all EUR totals are printed with 2 decimal places
@@ -232,5 +244,5 @@ CLI stdout includes:
 
 - `Deposit` / `Withdraw` support is fiat-only in this version.
 - Unknown transaction types are not auto-modeled; they are excluded and flagged for manual review.
-- `Send` requires manual review status to decide taxable vs non-taxable behavior.
+- `Send` requires manual review status to decide taxable vs non-taxable behavior and is allowed only against existing long holdings.
 - `Receive` requires explicit basis metadata (`Review Status` + `Purchase Price`).

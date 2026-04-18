@@ -163,6 +163,87 @@ def test_next_analyzer_instruction_is_omitted_without_taxable_send(tmp_path: Pat
     assert "ИНСТРУКЦИЯ ЗА СЛЕДВАЩ АНАЛИЗАТОР" not in text
 
 
+def test_manual_check_overrides_metric_counts_non_empty_review_status_rows(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        rows=[
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="BTC",
+                qty="1",
+                subtotal="€100",
+                total="€100",
+                review_status="OVERRIDE",
+            ),
+            h.row(
+                timestamp="2025-01-02 00:00:00 UTC",
+                tx_type="Sell",
+                asset="BTC",
+                qty="0.1",
+                subtotal="€15",
+                total="€15",
+            ),
+            h.row(
+                timestamp="2025-01-03 00:00:00 UTC",
+                tx_type="Send",
+                asset="BTC",
+                qty="0.1",
+                subtotal="€12",
+                total="€12",
+                review_status="NON-TAXABLE",
+            ),
+            h.row(
+                timestamp="2025-01-04 00:00:00 UTC",
+                tx_type="Receive",
+                asset="ETH",
+                qty="0.2",
+                subtotal="",
+                total="",
+                review_status="CARRY_OVER_BASIS",
+                purchase_price="200",
+            ),
+        ],
+        rates={"EUR": Decimal("1")},
+    )
+
+    assert result.summary.manual_check_overrides_rows == 3
+    assert result.summary.manual_check_required is False
+
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "manual check overrides (Review Status non-empty): 3" in text
+
+
+def test_manual_check_overrides_metric_is_zero_when_review_status_column_is_missing(tmp_path: Path) -> None:
+    header = [col for col in h.DEFAULT_HEADER if col != "Review Status"]
+    rows = [
+        {
+            "Timestamp": "2025-01-01 00:00:00 UTC",
+            "Transaction Type": "Buy",
+            "Asset": "BTC",
+            "Quantity Transacted": "1",
+            "Price Currency": "EUR",
+            "Price at Transaction": "",
+            "Subtotal": "€100",
+            "Total": "€100",
+            "Fees and/or Spread": "",
+            "Notes": "",
+            "Purchase Price": "",
+        }
+    ]
+
+    result = h.run(
+        tmp_path,
+        rows=rows,
+        header=header,
+        rates={"EUR": Decimal("1")},
+    )
+
+    assert result.summary.manual_check_overrides_rows == 0
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "manual check overrides (Review Status non-empty): 0" in text
+
+
 def test_cli_stdout_formats_totals_with_two_decimals(
     monkeypatch,
     capsys,
@@ -196,6 +277,7 @@ def test_cli_stdout_formats_totals_with_two_decimals(
     output = capsys.readouterr().out
 
     assert exit_code == 0
+    assert "manual_check_overrides_rows: 0" in output
     assert "sale_price_eur: 123.46" in output
     assert "purchase_price_eur: 100.00" in output
     assert "wins_eur: 23.46" in output

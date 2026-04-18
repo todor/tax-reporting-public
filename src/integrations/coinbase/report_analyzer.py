@@ -26,7 +26,7 @@ from .constants import (
     SUPPORTED_TRANSACTION_TYPES,
     ZERO,
 )
-from .ledger import AverageCostLedger
+from .ledger import AverageCostLedger, TradeResult
 from .models import AnalysisResult, AnalysisSummary, BucketTotals, CoinbaseAnalyzerError, FxConversionError
 from .output import fmt_decimal, write_declaration_text, write_modified_csv
 from .parsing import (
@@ -269,6 +269,16 @@ def _set_disposal_output_fields(
         row["Profit Loss (EUR)"] = fmt_decimal(ZERO, quant=DECIMAL_EIGHT)
 
 
+def _combined_trade_result(*results: TradeResult) -> TradeResult:
+    combined = TradeResult()
+    for result in results:
+        combined.closing_quantity += result.closing_quantity
+        combined.opening_quantity += result.opening_quantity
+        combined.closing_purchase_price_eur += result.closing_purchase_price_eur
+        combined.closing_sale_price_eur += result.closing_sale_price_eur
+    return combined
+
+
 def _validate_tax_year(tax_year: int) -> None:
     if tax_year < 2009 or tax_year > 2100:
         raise CoinbaseAnalyzerError(f"invalid tax year: {tax_year}")
@@ -386,6 +396,10 @@ def analyze_coinbase_report(
         output_row = output_rows_by_number[row_number]
         include_in_appendix = timestamp.year == tax_year
 
+        review_status_for_metric = raw.get(schema.review_status, "") if schema.review_status is not None else ""
+        if review_status_for_metric.strip() != "":
+            summary.manual_check_overrides_rows += 1
+
         if not year_end_snapshot_captured and timestamp.year > tax_year:
             holdings_before_row = ledger.snapshot()
             year_end_holdings_by_asset = {
@@ -416,8 +430,28 @@ def analyze_coinbase_report(
                 raise CoinbaseAnalyzerError(f"row {row_number}: missing Total for Buy")
 
             acquisition_cost_eur = abs(total_eur)
-            ledger.add(asset, quantity=quantity, total_cost_eur=acquisition_cost_eur, row_number=row_number)
-            output_row["Purchase Price (EUR)"] = fmt_decimal(acquisition_cost_eur, quant=DECIMAL_EIGHT)
+            buy_result = ledger.buy(
+                asset,
+                quantity=quantity,
+                execution_value_eur=acquisition_cost_eur,
+                row_number=row_number,
+                reason="Buy",
+            )
+            if buy_result.has_closing_leg:
+                if include_in_appendix:
+                    _apply_disposal(
+                        summary.appendix_5,
+                        sale_price_eur=buy_result.closing_sale_price_eur,
+                        purchase_price_eur=buy_result.closing_purchase_price_eur,
+                    )
+                _set_disposal_output_fields(
+                    output_row,
+                    purchase_price_eur=buy_result.closing_purchase_price_eur,
+                    sale_price_eur=buy_result.closing_sale_price_eur,
+                    net_profit_eur=buy_result.realized_pnl_eur,
+                )
+            else:
+                output_row["Purchase Price (EUR)"] = fmt_decimal(acquisition_cost_eur, quant=DECIMAL_EIGHT)
             continue
 
         if tx_type == "Sell":
@@ -425,26 +459,26 @@ def analyze_coinbase_report(
             if subtotal_eur is None:
                 raise CoinbaseAnalyzerError(f"row {row_number}: missing Subtotal for Sell")
 
-            sale_price_eur = abs(subtotal_eur)
-            purchase_price_eur = ledger.remove(
+            sell_result = ledger.sell(
                 asset,
                 quantity=quantity,
+                execution_value_eur=abs(subtotal_eur),
                 row_number=row_number,
                 reason="Sell",
             )
-            net_profit_eur = sale_price_eur - purchase_price_eur
-            if include_in_appendix:
-                _apply_disposal(
-                    summary.appendix_5,
-                    sale_price_eur=sale_price_eur,
-                    purchase_price_eur=purchase_price_eur,
+            if sell_result.has_closing_leg:
+                if include_in_appendix:
+                    _apply_disposal(
+                        summary.appendix_5,
+                        sale_price_eur=sell_result.closing_sale_price_eur,
+                        purchase_price_eur=sell_result.closing_purchase_price_eur,
+                    )
+                _set_disposal_output_fields(
+                    output_row,
+                    purchase_price_eur=sell_result.closing_purchase_price_eur,
+                    sale_price_eur=sell_result.closing_sale_price_eur,
+                    net_profit_eur=sell_result.realized_pnl_eur,
                 )
-            _set_disposal_output_fields(
-                output_row,
-                purchase_price_eur=purchase_price_eur,
-                sale_price_eur=sale_price_eur,
-                net_profit_eur=net_profit_eur,
-            )
             continue
 
         if tx_type == "Convert":
@@ -452,43 +486,63 @@ def analyze_coinbase_report(
                 raise CoinbaseAnalyzerError(f"row {row_number}: missing Subtotal for Convert")
 
             note = parse_convert_note(raw.get(schema.notes, ""), row_number=row_number)
-            sale_price_eur = abs(subtotal_eur)
-            purchase_price_eur = ledger.remove(
+            execution_value_eur = abs(subtotal_eur)
+            source_leg = ledger.sell(
                 note.asset_sold,
                 quantity=note.qty_sold,
+                execution_value_eur=execution_value_eur,
                 row_number=row_number,
-                reason="Convert",
+                reason="Convert source",
             )
-            ledger.add(
+            target_leg = ledger.buy(
                 note.asset_bought,
                 quantity=note.qty_bought,
-                total_cost_eur=sale_price_eur,
+                execution_value_eur=execution_value_eur,
                 row_number=row_number,
+                reason="Convert target",
             )
-            net_profit_eur = sale_price_eur - purchase_price_eur
-            if include_in_appendix:
-                _apply_disposal(
-                    summary.appendix_5,
-                    sale_price_eur=sale_price_eur,
-                    purchase_price_eur=purchase_price_eur,
+            combined_result = _combined_trade_result(source_leg, target_leg)
+            if combined_result.has_closing_leg:
+                if include_in_appendix:
+                    _apply_disposal(
+                        summary.appendix_5,
+                        sale_price_eur=combined_result.closing_sale_price_eur,
+                        purchase_price_eur=combined_result.closing_purchase_price_eur,
+                    )
+                _set_disposal_output_fields(
+                    output_row,
+                    purchase_price_eur=combined_result.closing_purchase_price_eur,
+                    sale_price_eur=combined_result.closing_sale_price_eur,
+                    net_profit_eur=combined_result.realized_pnl_eur,
                 )
-            _set_disposal_output_fields(
-                output_row,
-                purchase_price_eur=purchase_price_eur,
-                sale_price_eur=sale_price_eur,
-                net_profit_eur=net_profit_eur,
-            )
             continue
 
         if tx_type == "Send":
             quantity = _parse_quantity(raw.get(schema.quantity_transacted, ""), row_number=row_number, tx_type=tx_type)
-            purchase_price_eur = ledger.remove(
+            current_quantity = ledger.quantity(asset)
+            if current_quantity <= ZERO:
+                raise CoinbaseAnalyzerError(
+                    f"row {row_number}: Send requires existing long holdings; "
+                    f"asset={asset} available_qty={current_quantity}"
+                )
+            if quantity > current_quantity + DECIMAL_EIGHT:
+                raise CoinbaseAnalyzerError(
+                    f"row {row_number}: insufficient holdings for Send; "
+                    f"asset={asset} requested_qty={quantity} available_qty={current_quantity}"
+                )
+
+            send_execution_value_eur = abs(subtotal_eur) if subtotal_eur is not None else ZERO
+            send_result = ledger.sell(
                 asset,
                 quantity=quantity,
+                execution_value_eur=send_execution_value_eur,
                 row_number=row_number,
                 reason="Send",
             )
-            output_row["Purchase Price (EUR)"] = fmt_decimal(purchase_price_eur, quant=DECIMAL_EIGHT)
+            output_row["Purchase Price (EUR)"] = fmt_decimal(
+                send_result.closing_purchase_price_eur,
+                quant=DECIMAL_EIGHT,
+            )
 
             review_status_raw = raw.get(schema.review_status, "") if schema.review_status is not None else ""
             review_status = normalize_review_status(review_status_raw)
@@ -497,16 +551,15 @@ def analyze_coinbase_report(
                 if subtotal_eur is None:
                     raise CoinbaseAnalyzerError(f"row {row_number}: missing Subtotal for taxable Send")
 
-                sale_price_eur = abs(subtotal_eur)
-                net_profit_eur = sale_price_eur - purchase_price_eur
                 # Send is never a taxable event for this platform's Appendix 5 totals.
                 # For TAXABLE status we keep per-row computed values for downstream transfer workflows only.
-                _set_disposal_output_fields(
-                    output_row,
-                    purchase_price_eur=purchase_price_eur,
-                    sale_price_eur=sale_price_eur,
-                    net_profit_eur=net_profit_eur,
-                )
+                if send_result.has_closing_leg:
+                    _set_disposal_output_fields(
+                        output_row,
+                        purchase_price_eur=send_result.closing_purchase_price_eur,
+                        sale_price_eur=send_result.closing_sale_price_eur,
+                        net_profit_eur=send_result.realized_pnl_eur,
+                    )
                 if include_in_appendix:
                     summary.taxable_send_rows += 1
             elif review_status == REVIEW_STATUS_NON_TAXABLE:
@@ -547,8 +600,28 @@ def analyze_coinbase_report(
                     f"row {row_number}: Purchase Price for Receive must not be negative"
                 )
 
-            ledger.add(asset, quantity=quantity, total_cost_eur=purchase_price_eur, row_number=row_number)
-            output_row["Purchase Price (EUR)"] = fmt_decimal(purchase_price_eur, quant=DECIMAL_EIGHT)
+            receive_result = ledger.buy(
+                asset,
+                quantity=quantity,
+                execution_value_eur=purchase_price_eur,
+                row_number=row_number,
+                reason="Receive",
+            )
+            if receive_result.has_closing_leg:
+                if include_in_appendix:
+                    _apply_disposal(
+                        summary.appendix_5,
+                        sale_price_eur=receive_result.closing_sale_price_eur,
+                        purchase_price_eur=receive_result.closing_purchase_price_eur,
+                    )
+                _set_disposal_output_fields(
+                    output_row,
+                    purchase_price_eur=receive_result.closing_purchase_price_eur,
+                    sale_price_eur=receive_result.closing_sale_price_eur,
+                    net_profit_eur=receive_result.realized_pnl_eur,
+                )
+            else:
+                output_row["Purchase Price (EUR)"] = fmt_decimal(purchase_price_eur, quant=DECIMAL_EIGHT)
             continue
 
     summary.holdings_by_asset = ledger.snapshot()
@@ -620,6 +693,7 @@ def main() -> int:
 
     bucket = result.summary.appendix_5
     print(f"processed_rows: {result.summary.processed_rows}")
+    print(f"manual_check_overrides_rows: {result.summary.manual_check_overrides_rows}")
     print(f"manual_check_required: {'YES' if result.summary.manual_check_required else 'NO'}")
     print(f"sale_price_eur: {fmt_decimal(bucket.sale_price_eur, quant=DECIMAL_TWO)}")
     print(f"purchase_price_eur: {fmt_decimal(bucket.purchase_price_eur, quant=DECIMAL_TWO)}")

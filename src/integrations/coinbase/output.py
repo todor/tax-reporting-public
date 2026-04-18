@@ -57,6 +57,9 @@ def build_declaration_text(*, summary: AnalysisSummary) -> str:
     lines.append("")
 
     lines.append(f"- обработени редове: {summary.processed_rows}")
+    lines.append(
+        f"- manual check overrides (Review Status non-empty): {summary.manual_check_overrides_rows}"
+    )
     lines.append(f"- игнорирани fiat Deposit/Withdraw: {summary.ignored_fiat_deposit_withdraw_rows}")
     lines.append(f"- предупреждения: {len(summary.warnings)}")
     for warning in summary.warnings:

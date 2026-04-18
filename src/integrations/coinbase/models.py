@@ -50,7 +50,7 @@ class AssetHolding:
     def average_price_eur(self) -> Decimal:
         if self.quantity == ZERO:
             return ZERO
-        return self.total_cost_eur / self.quantity
+        return abs(self.total_cost_eur) / abs(self.quantity)
 
 
 @dataclass(slots=True)
@@ -86,6 +86,7 @@ class LoadedCoinbaseCsv:
 class AnalysisSummary:
     processed_rows: int = 0
     preamble_rows_ignored: int = 0
+    manual_check_overrides_rows: int = 0
     ignored_fiat_deposit_withdraw_rows: int = 0
     unsupported_transaction_rows: int = 0
     taxable_send_rows: int = 0

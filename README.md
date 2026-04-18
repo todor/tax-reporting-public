@@ -262,13 +262,18 @@ Coinbase analyzer highlights:
 
 - input supports Coinbase preamble + header row with or without leading `ID` column
 - supports `Buy`, `Sell`, `Convert`, `Send`, `Receive`, `Deposit`, `Withdraw`, `Withdrawal`
-- average-cost model per asset with chronological processing (reverse-chronological exports are reversed before processing)
-- declaration totals include only disposals realized in `--tax-year` (while basis uses full history)
+- signed average-cost model per asset (`quantity` and `total_cost_eur` can be positive/negative/zero) with chronological processing (reverse-chronological exports are reversed before processing)
+- realization is on closing legs only (supports partial closes and long<->short flips in a single trade)
+- declaration totals include only realized closing-leg results in `--tax-year` (while basis uses full history)
+- `Convert` is processed as signed `Sell` source leg + signed `Buy` target leg (target leg can close an existing short)
+- `Receive` can close an existing short before opening/adding long (using provided `Purchase Price` basis)
 - `Send` rows do not accumulate in Appendix 5 totals; taxable sends are kept as transfer info for downstream platform analyzers
+- `Send` is validated only against existing long holdings in this analyzer version
 - EUR conversion via existing `bnb_fx` and `crypto_fx`
 - outputs:
 - modified CSV with EUR/tax columns (`Purchase Price (EUR)`, `Sale Price (EUR)`, `Net Profit (EUR)`, etc.)
 - declaration TXT (`Приложение 5 / Таблица 2`) with manual-check summary
+- informational `manual check overrides` metric (count of non-empty `Review Status` rows)
 - year-end state JSON (`*_state_end_<tax_year>.json`) for incremental runs
 - conditional instruction footer for downstream analyzer is included only when taxable `Send` events exist
 
