@@ -415,6 +415,10 @@ def analyze_coinbase_report(
             )
             continue
 
+        # For Coinbase Statements CSV:
+        # - Total = Subtotal + Fees
+        # - Use Total for all economic values
+        # - Exception: Convert -> Subtotal = sell proceeds, Total = buy cost
         if tx_type == "Deposit" or tx_type == "Withdraw":
             if asset not in KNOWN_FIAT_ASSETS:
                 raise CoinbaseAnalyzerError(
@@ -456,13 +460,13 @@ def analyze_coinbase_report(
 
         if tx_type == "Sell":
             quantity = _parse_quantity(raw.get(schema.quantity_transacted, ""), row_number=row_number, tx_type=tx_type)
-            if subtotal_eur is None:
-                raise CoinbaseAnalyzerError(f"row {row_number}: missing Subtotal for Sell")
+            if total_eur is None:
+                raise CoinbaseAnalyzerError(f"row {row_number}: missing Total for Sell")
 
             sell_result = ledger.sell(
                 asset,
                 quantity=quantity,
-                execution_value_eur=abs(subtotal_eur),
+                execution_value_eur=abs(total_eur),
                 row_number=row_number,
                 reason="Sell",
             )
@@ -484,20 +488,23 @@ def analyze_coinbase_report(
         if tx_type == "Convert":
             if subtotal_eur is None:
                 raise CoinbaseAnalyzerError(f"row {row_number}: missing Subtotal for Convert")
+            if total_eur is None:
+                raise CoinbaseAnalyzerError(f"row {row_number}: missing Total for Convert")
 
             note = parse_convert_note(raw.get(schema.notes, ""), row_number=row_number)
-            execution_value_eur = abs(subtotal_eur)
+            sell_proceeds_eur = abs(subtotal_eur)
+            buy_cost_eur = abs(total_eur)
             source_leg = ledger.sell(
                 note.asset_sold,
                 quantity=note.qty_sold,
-                execution_value_eur=execution_value_eur,
+                execution_value_eur=sell_proceeds_eur,
                 row_number=row_number,
                 reason="Convert source",
             )
             target_leg = ledger.buy(
                 note.asset_bought,
                 quantity=note.qty_bought,
-                execution_value_eur=execution_value_eur,
+                execution_value_eur=buy_cost_eur,
                 row_number=row_number,
                 reason="Convert target",
             )
@@ -531,16 +538,14 @@ def analyze_coinbase_report(
                     f"asset={asset} requested_qty={quantity} available_qty={current_quantity}"
                 )
 
-            send_execution_value_eur = abs(subtotal_eur) if subtotal_eur is not None else ZERO
-            send_result = ledger.sell(
+            removed_send_cost_eur = ledger.decrease_without_realization(
                 asset,
                 quantity=quantity,
-                execution_value_eur=send_execution_value_eur,
                 row_number=row_number,
                 reason="Send",
             )
             output_row["Purchase Price (EUR)"] = fmt_decimal(
-                send_result.closing_purchase_price_eur,
+                removed_send_cost_eur,
                 quant=DECIMAL_EIGHT,
             )
 
@@ -548,18 +553,7 @@ def analyze_coinbase_report(
             review_status = normalize_review_status(review_status_raw)
 
             if review_status == REVIEW_STATUS_TAXABLE:
-                if subtotal_eur is None:
-                    raise CoinbaseAnalyzerError(f"row {row_number}: missing Subtotal for taxable Send")
-
                 # Send is never a taxable event for this platform's Appendix 5 totals.
-                # For TAXABLE status we keep per-row computed values for downstream transfer workflows only.
-                if send_result.has_closing_leg:
-                    _set_disposal_output_fields(
-                        output_row,
-                        purchase_price_eur=send_result.closing_purchase_price_eur,
-                        sale_price_eur=send_result.closing_sale_price_eur,
-                        net_profit_eur=send_result.realized_pnl_eur,
-                    )
                 if include_in_appendix:
                     summary.taxable_send_rows += 1
             elif review_status == REVIEW_STATUS_NON_TAXABLE:

@@ -4,6 +4,8 @@ import json
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from tests.integrations.coinbase import support as h
 
 
@@ -29,6 +31,31 @@ def test_buy_uses_total_including_fees_for_acquisition(tmp_path: Path) -> None:
     holding = result.summary.holdings_by_asset["ETH"]
     assert holding.quantity == Decimal("1")
     assert holding.total_cost_eur == Decimal("4000")
+
+
+def test_buy_uses_total_when_subtotal_and_total_differ(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        rows=[
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="BTC",
+                qty="1",
+                subtotal="€1000",
+                total="€1020",
+                fees="€20",
+            )
+        ],
+        rates={"EUR": Decimal("1")},
+    )
+
+    holding = result.summary.holdings_by_asset["BTC"]
+    assert holding.quantity == Decimal("1")
+    assert holding.total_cost_eur == Decimal("1020")
+
+    out_rows = h.read_csv(result.output_csv_path)
+    assert out_rows[0]["Purchase Price (EUR)"] == "1020.00000000"
 
 
 def test_sell_computes_gain_and_reduces_holdings_with_average_cost(tmp_path: Path) -> None:
@@ -65,6 +92,43 @@ def test_sell_computes_gain_and_reduces_holdings_with_average_cost(tmp_path: Pat
     holding = result.summary.holdings_by_asset["BTC"]
     assert holding.quantity == Decimal("1.5")
     assert holding.total_cost_eur == Decimal("150")
+
+
+def test_sell_uses_total_not_subtotal_for_proceeds(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        rows=[
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="BTC",
+                qty="1",
+                subtotal="€1000",
+                total="€1000",
+            ),
+            h.row(
+                timestamp="2025-01-02 00:00:00 UTC",
+                tx_type="Sell",
+                asset="BTC",
+                qty="1",
+                subtotal="€1000",
+                total="€980",
+                fees="€-20",
+            ),
+        ],
+        rates={"EUR": Decimal("1")},
+    )
+
+    app5 = result.summary.appendix_5
+    assert app5.sale_price_eur == Decimal("980")
+    assert app5.purchase_price_eur == Decimal("1000")
+    assert app5.wins_eur == Decimal("0")
+    assert app5.losses_eur == Decimal("20")
+    assert app5.rows == 1
+
+    out_rows = h.read_csv(result.output_csv_path)
+    assert out_rows[1]["Sale Price (EUR)"] == "980.00000000"
+    assert out_rows[1]["Net Profit (EUR)"] == "-20.00000000"
 
 
 def test_convert_disposes_source_and_acquires_target(tmp_path: Path) -> None:
@@ -104,6 +168,44 @@ def test_convert_disposes_source_and_acquires_target(tmp_path: Path) -> None:
     assert eth_holding.total_cost_eur == Decimal("100")
     assert btc_holding.quantity == Decimal("0.05")
     assert btc_holding.total_cost_eur == Decimal("150")
+
+
+def test_convert_uses_subtotal_for_sell_and_total_for_buy(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        rows=[
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="ETH",
+                qty="1",
+                subtotal="€900",
+                total="€900",
+            ),
+            h.row(
+                timestamp="2025-01-02 00:00:00 UTC",
+                tx_type="Convert",
+                asset="ETH",
+                qty="0",
+                subtotal="€1000",
+                total="€980",
+                fees="€-20",
+                notes="Converted 1 ETH to 0.5 BTC",
+            ),
+        ],
+        rates={"EUR": Decimal("1")},
+    )
+
+    app5 = result.summary.appendix_5
+    assert app5.sale_price_eur == Decimal("1000")
+    assert app5.purchase_price_eur == Decimal("900")
+    assert app5.wins_eur == Decimal("100")
+    assert app5.losses_eur == Decimal("0")
+    assert app5.rows == 1
+
+    btc_holding = result.summary.holdings_by_asset["BTC"]
+    assert btc_holding.quantity == Decimal("0.5")
+    assert btc_holding.total_cost_eur == Decimal("980")
 
 
 def test_send_taxable_and_non_taxable_behaviour(tmp_path: Path) -> None:
@@ -150,11 +252,38 @@ def test_send_taxable_and_non_taxable_behaviour(tmp_path: Path) -> None:
 
     out_rows = h.read_csv(result.output_csv_path)
     assert out_rows[1]["Purchase Price (EUR)"] == "25.00000000"
-    assert out_rows[1]["Sale Price (EUR)"] == "40.00000000"
-    assert out_rows[1]["Net Profit (EUR)"] == "15.00000000"
+    assert out_rows[1]["Sale Price (EUR)"] == ""
+    assert out_rows[1]["Net Profit (EUR)"] == ""
     assert out_rows[2]["Purchase Price (EUR)"] == "25.00000000"
     assert out_rows[2]["Sale Price (EUR)"] == ""
     assert out_rows[2]["Net Profit (EUR)"] == ""
+
+
+def test_withdrawal_crypto_is_explicitly_unsupported(tmp_path: Path) -> None:
+    rows = [
+        h.row(
+            timestamp="2025-01-01 00:00:00 UTC",
+            tx_type="Buy",
+            asset="BTC",
+            qty="1",
+            subtotal="€100",
+            total="€100",
+        ),
+        h.row(
+            timestamp="2025-01-02 00:00:00 UTC",
+            tx_type="Withdrawal",
+            asset="BTC",
+            qty="0.2",
+            subtotal="€2.50",
+            total="€2.35",
+            fees="€-0.15",
+        ),
+    ]
+
+    from integrations.coinbase import report_analyzer as analyzer
+
+    with pytest.raises(analyzer.CoinbaseAnalyzerError, match="supported only for fiat assets"):
+        _ = h.run(tmp_path, rows=rows, rates={"EUR": Decimal("1")})
 
 
 def test_receive_with_carry_over_basis_adds_holdings(tmp_path: Path) -> None:
@@ -197,6 +326,49 @@ def test_receive_with_reset_basis_from_prior_tax_event_adds_holdings(tmp_path: P
     holding = result.summary.holdings_by_asset["ETH"]
     assert holding.quantity == Decimal("0.3")
     assert holding.total_cost_eur == Decimal("1500")
+
+
+def test_receive_can_realize_pnl_when_reducing_short(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        rows=[
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Sell",
+                asset="BTC",
+                qty="2",
+                subtotal="€200",
+                total="€200",
+            ),
+            h.row(
+                timestamp="2025-01-02 00:00:00 UTC",
+                tx_type="Receive",
+                asset="BTC",
+                qty="1.5",
+                subtotal="",
+                total="",
+                review_status="CARRY_OVER_BASIS",
+                purchase_price="120",
+            ),
+        ],
+        rates={"EUR": Decimal("1")},
+    )
+
+    app5 = result.summary.appendix_5
+    assert app5.rows == 1
+    assert app5.sale_price_eur == Decimal("150")
+    assert app5.purchase_price_eur == Decimal("120")
+    assert app5.wins_eur == Decimal("30")
+    assert app5.losses_eur == Decimal("0")
+
+    holding = result.summary.holdings_by_asset["BTC"]
+    assert holding.quantity == Decimal("-0.5")
+    assert holding.total_cost_eur == Decimal("-50")
+
+    out_rows = h.read_csv(result.output_csv_path)
+    assert out_rows[1]["Purchase Price (EUR)"] == "120.00000000"
+    assert out_rows[1]["Sale Price (EUR)"] == "150.00000000"
+    assert out_rows[1]["Net Profit (EUR)"] == "30.00000000"
 
 
 def test_reverse_chronological_input_is_processed_in_time_order(tmp_path: Path) -> None:

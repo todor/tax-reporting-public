@@ -230,6 +230,48 @@ class AverageCostLedger:
             return ZERO
         return position.quantity
 
+    def decrease_without_realization(
+        self,
+        asset: str,
+        *,
+        quantity: Decimal,
+        row_number: int,
+        reason: str,
+    ) -> Decimal:
+        normalized = asset.strip().upper()
+        if normalized == "":
+            raise LedgerError(f"row {row_number}: missing asset for {reason}")
+        if quantity <= ZERO:
+            raise LedgerError(f"row {row_number}: quantity must be positive for {reason} ({normalized})")
+
+        position = self._positions.get(normalized)
+        if position is None or position.quantity <= ZERO:
+            raise LedgerError(
+                f"row {row_number}: insufficient holdings for {reason}; "
+                f"asset={normalized} requested_qty={quantity}"
+            )
+
+        available = position.quantity
+        if quantity > available + DECIMAL_EIGHT:
+            raise LedgerError(
+                f"row {row_number}: insufficient holdings for {reason}; "
+                f"asset={normalized} requested_qty={quantity} available_qty={available}"
+            )
+
+        quantity_to_remove = quantity if quantity <= available else available
+        average_price_eur = position.total_cost_eur / available
+        removed_cost_eur = quantity_to_remove * average_price_eur
+
+        position.quantity -= quantity_to_remove
+        position.total_cost_eur -= removed_cost_eur
+
+        self._normalize_position(
+            asset=normalized,
+            position=position,
+            context=f"row {row_number}: {reason}",
+        )
+        return removed_cost_eur
+
     def snapshot(self) -> dict[str, AssetHolding]:
         holdings: dict[str, AssetHolding] = {}
         for asset in sorted(self._positions):
