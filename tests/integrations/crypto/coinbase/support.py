@@ -6,7 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from integrations.coinbase import report_analyzer as analyzer
+from integrations.crypto.coinbase import report_analyzer as analyzer
 
 DEFAULT_HEADER = [
     "Timestamp",

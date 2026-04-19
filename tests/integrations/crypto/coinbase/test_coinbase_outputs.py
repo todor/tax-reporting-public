@@ -5,8 +5,8 @@ import shutil
 from decimal import Decimal
 from pathlib import Path
 
-from integrations.coinbase import report_analyzer as analyzer
-from tests.integrations.coinbase import support as h
+from integrations.crypto.coinbase import report_analyzer as analyzer
+from tests.integrations.crypto.coinbase import support as h
 
 
 def test_end_to_end_on_coinbase_since_inception_fixture(tmp_path: Path) -> None:
@@ -26,9 +26,11 @@ def test_end_to_end_on_coinbase_since_inception_fixture(tmp_path: Path) -> None:
     assert result.year_end_state_json_path.exists()
 
     out_rows = h.read_csv(result.output_csv_path)
-    assert len(out_rows) == 9
-    assert "Subtotal (EUR)" in out_rows[0]
-    assert "Total (EUR)" in out_rows[0]
+    assert len(out_rows) == 10
+    assert "Subtotal (EUR)" not in out_rows[0]
+    assert "Total (EUR)" not in out_rows[0]
+    assert "Operation ID" in out_rows[0]
+    assert "Transaction Type" in out_rows[0]
     assert "Purchase Price (EUR)" in out_rows[0]
     assert "Sale Price (EUR)" in out_rows[0]
 
@@ -47,9 +49,7 @@ def test_end_to_end_on_coinbase_since_inception_fixture(tmp_path: Path) -> None:
     assert "- загуба (EUR) - код 5082: 0.00" in text
     assert "- нетен резултат (EUR): 100.00" in text
     assert "- брой сделки: 2" in text
-    assert "ИНСТРУКЦИЯ ЗА СЛЕДВАЩ АНАЛИЗАТОР" in text
-    assert "Purchase Price (EUR)" in text
-    assert "TAXABLE Send" in text
+    assert "ИНСТРУКЦИЯ ЗА СЛЕДВАЩ АНАЛИЗАТОР" not in text
 
     state_payload = json.loads(result.year_end_state_json_path.read_text(encoding="utf-8"))
     assert state_payload["state_tax_year_end"] == 2025

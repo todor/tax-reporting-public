@@ -7,11 +7,11 @@ def test_integrations_import() -> None:
 
 
 def test_binance_package_import() -> None:
-    import integrations.binance  # noqa: F401
+    import integrations.crypto.binance  # noqa: F401
 
 
 def test_coinbase_package_import() -> None:
-    import integrations.coinbase  # noqa: F401
+    import integrations.crypto.coinbase  # noqa: F401
 
 
 def test_bnb_fx_package_import() -> None:

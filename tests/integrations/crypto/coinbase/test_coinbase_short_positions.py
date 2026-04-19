@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from integrations.coinbase import report_analyzer as analyzer
-from tests.integrations.coinbase import support as h
+from integrations.crypto.coinbase import report_analyzer as analyzer
+from tests.integrations.crypto.coinbase import support as h
 
 
 def test_sell_from_flat_opens_short_without_realized_pnl(tmp_path: Path) -> None:
@@ -312,9 +312,18 @@ def test_convert_target_leg_can_close_short(tmp_path: Path) -> None:
     assert holding.total_cost_eur == Decimal("110")
 
     out_rows = h.read_csv(result.output_csv_path)
-    assert out_rows[2]["Purchase Price (EUR)"] == "310.00000000"
-    assert out_rows[2]["Sale Price (EUR)"] == "320.00000000"
-    assert out_rows[2]["Net Profit (EUR)"] == "10.00000000"
+    convert_rows = [row for row in out_rows if row["Source Row"] == "3"]
+    assert len(convert_rows) == 2
+    sell_leg = next(row for row in convert_rows if row["Operation Leg"] == "SELL")
+    buy_leg = next(row for row in convert_rows if row["Operation Leg"] == "BUY")
+
+    assert sell_leg["Purchase Price (EUR)"] == "200.00000000"
+    assert sell_leg["Sale Price (EUR)"] == "220.00000000"
+    assert sell_leg["Net Profit (EUR)"] == "20.00000000"
+
+    assert buy_leg["Purchase Price (EUR)"] == "110.00000000"
+    assert buy_leg["Sale Price (EUR)"] == "100.00000000"
+    assert buy_leg["Net Profit (EUR)"] == "-10.00000000"
 
 
 def test_receive_can_close_short_and_realize_pnl(tmp_path: Path) -> None:

@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from .constants import DECIMAL_EIGHT, ZERO
-from .models import AssetHolding, LedgerError
+from .crypto_ir_models import GenericCryptoAnalyzerError, IrAssetHolding, ZERO
+
+DECIMAL_EIGHT = Decimal("0.00000001")
 
 
 @dataclass(slots=True)
@@ -29,8 +30,8 @@ class TradeResult:
         return self.closing_quantity > ZERO
 
 
-class AverageCostLedger:
-    """Average-cost holdings ledger keyed by asset symbol."""
+class GenericAverageCostLedger:
+    """Signed average-cost holdings ledger keyed by asset symbol."""
 
     def __init__(self) -> None:
         self._positions: dict[str, _Position] = {}
@@ -52,12 +53,12 @@ class AverageCostLedger:
             position.total_cost_eur = ZERO
 
         if position.quantity > ZERO and position.total_cost_eur < -DECIMAL_EIGHT:
-            raise LedgerError(
+            raise GenericCryptoAnalyzerError(
                 f"{context}: invalid signed position for {asset}; "
                 f"quantity={position.quantity} total_cost_eur={position.total_cost_eur}"
             )
         if position.quantity < ZERO and position.total_cost_eur > DECIMAL_EIGHT:
-            raise LedgerError(
+            raise GenericCryptoAnalyzerError(
                 f"{context}: invalid signed position for {asset}; "
                 f"quantity={position.quantity} total_cost_eur={position.total_cost_eur}"
             )
@@ -82,18 +83,15 @@ class AverageCostLedger:
         *,
         quantity: Decimal,
         execution_value_eur: Decimal,
-        row_number: int,
-        reason: str,
+        context: str,
     ) -> TradeResult:
         normalized = asset.strip().upper()
         if normalized == "":
-            raise LedgerError(f"row {row_number}: missing asset for {reason}")
+            raise GenericCryptoAnalyzerError(f"{context}: missing asset")
         if quantity <= ZERO:
-            raise LedgerError(f"row {row_number}: quantity must be positive for {reason} ({normalized})")
+            raise GenericCryptoAnalyzerError(f"{context}: quantity must be positive ({normalized})")
         if execution_value_eur < ZERO:
-            raise LedgerError(
-                f"row {row_number}: execution value must not be negative for {reason} ({normalized})"
-            )
+            raise GenericCryptoAnalyzerError(f"{context}: execution value must not be negative ({normalized})")
 
         result = TradeResult()
         position = self._get_or_create_position(normalized)
@@ -129,37 +127,8 @@ class AverageCostLedger:
             position.quantity += quantity
             position.total_cost_eur += execution_value_eur
 
-        self._normalize_position(
-            asset=normalized,
-            position=position,
-            context=f"row {row_number}: {reason}",
-        )
+        self._normalize_position(asset=normalized, position=position, context=context)
         return result
-
-    def seed(self, asset: str, *, quantity: Decimal, total_cost_eur: Decimal) -> None:
-        """Seed ledger with pre-existing holdings from prior period state."""
-        normalized = asset.strip().upper()
-        if normalized == "":
-            raise LedgerError("opening state: missing asset")
-        if quantity == ZERO:
-            if total_cost_eur != ZERO:
-                raise LedgerError(
-                    f"opening state: total cost must be zero when quantity is zero for {normalized}"
-                )
-            return
-        if quantity > ZERO and total_cost_eur < ZERO:
-            raise LedgerError(
-                f"opening state: total cost must not be negative for long position in {normalized}"
-            )
-        if quantity < ZERO and total_cost_eur > ZERO:
-            raise LedgerError(
-                f"opening state: total cost must not be positive for short position in {normalized}"
-            )
-
-        position = self._get_or_create_position(normalized)
-        position.quantity += quantity
-        position.total_cost_eur += total_cost_eur
-        self._normalize_position(asset=normalized, position=position, context="opening state")
 
     def sell(
         self,
@@ -167,18 +136,15 @@ class AverageCostLedger:
         *,
         quantity: Decimal,
         execution_value_eur: Decimal,
-        row_number: int,
-        reason: str,
+        context: str,
     ) -> TradeResult:
         normalized = asset.strip().upper()
         if normalized == "":
-            raise LedgerError(f"row {row_number}: missing asset for {reason}")
+            raise GenericCryptoAnalyzerError(f"{context}: missing asset")
         if quantity <= ZERO:
-            raise LedgerError(f"row {row_number}: quantity must be positive for {reason} ({normalized})")
+            raise GenericCryptoAnalyzerError(f"{context}: quantity must be positive ({normalized})")
         if execution_value_eur < ZERO:
-            raise LedgerError(
-                f"row {row_number}: execution value must not be negative for {reason} ({normalized})"
-            )
+            raise GenericCryptoAnalyzerError(f"{context}: execution value must not be negative ({normalized})")
 
         result = TradeResult()
         position = self._get_or_create_position(normalized)
@@ -214,12 +180,62 @@ class AverageCostLedger:
             position.quantity -= quantity
             position.total_cost_eur -= execution_value_eur
 
-        self._normalize_position(
-            asset=normalized,
-            position=position,
-            context=f"row {row_number}: {reason}",
-        )
+        self._normalize_position(asset=normalized, position=position, context=context)
         return result
+
+    def decrease_without_realization(self, asset: str, *, quantity: Decimal, context: str) -> Decimal:
+        normalized = asset.strip().upper()
+        if normalized == "":
+            raise GenericCryptoAnalyzerError(f"{context}: missing asset")
+        if quantity <= ZERO:
+            raise GenericCryptoAnalyzerError(f"{context}: quantity must be positive ({normalized})")
+
+        position = self._positions.get(normalized)
+        if position is None or position.quantity <= ZERO:
+            raise GenericCryptoAnalyzerError(
+                f"{context}: insufficient holdings; asset={normalized} requested_qty={quantity}"
+            )
+
+        available = position.quantity
+        if quantity > available + DECIMAL_EIGHT:
+            raise GenericCryptoAnalyzerError(
+                f"{context}: insufficient holdings; asset={normalized} "
+                f"requested_qty={quantity} available_qty={available}"
+            )
+
+        quantity_to_remove = quantity if quantity <= available else available
+        average_price_eur = position.total_cost_eur / available
+        removed_cost_eur = quantity_to_remove * average_price_eur
+
+        position.quantity -= quantity_to_remove
+        position.total_cost_eur -= removed_cost_eur
+
+        self._normalize_position(asset=normalized, position=position, context=context)
+        return removed_cost_eur
+
+    def seed(self, asset: str, *, quantity: Decimal, total_cost_eur: Decimal, context: str) -> None:
+        normalized = asset.strip().upper()
+        if normalized == "":
+            raise GenericCryptoAnalyzerError(f"{context}: missing asset")
+        if quantity == ZERO:
+            if total_cost_eur != ZERO:
+                raise GenericCryptoAnalyzerError(
+                    f"{context}: total cost must be zero when quantity is zero for {normalized}"
+                )
+            return
+        if quantity > ZERO and total_cost_eur < ZERO:
+            raise GenericCryptoAnalyzerError(
+                f"{context}: total cost must not be negative for long position in {normalized}"
+            )
+        if quantity < ZERO and total_cost_eur > ZERO:
+            raise GenericCryptoAnalyzerError(
+                f"{context}: total cost must not be positive for short position in {normalized}"
+            )
+
+        position = self._get_or_create_position(normalized)
+        position.quantity += quantity
+        position.total_cost_eur += total_cost_eur
+        self._normalize_position(asset=normalized, position=position, context=context)
 
     def quantity(self, asset: str) -> Decimal:
         normalized = asset.strip().upper()
@@ -230,55 +246,24 @@ class AverageCostLedger:
             return ZERO
         return position.quantity
 
-    def decrease_without_realization(
-        self,
-        asset: str,
-        *,
-        quantity: Decimal,
-        row_number: int,
-        reason: str,
-    ) -> Decimal:
+    def position(self, asset: str) -> IrAssetHolding | None:
         normalized = asset.strip().upper()
-        if normalized == "":
-            raise LedgerError(f"row {row_number}: missing asset for {reason}")
-        if quantity <= ZERO:
-            raise LedgerError(f"row {row_number}: quantity must be positive for {reason} ({normalized})")
-
         position = self._positions.get(normalized)
-        if position is None or position.quantity <= ZERO:
-            raise LedgerError(
-                f"row {row_number}: insufficient holdings for {reason}; "
-                f"asset={normalized} requested_qty={quantity}"
-            )
-
-        available = position.quantity
-        if quantity > available + DECIMAL_EIGHT:
-            raise LedgerError(
-                f"row {row_number}: insufficient holdings for {reason}; "
-                f"asset={normalized} requested_qty={quantity} available_qty={available}"
-            )
-
-        quantity_to_remove = quantity if quantity <= available else available
-        average_price_eur = position.total_cost_eur / available
-        removed_cost_eur = quantity_to_remove * average_price_eur
-
-        position.quantity -= quantity_to_remove
-        position.total_cost_eur -= removed_cost_eur
-
-        self._normalize_position(
+        if position is None or abs(position.quantity) <= DECIMAL_EIGHT:
+            return None
+        return IrAssetHolding(
             asset=normalized,
-            position=position,
-            context=f"row {row_number}: {reason}",
+            quantity=position.quantity,
+            total_cost_eur=position.total_cost_eur,
         )
-        return removed_cost_eur
 
-    def snapshot(self) -> dict[str, AssetHolding]:
-        holdings: dict[str, AssetHolding] = {}
+    def snapshot(self) -> dict[str, IrAssetHolding]:
+        holdings: dict[str, IrAssetHolding] = {}
         for asset in sorted(self._positions):
             position = self._positions[asset]
             if abs(position.quantity) <= DECIMAL_EIGHT:
                 continue
-            holdings[asset] = AssetHolding(
+            holdings[asset] = IrAssetHolding(
                 asset=asset,
                 quantity=position.quantity,
                 total_cost_eur=position.total_cost_eur,

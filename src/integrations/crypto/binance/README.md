@@ -6,7 +6,7 @@ This folder contains Binance-specific analyzers used for tax reporting.
 
 Module:
 
-- `integrations.binance.futures_pnl_analyzer`
+- `integrations.crypto.binance.futures_pnl_analyzer`
 
 Purpose:
 
@@ -165,7 +165,7 @@ You can reproduce the output in a spreadsheet exactly:
 CLI:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.binance.futures_pnl_analyzer \
+PYTHONPATH=src pyenv exec python -m integrations.crypto.binance.futures_pnl_analyzer \
   --input path/to/binance_futures_pnl.csv \
   --tax-year 2025
 ```
@@ -173,7 +173,7 @@ PYTHONPATH=src pyenv exec python -m integrations.binance.futures_pnl_analyzer \
 Optional:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.binance.futures_pnl_analyzer \
+PYTHONPATH=src pyenv exec python -m integrations.crypto.binance.futures_pnl_analyzer \
   --input path/to/binance_futures_pnl.csv \
   --tax-year 2025 \
   --output-dir output/binance/futures \

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.integrations.coinbase import support as h
+from tests.integrations.crypto.coinbase import support as h
 
 
 def test_buy_uses_total_including_fees_for_acquisition(tmp_path: Path) -> None:
@@ -26,7 +26,7 @@ def test_buy_uses_total_including_fees_for_acquisition(tmp_path: Path) -> None:
     )
 
     out_rows = h.read_csv(result.output_csv_path)
-    assert out_rows[0]["Purchase Price (EUR)"] == "4000.00000000"
+    assert out_rows[0]["Purchase Price (EUR)"] == ""
 
     holding = result.summary.holdings_by_asset["ETH"]
     assert holding.quantity == Decimal("1")
@@ -55,7 +55,7 @@ def test_buy_uses_total_when_subtotal_and_total_differ(tmp_path: Path) -> None:
     assert holding.total_cost_eur == Decimal("1020")
 
     out_rows = h.read_csv(result.output_csv_path)
-    assert out_rows[0]["Purchase Price (EUR)"] == "1020.00000000"
+    assert out_rows[0]["Purchase Price (EUR)"] == ""
 
 
 def test_sell_computes_gain_and_reduces_holdings_with_average_cost(tmp_path: Path) -> None:
@@ -251,39 +251,40 @@ def test_send_taxable_and_non_taxable_behaviour(tmp_path: Path) -> None:
     assert result.summary.non_taxable_send_rows == 1
 
     out_rows = h.read_csv(result.output_csv_path)
-    assert out_rows[1]["Purchase Price (EUR)"] == "25.00000000"
+    assert out_rows[1]["Purchase Price (EUR)"] == ""
     assert out_rows[1]["Sale Price (EUR)"] == ""
     assert out_rows[1]["Net Profit (EUR)"] == ""
-    assert out_rows[2]["Purchase Price (EUR)"] == "25.00000000"
+    assert out_rows[2]["Purchase Price (EUR)"] == ""
     assert out_rows[2]["Sale Price (EUR)"] == ""
     assert out_rows[2]["Net Profit (EUR)"] == ""
 
 
-def test_withdrawal_crypto_is_explicitly_unsupported(tmp_path: Path) -> None:
-    rows = [
-        h.row(
-            timestamp="2025-01-01 00:00:00 UTC",
-            tx_type="Buy",
-            asset="BTC",
-            qty="1",
-            subtotal="€100",
-            total="€100",
-        ),
-        h.row(
-            timestamp="2025-01-02 00:00:00 UTC",
-            tx_type="Withdrawal",
-            asset="BTC",
-            qty="0.2",
-            subtotal="€2.50",
-            total="€2.35",
-            fees="€-0.15",
-        ),
-    ]
+def test_withdrawal_is_treated_as_fiat_by_transaction_type(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        rows=[
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="BTC",
+                qty="1",
+                subtotal="€100",
+                total="€100",
+            ),
+            h.row(
+                timestamp="2025-01-02 00:00:00 UTC",
+                tx_type="Withdrawal",
+                asset="BTC",
+                qty="0.2",
+                subtotal="€2.50",
+                total="€2.35",
+                fees="€-0.15",
+            ),
+        ],
+        rates={"EUR": Decimal("1")},
+    )
 
-    from integrations.coinbase import report_analyzer as analyzer
-
-    with pytest.raises(analyzer.CoinbaseAnalyzerError, match="supported only for fiat assets"):
-        _ = h.run(tmp_path, rows=rows, rates={"EUR": Decimal("1")})
+    assert result.summary.ignored_fiat_deposit_withdraw_rows == 1
 
 
 def test_receive_with_carry_over_basis_adds_holdings(tmp_path: Path) -> None:

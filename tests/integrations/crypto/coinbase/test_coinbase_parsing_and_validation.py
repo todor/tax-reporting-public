@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from integrations.coinbase import report_analyzer as analyzer
-from tests.integrations.coinbase import support as h
+from integrations.crypto.coinbase import report_analyzer as analyzer
+from tests.integrations.crypto.coinbase import support as h
 
 
 def test_preamble_rows_are_skipped(tmp_path: Path) -> None:
@@ -29,7 +29,7 @@ def test_preamble_rows_are_skipped(tmp_path: Path) -> None:
     assert result.summary.preamble_rows_ignored == 2
     out_rows = h.read_csv(result.output_csv_path)
     assert len(out_rows) == 1
-    assert out_rows[0]["Purchase Price (EUR)"] == "101.00000000"
+    assert out_rows[0]["Purchase Price (EUR)"] == ""
 
 
 def test_convert_notes_parse_failure_fails_clearly(tmp_path: Path) -> None:
@@ -122,20 +122,24 @@ def test_fiat_deposit_and_withdraw_are_ignored(tmp_path: Path) -> None:
     assert result.summary.appendix_5.rows == 0
 
 
-def test_crypto_deposit_fails_explicitly(tmp_path: Path) -> None:
-    rows = [
-        h.row(
-            timestamp="2025-01-01 00:00:00 UTC",
-            tx_type="Deposit",
-            asset="BTC",
-            qty="0.01",
-            subtotal="€100",
-            total="€100",
-        )
-    ]
+def test_deposit_is_treated_as_fiat_by_transaction_type(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        rows=[
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Deposit",
+                asset="BTC",
+                qty="0.01",
+                subtotal="€100",
+                total="€100",
+            )
+        ],
+        rates={"EUR": Decimal("1")},
+    )
 
-    with pytest.raises(analyzer.CoinbaseAnalyzerError, match="supported only for fiat assets"):
-        _ = h.run(tmp_path, rows=rows, rates={"EUR": Decimal("1")})
+    assert result.summary.ignored_fiat_deposit_withdraw_rows == 1
+    assert result.summary.appendix_5.rows == 0
 
 
 def test_unknown_transaction_type_is_warning_and_manual_check(tmp_path: Path) -> None:
@@ -177,9 +181,8 @@ def test_currency_prefixed_values_are_parsed_and_converted(tmp_path: Path) -> No
     )
 
     out_rows = h.read_csv(result.output_csv_path)
-    assert out_rows[0]["Subtotal (EUR)"] == "3250.00000000"
-    assert out_rows[0]["Total (EUR)"] == "3289.50000000"
-    assert out_rows[0]["Purchase Price (EUR)"] == "3289.50000000"
+    assert out_rows[0]["Proceeds (EUR)"] == "3289.50000000"
+    assert out_rows[0]["Purchase Price (EUR)"] == ""
 
 
 def test_header_with_leading_id_column_is_supported(tmp_path: Path) -> None:
@@ -205,8 +208,8 @@ def test_header_with_leading_id_column_is_supported(tmp_path: Path) -> None:
     assert result.summary.preamble_rows_ignored == 2
     out_rows = h.read_csv(result.output_csv_path)
     assert len(out_rows) == 1
-    assert out_rows[0]["ID"] == "abc123"
-    assert out_rows[0]["Purchase Price (EUR)"] == "101.00000000"
+    assert out_rows[0]["Operation ID"] == "coinbase-abc123"
+    assert out_rows[0]["Purchase Price (EUR)"] == ""
 
 
 def test_withdrawal_alias_is_treated_as_withdraw(tmp_path: Path) -> None:

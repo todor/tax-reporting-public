@@ -59,7 +59,7 @@ def run_integration(
     if integration == "coinbase":
         logger.info(
             "Coinbase integration is available via dedicated CLI: "
-            "`python -m integrations.coinbase.report_analyzer` "
+            "`python -m integrations.crypto.coinbase.report_analyzer` "
             "(input=%s, output=%s, year=%s)",
             input_path,
             output_path,

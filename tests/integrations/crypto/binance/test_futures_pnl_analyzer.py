@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from integrations.binance import futures_pnl_analyzer as analyzer
+from integrations.crypto.binance import futures_pnl_analyzer as analyzer
 
 HEADER = ["User ID", "Time", "Account", "Operation", "Coin", "Change", "Remark"]
 

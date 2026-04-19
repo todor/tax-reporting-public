@@ -158,6 +158,7 @@ def _resolve_schema(fieldnames: list[str], *, input_path: Path) -> CsvSchema:
         subtotal=resolved_required["subtotal"],
         total=resolved_required["total"],
         notes=resolved_required["notes"],
+        fees=resolved_optional["fees"],
         review_status=resolved_optional["review_status"],
         purchase_price=resolved_optional["purchase_price"],
     )
