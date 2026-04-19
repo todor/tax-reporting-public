@@ -18,6 +18,7 @@ Shared crypto engine is under `integrations.crypto.shared`:
 - `generic_crypto_analyzer.py`: single accounting/tax engine
 - `generic_ledger.py`: signed average-cost position ledger
 - `crypto_outputs.py`: enriched CSV, declaration TXT, holdings state JSON
+- `runtime.py`: default EUR rate-provider fallback + standard output path naming
 
 Coinbase modules do not implement holdings/PnL/tax math directly.
 

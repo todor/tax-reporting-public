@@ -16,6 +16,7 @@ They must not duplicate holdings, cost-basis, or PnL logic.
 - `generic_ledger.py`: signed average-cost ledger (long/short aware)
 - `generic_crypto_analyzer.py`: chronological IR processing + disposal realization
 - `crypto_outputs.py`: enriched IR CSV, declaration TXT, holdings/state JSON + CLI summary lines
+- `runtime.py`: shared EUR rate-provider fallback and standard enriched-output path builders
 
 ## IR Schema (`CryptoIrRow`)
 

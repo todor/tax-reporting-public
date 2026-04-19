@@ -171,7 +171,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/config.py`: central project paths
 - `src/logging_config.py`: minimal logging setup
 - `src/integrations/`: integration packages (`crypto`, `ibkr`)
-- `src/integrations/crypto/shared/`: shared crypto IR models, generic analyzer, shared outputs
+- `src/integrations/crypto/shared/`: shared crypto IR models, generic analyzer, shared outputs/runtime helpers
 - `src/integrations/crypto/coinbase/`: Coinbase parser, mapper, and orchestrator
 - `src/integrations/crypto/binance/`: Binance crypto analyzers
 - `src/integrations/ibkr/activity_statement_analyzer.py`: IBKR analyzer facade/orchestrator

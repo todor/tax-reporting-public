@@ -2,15 +2,8 @@ from __future__ import annotations
 
 import argparse
 import logging
-import re
-from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Callable
-
-from services.bnb_fx import BnbFxError
-from services.bnb_fx import get_exchange_rate
-from services.crypto_fx import get_crypto_eur_rate
 
 from integrations.crypto.shared.crypto_ir_models import IrAnalysisSummary
 from integrations.crypto.shared.crypto_outputs import (
@@ -21,6 +14,11 @@ from integrations.crypto.shared.crypto_outputs import (
     write_holdings_state_json,
 )
 from integrations.crypto.shared.generic_crypto_analyzer import analyze_ir_rows
+from integrations.crypto.shared.runtime import (
+    EurUnitRateProvider,
+    build_enriched_ir_output_paths,
+    default_eur_unit_rate_provider,
+)
 
 from .coinbase_to_ir import load_and_map_coinbase_csv_to_ir
 from .constants import DEFAULT_OUTPUT_DIR
@@ -30,50 +28,6 @@ from .models import AnalysisResult, CoinbaseAnalyzerError
 AnalysisSummary = IrAnalysisSummary
 
 logger = logging.getLogger(__name__)
-
-EurUnitRateProvider = Callable[[str, datetime], Decimal]
-
-
-def _default_eur_unit_rate_provider(cache_dir: str | Path | None) -> EurUnitRateProvider:
-    def provider(currency: str, timestamp: datetime) -> Decimal:
-        normalized = currency.strip().upper()
-        if normalized == "EUR":
-            return Decimal("1")
-
-        try:
-            fx = get_exchange_rate(normalized, timestamp.date(), cache_dir=cache_dir)
-            return fx.rate
-        except BnbFxError:
-            pass
-
-        fx_crypto = get_crypto_eur_rate(
-            normalized,
-            timestamp,
-            "binance",
-            cache_dir=cache_dir,
-        )
-        return fx_crypto.price_eur
-
-    return provider
-
-
-def _output_stem(input_path: Path) -> str:
-    normalized = re.sub(r"[^A-Za-z0-9]+", "_", input_path.stem).strip("_").lower()
-    return normalized or "coinbase_report"
-
-
-def _output_paths(*, input_path: Path, output_dir: Path) -> tuple[Path, Path]:
-    stem = _output_stem(input_path)
-    return (
-        # Primary CSV output is the enriched IR export for audit/debug/tax fields.
-        output_dir / f"{stem}_modified.csv",
-        output_dir / f"{stem}_declaration.txt",
-    )
-
-
-def _state_output_path(*, input_path: Path, output_dir: Path, tax_year: int) -> Path:
-    stem = _output_stem(input_path)
-    return output_dir / f"{stem}_state_end_{tax_year}.json"
 
 
 def _validate_tax_year(tax_year: int) -> None:
@@ -97,7 +51,7 @@ def analyze_coinbase_report(
     rate_provider = (
         eur_unit_rate_provider
         if eur_unit_rate_provider is not None
-        else _default_eur_unit_rate_provider(cache_dir)
+        else default_eur_unit_rate_provider(cache_dir=cache_dir)
     )
 
     ir_summary = IrAnalysisSummary()
@@ -132,11 +86,11 @@ def analyze_coinbase_report(
             raise
         raise CoinbaseAnalyzerError(str(exc)) from exc
 
-    output_csv_path, declaration_txt_path = _output_paths(input_path=loaded.input_path, output_dir=out_dir)
-    year_end_state_json_path = _state_output_path(
+    output_csv_path, declaration_txt_path, year_end_state_json_path = build_enriched_ir_output_paths(
         input_path=loaded.input_path,
         output_dir=out_dir,
         tax_year=tax_year,
+        stem_fallback="coinbase_report",
     )
 
     write_enriched_ir_csv(output_csv_path, rows=analysis.enriched_rows)
