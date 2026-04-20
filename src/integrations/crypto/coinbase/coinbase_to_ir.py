@@ -8,7 +8,12 @@ from typing import Callable
 from services.bnb_fx import BnbFxError
 from services.crypto_fx import CryptoFxError
 
-from integrations.crypto.shared.crypto_ir_models import CryptoIrRow, IrAnalysisSummary, ZERO
+from integrations.crypto.shared.crypto_ir_models import (
+    CryptoIrRow,
+    IrAnalysisSummary,
+    RECEIVE_REVIEW_STATUSES,
+    ZERO,
+)
 
 from .coinbase_parser import (
     load_coinbase_csv,
@@ -106,6 +111,17 @@ def _derive_fee(*, subtotal_eur: Decimal | None, total_eur: Decimal | None, fee_
     return None
 
 
+def _add_unsupported_row(
+    *,
+    summary: IrAnalysisSummary,
+    tx_type: str,
+    warning: str,
+) -> None:
+    summary.unsupported_transaction_rows += 1
+    summary.unknown_transaction_types.add(tx_type or "EMPTY")
+    summary.warnings.append(warning)
+
+
 def load_and_map_coinbase_csv_to_ir(
     *,
     input_csv: str,
@@ -131,10 +147,10 @@ def load_and_map_coinbase_csv_to_ir(
         review_status = normalize_review_status(review_status_raw) if review_status_raw.strip() != "" else None
 
         if tx_type not in SUPPORTED_TRANSACTION_TYPES:
-            summary.unsupported_transaction_rows += 1
-            summary.unknown_transaction_types.add(tx_type or "EMPTY")
-            summary.warnings.append(
-                f"row {row_number}: unsupported Transaction Type={tx_type!r}; excluded from tax calculations"
+            _add_unsupported_row(
+                summary=summary,
+                tx_type=tx_type,
+                warning=f"row {row_number}: unsupported Transaction Type={tx_type!r}; excluded from tax calculations",
             )
             continue
 
@@ -298,20 +314,99 @@ def load_and_map_coinbase_csv_to_ir(
 
         if tx_type == "Receive":
             quantity = _parse_quantity(raw.get(schema.quantity_transacted, ""), row_number=row_number, tx_type=tx_type)
-            purchase_price_raw = raw.get(schema.purchase_price, "") if schema.purchase_price is not None else ""
-            if purchase_price_raw.strip() == "":
-                raise CoinbaseAnalyzerError(
-                    f"row {row_number}: missing Purchase Price for Receive"
+            accepted_receive_review_statuses = sorted({*RECEIVE_REVIEW_STATUSES, "NON_TAXABLE"})
+            if review_status is None:
+                _add_unsupported_row(
+                    summary=summary,
+                    tx_type=tx_type,
+                    warning=(
+                        f"row {row_number}: missing Review Status for Receive; excluded from tax calculations "
+                        f"(accepted values: {accepted_receive_review_statuses})"
+                    ),
                 )
-            purchase_price_eur = parse_prefixed_amount(
-                purchase_price_raw,
-                row_number=row_number,
-                field_name="Purchase Price",
-            )
-            if purchase_price_eur < ZERO:
-                raise CoinbaseAnalyzerError(
-                    f"row {row_number}: Purchase Price for Receive must not be negative"
+                continue
+            normalized_review_status = review_status.replace("-", "_").upper()
+            if normalized_review_status == "NON_TAXABLE":
+                cost_basis_eur: Decimal | None = None
+                cost_basis_raw = raw.get(schema.cost_basis_eur, "") if schema.cost_basis_eur is not None else ""
+                if cost_basis_raw.strip() != "":
+                    try:
+                        parsed_basis = parse_prefixed_amount(
+                            cost_basis_raw,
+                            row_number=row_number,
+                            field_name="Cost Basis (EUR)",
+                        )
+                    except CoinbaseAnalyzerError:
+                        parsed_basis = None
+                    else:
+                        if parsed_basis >= ZERO:
+                            cost_basis_eur = parsed_basis
+                ir_rows.append(
+                    CryptoIrRow(
+                        timestamp=timestamp,
+                        operation_id=operation_id,
+                        transaction_type="Deposit",
+                        asset=asset,
+                        asset_type="crypto",
+                        quantity=quantity,
+                        proceeds_eur=abs(total_eur) if total_eur is not None else None,
+                        fee_eur=fee_eur,
+                        cost_basis_eur=cost_basis_eur,
+                        review_status=review_status,
+                        source_exchange="coinbase",
+                        source_row_number=row_number,
+                        source_transaction_type="Receive",
+                        subtotal_eur=subtotal_eur,
+                        total_eur=total_eur,
+                    )
                 )
+                continue
+            if normalized_review_status not in RECEIVE_REVIEW_STATUSES:
+                _add_unsupported_row(
+                    summary=summary,
+                    tx_type=tx_type,
+                    warning=(
+                        f"row {row_number}: invalid Review Status for Receive={review_status!r}; "
+                        f"excluded from tax calculations (accepted values: {accepted_receive_review_statuses})"
+                    ),
+                )
+                continue
+            cost_basis_raw = raw.get(schema.cost_basis_eur, "") if schema.cost_basis_eur is not None else ""
+            if cost_basis_raw.strip() == "":
+                _add_unsupported_row(
+                    summary=summary,
+                    tx_type=tx_type,
+                    warning=(
+                        f"row {row_number}: missing Cost Basis (EUR) for Receive; excluded from tax calculations"
+                    ),
+                )
+                continue
+            try:
+                cost_basis_eur = parse_prefixed_amount(
+                    cost_basis_raw,
+                    row_number=row_number,
+                    field_name="Cost Basis (EUR)",
+                )
+            except CoinbaseAnalyzerError:
+                _add_unsupported_row(
+                    summary=summary,
+                    tx_type=tx_type,
+                    warning=(
+                        f"row {row_number}: invalid Cost Basis (EUR) for Receive={cost_basis_raw!r}; "
+                        "excluded from tax calculations"
+                    ),
+                )
+                continue
+            if cost_basis_eur < ZERO:
+                _add_unsupported_row(
+                    summary=summary,
+                    tx_type=tx_type,
+                    warning=(
+                        f"row {row_number}: Cost Basis (EUR) for Receive must not be negative; "
+                        "excluded from tax calculations"
+                    ),
+                )
+                continue
 
             ir_rows.append(
                 CryptoIrRow(
@@ -323,7 +418,7 @@ def load_and_map_coinbase_csv_to_ir(
                     quantity=quantity,
                     proceeds_eur=abs(total_eur) if total_eur is not None else None,
                     fee_eur=fee_eur,
-                    cost_basis_eur=purchase_price_eur,
+                    cost_basis_eur=cost_basis_eur,
                     review_status=review_status,
                     source_exchange="coinbase",
                     source_row_number=row_number,

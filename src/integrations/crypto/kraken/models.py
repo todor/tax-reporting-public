@@ -5,35 +5,39 @@ from dataclasses import dataclass
 from integrations.crypto.shared.crypto_ir_models import CsvRow, IrAnalysisRunResult, LoadedCsv
 
 
-class CoinbaseAnalyzerError(Exception):
-    """Base error for Coinbase analyzer failures."""
+class KrakenAnalyzerError(Exception):
+    """Base error for Kraken analyzer failures."""
 
 
-class CsvValidationError(CoinbaseAnalyzerError):
+class CsvValidationError(KrakenAnalyzerError):
     """Raised when CSV structure is invalid or required fields are missing."""
 
 
-class FxConversionError(CoinbaseAnalyzerError):
+class FxConversionError(KrakenAnalyzerError):
     """Raised when EUR conversion cannot be resolved."""
 
 
 @dataclass(slots=True)
 class CsvSchema:
-    timestamp: str
-    transaction_type: str
+    txid: str
+    refid: str
+    time: str
+    type: str
+    subtype: str
+    aclass: str
+    subclass: str
     asset: str
-    quantity_transacted: str
-    price_currency: str
-    subtotal: str
-    total: str
-    notes: str
-    fees: str | None
+    wallet: str
+    amount: str
+    fee: str
+    balance: str
     review_status: str | None
     cost_basis_eur: str | None
 
 
-LoadedCoinbaseCsv = LoadedCsv[CsvSchema]
+LoadedKrakenCsv = LoadedCsv[CsvSchema]
 AnalysisResult = IrAnalysisRunResult
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]
+

@@ -228,7 +228,7 @@ def test_manual_check_overrides_metric_is_zero_when_review_status_column_is_miss
             "Total": "€100",
             "Fees and/or Spread": "",
             "Notes": "",
-            "Purchase Price": "",
+            "Cost Basis (EUR)": "",
         }
     ]
 

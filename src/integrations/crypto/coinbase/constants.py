@@ -24,7 +24,7 @@ REQUIRED_COLUMN_CANDIDATES: dict[str, tuple[str, ...]] = {
 OPTIONAL_COLUMN_CANDIDATES: dict[str, tuple[str, ...]] = {
     "fees": ("Fees and/or Spread", "Fees"),
     "review_status": ("Review Status",),
-    "purchase_price": ("Purchase Price",),
+    "cost_basis_eur": ("Cost Basis (EUR)",),
 }
 
 SUPPORTED_TRANSACTION_TYPES = {

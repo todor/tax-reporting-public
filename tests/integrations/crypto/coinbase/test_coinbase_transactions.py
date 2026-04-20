@@ -372,6 +372,53 @@ def test_receive_can_realize_pnl_when_reducing_short(tmp_path: Path) -> None:
     assert out_rows[1]["Net Profit (EUR)"] == "30.00000000"
 
 
+def test_receive_non_taxable_closes_short_without_taxable_pnl(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        rows=[
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Sell",
+                asset="BTC",
+                qty="1",
+                subtotal="€100",
+                total="€100",
+            ),
+            h.row(
+                timestamp="2025-01-02 00:00:00 UTC",
+                tx_type="Receive",
+                asset="BTC",
+                qty="1",
+                subtotal="",
+                total="€100",
+                review_status="NON-TAXABLE",
+                cost_basis_eur="",
+            ),
+        ],
+        rates={"EUR": Decimal("1")},
+    )
+
+    app5 = result.summary.appendix_5
+    assert app5.rows == 0
+    assert app5.sale_price_eur == Decimal("0")
+    assert app5.purchase_price_eur == Decimal("0")
+    assert app5.net_result_eur == Decimal("0")
+    assert "BTC" not in result.summary.holdings_by_asset
+    assert result.summary.unsupported_transaction_rows == 0
+    assert result.summary.manual_check_required is False
+    assert len(result.summary.warnings) == 0
+
+    state_payload = json.loads(result.year_end_state_json_path.read_text(encoding="utf-8"))
+    assert "BTC" not in state_payload["holdings_by_asset"]
+
+    out_rows = h.read_csv(result.output_csv_path)
+    assert out_rows[1]["Transaction Type"] == "Deposit"
+    assert out_rows[1]["Review Status"] == "NON-TAXABLE"
+    assert out_rows[1]["Purchase Price (EUR)"] == ""
+    assert out_rows[1]["Sale Price (EUR)"] == ""
+    assert out_rows[1]["Net Profit (EUR)"] == ""
+
+
 def test_reverse_chronological_input_is_processed_in_time_order(tmp_path: Path) -> None:
     result = h.run(
         tmp_path,

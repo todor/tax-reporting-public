@@ -34,6 +34,30 @@ For Coinbase Statements CSV:
 
 `Fees and/or Spread` is parsed explicitly and kept in IR as informational fee data.
 
+## Input CSV Schema
+
+Canonical required columns:
+
+- `Timestamp`
+- `Transaction Type`
+- `Asset`
+- `Quantity Transacted`
+- `Price Currency`
+- `Subtotal`
+- `Total` (or `Total (inclusive of fees and/or spread)`)
+- `Notes`
+
+Optional columns:
+
+- `Fees and/or Spread` (alias accepted: `Fees`)
+- `Review Status`
+- `Cost Basis (EUR)`
+
+Practical input notes:
+
+- Coinbase preamble rows before the header are ignored automatically.
+- Header is accepted with or without leading `ID` column.
+
 ## IR Mapping Rules
 
 Supported Coinbase transaction types:
@@ -55,7 +79,7 @@ Mapping highlights:
 - source `Sell` (`Subtotal` proceeds)
 - target `Buy` (`Total` cost)
 - `Send` -> IR `Withdraw` (`source_transaction_type=Send`)
-- `Receive` -> IR `Deposit` (`source_transaction_type=Receive`, requires `Purchase Price` basis)
+- `Receive` -> IR `Deposit` (`source_transaction_type=Receive`, with manual basis workflow)
 - Coinbase transaction semantics are applied directly:
 - `Deposit`/`Withdraw` are treated as fiat movements
 - `Send`/`Receive` are treated as crypto movements
@@ -100,11 +124,19 @@ Realization is only on closing legs:
 
 `Receive`:
 
-- requires `Review Status`:
+- accepts `Review Status`:
 - `CARRY_OVER_BASIS`
 - `RESET_BASIS_FROM_PRIOR_TAX_EVENT`
-- requires `Purchase Price` as explicit basis
-- can close existing short quantity (realizing PnL on closed portion), then open/extend long
+- `NON-TAXABLE` (non-taxable inventory movement)
+- requires `Cost Basis (EUR)` as explicit basis for basis-carrying statuses
+- if `Review Status` is `NON-TAXABLE`:
+- row is mapped as non-taxable receive movement (affects holdings/state, no taxable PnL)
+- `Cost Basis (EUR)` is not required and no warning/manual-check is emitted
+- if `Review Status` / `Cost Basis (EUR)` is missing or invalid (for basis-carrying statuses):
+- warning + manual-check required, and row is excluded from tax calculations
+- can close existing short quantity:
+- basis-carrying statuses realize PnL on the closed short portion
+- `NON-TAXABLE` closes/opens inventory without taxable PnL realization
 
 ## Outputs
 
@@ -126,6 +158,11 @@ Enriched CSV includes:
 
 - IR columns: `Timestamp`, `Operation ID`, `Transaction Type`, `Asset`, `Asset Type`, `Quantity`, `Proceeds (EUR)`, `Fee (EUR)`, `Cost Basis (EUR)`, `Review Status`, source/audit columns
 - Tax columns: `Purchase Price (EUR)`, `Sale Price (EUR)`, `Profit Win (EUR)`, `Profit Loss (EUR)`, `Net Profit (EUR)`
+
+Numeric formatting policy:
+
+- IR numeric columns (`Quantity`, `Proceeds (EUR)`, `Fee (EUR)`, `Cost Basis (EUR)`) keep Decimal precision from mapping/analysis.
+- Tax-result columns keep fixed 8-decimal formatting.
 
 Tax column policy:
 
@@ -153,11 +190,20 @@ PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer
   --tax-year 2025
 ```
 
+CLI options:
+
+- `--input` (required)
+- `--tax-year` (required)
+- `--opening-state-json` (optional prior state)
+- `--output-dir` (optional, default `output/coinbase`)
+- `--cache-dir` (optional FX cache override)
+- `--log-level` (optional, default `INFO`)
+
 With opening state:
 
 ```bash
 PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer \
   --input "path/to/Coinbase Report - 2026.csv" \
   --tax-year 2026 \
-  --opening-state-json output/coinbase/coinbase_report_state_end_2025.json
+  --opening-state-json output/coinbase/<previous_run_state_end_2025>.json
 ```

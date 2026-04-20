@@ -66,6 +66,16 @@ def run_integration(
             year,
         )
         return 0
+    if integration == "kraken":
+        logger.info(
+            "Kraken integration is available via dedicated CLI: "
+            "`python -m integrations.crypto.kraken.report_analyzer` "
+            "(input=%s, output=%s, year=%s)",
+            input_path,
+            output_path,
+            year,
+        )
+        return 0
 
     logger.error("Unknown integration: %s", integration)
     return 2

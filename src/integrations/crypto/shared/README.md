@@ -80,6 +80,20 @@ This supports:
 - Bulgarian declaration TXT (`Приложение 5 / Таблица 2`)
 - Holdings/state JSON (`quantity`, `total_cost_eur`, `average_price_eur`)
 
+Enriched IR CSV column schema:
+
+- IR columns:
+- `Timestamp`, `Operation ID`, `Transaction Type`, `Asset`, `Asset Type`
+- `Quantity`, `Proceeds (EUR)`, `Fee (EUR)`, `Cost Basis (EUR)`, `Review Status`
+- `Source Exchange`, `Source Row`, `Source Transaction Type`, `Operation Leg`
+- Tax columns:
+- `Purchase Price (EUR)`, `Sale Price (EUR)`, `Profit Win (EUR)`, `Profit Loss (EUR)`, `Net Profit (EUR)`
+
+Enriched IR CSV numeric formatting:
+
+- `Quantity`, `Proceeds (EUR)`, `Fee (EUR)`, and `Cost Basis (EUR)` keep Decimal precision from mapping/analysis (no forced 8-decimal quantization).
+- Tax-result columns below keep fixed 8-decimal formatting.
+
 Enriched CSV tax columns:
 
 - `Purchase Price (EUR)`
@@ -89,3 +103,41 @@ Enriched CSV tax columns:
 - `Net Profit (EUR)`
 
 These fields are populated only for rows with a non-zero realized closing PnL.
+
+State JSON schema (produced by `write_holdings_state_json`):
+
+- top-level:
+- `state_tax_year_end`
+- `holdings_by_asset` (object)
+- per asset object:
+- `quantity`
+- `total_cost_eur`
+- `average_price_eur`
+
+Opening state JSON schema (consumed by `load_holdings_state_json`):
+
+- required top-level object: `holdings_by_asset`
+- each asset entry must include:
+- `quantity`
+- `total_cost_eur`
+- optional top-level: `state_tax_year_end`
+
+## Validation Policy
+
+To keep behavior consistent across providers:
+
+- Hard fail:
+- schema/header issues
+- unparseable timestamps/numbers
+- unrecoverable FX conversion errors
+- Warning + manual-check + row excluded:
+- unsupported transaction combinations
+- malformed multi-row operation groupings
+- missing/invalid manual review inputs for receive-like basis rows (for example `Review Status` / `Cost Basis (EUR)`)
+- Silent exclude (no warning/manual-check):
+- none by default
+
+- Non-taxable receive-like rows (`Review Status=NON-TAXABLE`):
+- are mapped as non-taxable inventory movements (affect holdings/state)
+- do not create taxable PnL
+- do not require `Cost Basis (EUR)` input

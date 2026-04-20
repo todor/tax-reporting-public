@@ -3,6 +3,7 @@
 Canonical structure:
 - `integrations.crypto.shared`: shared IR models/analyzer/output logic
 - `integrations.crypto.coinbase`: Coinbase parser/mapper/orchestrator
+- `integrations.crypto.kraken`: Kraken parser/mapper/orchestrator
 - `integrations.crypto.binance`: Binance analyzers
 """
 

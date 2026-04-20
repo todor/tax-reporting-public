@@ -7,6 +7,7 @@ The repository now includes:
 - FX services (`bnb_fx`, `crypto_fx`)
 - Binance analyzers
 - Coinbase report analyzer (spot transactions mapped to shared crypto IR engine)
+- Kraken report analyzer (spot ledger mapped to shared crypto IR engine)
 - IBKR activity statement analyzer (trades + interest + dividends)
 
 Some areas are still intentionally phased and evolving (for example broader asset coverage and additional appendices).
@@ -43,6 +44,11 @@ Run the entry point:
 PYTHONPATH=src pyenv exec python -m main list-integrations
 PYTHONPATH=src pyenv exec python -m main run --integration binance --year 2025 --input data/input.csv --output output
 ```
+
+Notes:
+
+- `python -m main list-integrations` lists available integrations.
+- `python -m main run ...` is a lightweight router that points to the dedicated analyzer CLIs below.
 
 ## BNB FX (`services.bnb_fx`)
 
@@ -173,6 +179,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/integrations/`: integration packages (`crypto`, `ibkr`)
 - `src/integrations/crypto/shared/`: shared crypto IR models, generic analyzer, shared outputs/runtime helpers
 - `src/integrations/crypto/coinbase/`: Coinbase parser, mapper, and orchestrator
+- `src/integrations/crypto/kraken/`: Kraken parser, mapper, and orchestrator
 - `src/integrations/crypto/binance/`: Binance crypto analyzers
 - `src/integrations/ibkr/activity_statement_analyzer.py`: IBKR analyzer facade/orchestrator
 - `src/integrations/ibkr/sections/`: IBKR business/source processing modules (`trades`, `interest`, `dividends`, `tax_withholding`, `open_positions`, `instruments`, etc.)
@@ -188,6 +195,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `tests/integrations/crypto/binance/`: Binance analyzer tests
 - `tests/integrations/crypto/`: shared crypto IR/analyzer tests
 - `tests/integrations/crypto/coinbase/`: Coinbase analyzer tests
+- `tests/integrations/crypto/kraken/`: Kraken analyzer tests
 - `tests/integrations/ibkr/`: IBKR tests (organized by `sections/` and `appendices/`)
 - `output/`: output directory kept in git via `.gitkeep`
   Default analyzer outputs are written under this repo folder (for example `output/binance/futures/`).
@@ -206,6 +214,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 
 - Binance integrations: [src/integrations/crypto/binance/README.md](src/integrations/crypto/binance/README.md)
 - Coinbase integrations: [src/integrations/crypto/coinbase/README.md](src/integrations/crypto/coinbase/README.md)
+- Kraken integrations: [src/integrations/crypto/kraken/README.md](src/integrations/crypto/kraken/README.md)
 - Shared crypto engine: [src/integrations/crypto/shared/README.md](src/integrations/crypto/shared/README.md)
 - IBKR integrations: [src/integrations/ibkr/README.md](src/integrations/ibkr/README.md)
 
@@ -231,7 +240,8 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
 
 IBKR appendix credit math note:
 
-- Appendix 8 and Appendix 9 foreign-tax-credit fields are computed at country level from aggregated additive values (gross + paid foreign tax), then final `min(...)` logic is applied.
+- Appendix 8 credit math is computed per company first (source-of-truth calculation), then optionally presented aggregated by country in country-list mode.
+- Appendix 9 credit math remains country-level.
 - IBKR also runs a minimal open-position reconciliation safety check (`Open Positions Summary` vs signed `Trades Order` quantities, by canonical instrument) and triggers manual review on mismatch/unmatched instruments.
 
 ### Coinbase report analyzer
@@ -247,7 +257,9 @@ Optional:
 ```bash
 PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer \
   --input "path/to/Coinbase Report - since inception.csv" \
-  --tax-year 2025
+  --tax-year 2025 \
+  --output-dir output/coinbase \
+  --cache-dir ~/.cache/tax_reporting
 ```
 
 Incremental mode (previous year state + current year operations only):
@@ -258,6 +270,25 @@ PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer
   --tax-year 2025 \
   --opening-state-json output/coinbase/coinbase_report_since_inception_state_end_2024.json \
   --output-dir output/coinbase \
+  --cache-dir ~/.cache/tax_reporting
+```
+
+### Kraken report analyzer
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.crypto.kraken.report_analyzer \
+  --input "path/to/kraken_ledger.csv" \
+  --tax-year 2025
+```
+
+Incremental mode (previous year state + current year operations only):
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.crypto.kraken.report_analyzer \
+  --input "path/to/kraken_ledger_2026.csv" \
+  --tax-year 2026 \
+  --opening-state-json output/kraken/kraken_report_since_inception_state_end_2025.json \
+  --output-dir output/kraken \
   --cache-dir ~/.cache/tax_reporting
 ```
 
@@ -272,13 +303,14 @@ Coinbase analyzer highlights:
 - `Convert` is lowered to two IR legs with shared operation id: source `Sell` + target `Buy` (target can close an existing short)
 - Coinbase statements value rule is enforced: `Total = Subtotal + Fees`; use `Total` for economic value, except Convert source uses `Subtotal`
 - Coinbase transaction semantics are applied directly: `Deposit/Withdraw` as fiat movements, `Send/Receive` as crypto movements
-- `Receive` can close an existing short before opening/adding long (using provided `Purchase Price` basis)
+- `Receive` can close an existing short before opening/adding long (using provided `Cost Basis (EUR)` basis)
 - `Send` rows do not accumulate in Appendix 5 totals
 - `Send` is validated only against existing long holdings in this analyzer version
 - EUR conversion via existing `bnb_fx` and `crypto_fx`
 - outputs:
 - enriched IR CSV (`*_modified.csv`) with IR columns plus EUR/tax columns
 - `Subtotal (EUR)` / `Total (EUR)` and position-after audit columns are intentionally omitted from output CSV
+- IR numeric columns (`Quantity`, `Proceeds`, `Fee`, `Cost Basis`) keep Decimal precision from mapping/analysis (no forced 8-decimal quantization)
 - tax columns (`Purchase/Sale/Profit/Net`) are filled only on closing legs with non-zero realized PnL
 - declaration TXT (`Приложение 5 / Таблица 2`) with manual-check summary
 - informational `manual check overrides` metric (count of non-empty `Review Status` rows)
@@ -288,6 +320,22 @@ Coinbase analyzer highlights:
 For full Coinbase rules and edge-case behavior, see:
 
 - [src/integrations/crypto/coinbase/README.md](src/integrations/crypto/coinbase/README.md)
+
+Kraken analyzer highlights:
+
+- Kraken ledger rows are mapped to shared IR; accounting/PnL logic is fully in `integrations.crypto.shared`.
+- multi-row operations are grouped by `refid` and lowered to IR rows with shared `Operation ID`.
+- `spend+receive` pairs map to one IR `Buy`; `trade/tradespot` pairs map to IR `Sell` + `Buy`.
+- receive-like crypto deposits support `Review Status` workflows (`CARRY_OVER_BASIS`, `RESET_BASIS_FROM_PRIOR_TAX_EVENT`, `NON-TAXABLE`).
+- `NON-TAXABLE` receive-like rows are included as non-taxable inventory movement (affect holdings/state, no taxable PnL).
+- output contract matches Coinbase:
+- enriched IR CSV (`*_modified.csv`)
+- declaration TXT
+- year-end state JSON
+
+For full Kraken rules and edge-case behavior, see:
+
+- [src/integrations/crypto/kraken/README.md](src/integrations/crypto/kraken/README.md)
 
 ## Crypto FX (`services.crypto_fx`)
 

@@ -6,19 +6,21 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from integrations.crypto.coinbase import report_analyzer as analyzer
+from integrations.crypto.kraken import report_analyzer as analyzer
 
 DEFAULT_HEADER = [
-    "Timestamp",
-    "Transaction Type",
-    "Asset",
-    "Quantity Transacted",
-    "Price Currency",
-    "Price at Transaction",
-    "Subtotal",
-    "Total",
-    "Fees and/or Spread",
-    "Notes",
+    "txid",
+    "refid",
+    "time",
+    "type",
+    "subtype",
+    "aclass",
+    "subclass",
+    "asset",
+    "wallet",
+    "amount",
+    "fee",
+    "balance",
     "Review Status",
     "Cost Basis (EUR)",
 ]
@@ -38,38 +40,40 @@ def rate_provider(rates: dict[str, Decimal]) -> Callable[[str, datetime], Decima
 
 def row(
     *,
-    timestamp: str,
+    txid: str,
+    refid: str,
+    time: str,
     tx_type: str,
+    subtype: str,
+    aclass: str,
+    subclass: str,
     asset: str,
-    qty: str,
-    price_currency: str = "EUR",
-    price_at_transaction: str = "",
-    subtotal: str = "",
-    total: str = "",
-    fees: str = "",
-    notes: str = "",
+    wallet: str,
+    amount: str,
+    fee: str = "0",
+    balance: str = "0",
     review_status: str = "",
     cost_basis_eur: str = "",
-    purchase_price: str = "",
 ) -> dict[str, str]:
-    cost_basis_value = cost_basis_eur if cost_basis_eur != "" else purchase_price
     return {
-        "Timestamp": timestamp,
-        "Transaction Type": tx_type,
-        "Asset": asset,
-        "Quantity Transacted": qty,
-        "Price Currency": price_currency,
-        "Price at Transaction": price_at_transaction,
-        "Subtotal": subtotal,
-        "Total": total,
-        "Fees and/or Spread": fees,
-        "Notes": notes,
+        "txid": txid,
+        "refid": refid,
+        "time": time,
+        "type": tx_type,
+        "subtype": subtype,
+        "aclass": aclass,
+        "subclass": subclass,
+        "asset": asset,
+        "wallet": wallet,
+        "amount": amount,
+        "fee": fee,
+        "balance": balance,
         "Review Status": review_status,
-        "Cost Basis (EUR)": cost_basis_value,
+        "Cost Basis (EUR)": cost_basis_eur,
     }
 
 
-def write_coinbase_csv(
+def write_kraken_csv(
     path: Path,
     *,
     rows: list[dict[str, str]],
@@ -101,22 +105,23 @@ def run(
     rates: dict[str, Decimal] | None = None,
     preamble_lines: list[str] | None = None,
     header: list[str] | None = None,
-    file_name: str = "input.csv",
+    file_name: str = "kraken.csv",
 ) -> analyzer.AnalysisResult:
     input_csv = tmp_path / file_name
-    write_coinbase_csv(
+    write_kraken_csv(
         input_csv,
         rows=rows,
         header=header,
         preamble_lines=preamble_lines,
     )
 
-    effective_rates = rates if rates is not None else {"EUR": Decimal("1")}
+    effective_rates = rates if rates is not None else {"EUR": Decimal("1"), "USD": Decimal("1")}
     provider = rate_provider(effective_rates)
-    return analyzer.analyze_coinbase_report(
+    return analyzer.analyze_kraken_report(
         input_csv=input_csv,
         tax_year=tax_year,
         opening_state_json=opening_state_json,
         output_dir=tmp_path / "out",
         eur_unit_rate_provider=provider,
     )
+

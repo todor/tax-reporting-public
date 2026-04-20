@@ -57,40 +57,74 @@ def test_convert_notes_parse_failure_fails_clearly(tmp_path: Path) -> None:
         _ = h.run(tmp_path, rows=rows, rates={"EUR": Decimal("1")})
 
 
-def test_receive_missing_purchase_price_fails(tmp_path: Path) -> None:
-    rows = [
-        h.row(
-            timestamp="2025-01-01 00:00:00 UTC",
-            tx_type="Receive",
-            asset="BTC",
-            qty="0.1",
-            subtotal="",
-            total="",
-            review_status="CARRY_OVER_BASIS",
-            purchase_price="",
-        )
-    ]
+def test_receive_missing_cost_basis_is_warning_and_manual_check(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        rows=[
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Receive",
+                asset="BTC",
+                qty="0.1",
+                subtotal="",
+                total="",
+                review_status="CARRY_OVER_BASIS",
+                cost_basis_eur="",
+            )
+        ],
+        rates={"EUR": Decimal("1")},
+    )
+    assert result.summary.unsupported_transaction_rows == 1
+    assert result.summary.manual_check_required is True
+    assert any("missing Cost Basis (EUR) for Receive" in warning for warning in result.summary.warnings)
 
-    with pytest.raises(analyzer.CoinbaseAnalyzerError, match="missing Purchase Price for Receive"):
-        _ = h.run(tmp_path, rows=rows, rates={"EUR": Decimal("1")})
+
+def test_receive_invalid_review_status_is_warning_and_manual_check(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        rows=[
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Receive",
+                asset="BTC",
+                qty="0.1",
+                subtotal="",
+                total="",
+                review_status="TAXABLE",
+                cost_basis_eur="1000",
+            )
+        ],
+        rates={"EUR": Decimal("1")},
+    )
+    assert result.summary.unsupported_transaction_rows == 1
+    assert result.summary.manual_check_required is True
+    assert any("invalid Review Status for Receive" in warning for warning in result.summary.warnings)
 
 
-def test_receive_invalid_review_status_fails(tmp_path: Path) -> None:
-    rows = [
-        h.row(
-            timestamp="2025-01-01 00:00:00 UTC",
-            tx_type="Receive",
-            asset="BTC",
-            qty="0.1",
-            subtotal="",
-            total="",
-            review_status="TAXABLE",
-            purchase_price="1000",
-        )
-    ]
-
-    with pytest.raises(analyzer.CoinbaseAnalyzerError, match="invalid Review Status for Receive"):
-        _ = h.run(tmp_path, rows=rows, rates={"EUR": Decimal("1")})
+def test_receive_non_taxable_does_not_require_cost_basis_and_is_mapped(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        rows=[
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Receive",
+                asset="BTC",
+                qty="0.1",
+                subtotal="",
+                total="",
+                review_status="NON-TAXABLE",
+                cost_basis_eur="",
+            )
+        ],
+        rates={"EUR": Decimal("1")},
+    )
+    out_rows = h.read_csv(result.output_csv_path)
+    assert len(out_rows) == 1
+    assert out_rows[0]["Transaction Type"] == "Deposit"
+    assert out_rows[0]["Review Status"] == "NON-TAXABLE"
+    assert result.summary.unsupported_transaction_rows == 0
+    assert result.summary.manual_check_required is False
+    assert len(result.summary.warnings) == 0
 
 
 def test_fiat_deposit_and_withdraw_are_ignored(tmp_path: Path) -> None:
@@ -181,7 +215,7 @@ def test_currency_prefixed_values_are_parsed_and_converted(tmp_path: Path) -> No
     )
 
     out_rows = h.read_csv(result.output_csv_path)
-    assert out_rows[0]["Proceeds (EUR)"] == "3289.50000000"
+    assert out_rows[0]["Proceeds (EUR)"] == "3289.5"
     assert out_rows[0]["Purchase Price (EUR)"] == ""
 
 

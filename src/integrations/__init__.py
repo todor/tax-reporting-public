@@ -1,1 +1,1 @@
-AVAILABLE_INTEGRATIONS = ["binance", "ibkr", "coinbase"]
+AVAILABLE_INTEGRATIONS = ["binance", "ibkr", "coinbase", "kraken"]

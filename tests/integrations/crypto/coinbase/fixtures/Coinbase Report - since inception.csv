@@ -1,6 +1,6 @@
 Coinbase account report
 Generated at,2026-01-01 00:00:00 UTC
-Timestamp,Transaction Type,Asset,Quantity Transacted,Price Currency,Price at Transaction,Subtotal,Total (inclusive of fees and/or spread),Fees and/or Spread,Notes,Review Status,Purchase Price
+Timestamp,Transaction Type,Asset,Quantity Transacted,Price Currency,Price at Transaction,Subtotal,Total (inclusive of fees and/or spread),Fees and/or Spread,Notes,Review Status,Cost Basis (EUR)
 2025-01-01 10:00:00 UTC,Buy,BTC,0.10,EUR,€30000,€2990,€3000,€10,,,
 2025-01-02 10:00:00 UTC,Buy,ETH,2,EUR,€2000,€3980,€4000,€20,,,
 2025-02-01 10:00:00 UTC,Sell,BTC,0.02,EUR,€35000,€700,€700,€0,,,

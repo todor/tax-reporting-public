@@ -213,6 +213,50 @@ class GenericAverageCostLedger:
         self._normalize_position(asset=normalized, position=position, context=context)
         return removed_cost_eur
 
+    def increase_without_realization(
+        self,
+        asset: str,
+        *,
+        quantity: Decimal,
+        execution_value_eur: Decimal,
+        context: str,
+    ) -> None:
+        normalized = asset.strip().upper()
+        if normalized == "":
+            raise GenericCryptoAnalyzerError(f"{context}: missing asset")
+        if quantity <= ZERO:
+            raise GenericCryptoAnalyzerError(f"{context}: quantity must be positive ({normalized})")
+        if execution_value_eur < ZERO:
+            raise GenericCryptoAnalyzerError(f"{context}: execution value must not be negative ({normalized})")
+
+        position = self._get_or_create_position(normalized)
+        remaining_quantity = quantity
+
+        if position.quantity < ZERO:
+            short_quantity = -position.quantity
+            close_quantity = min(short_quantity, quantity)
+            _, opening_value_eur = self._split_execution_value(
+                total_quantity=quantity,
+                total_value_eur=execution_value_eur,
+                closing_quantity=close_quantity,
+            )
+
+            if close_quantity > ZERO:
+                short_average_price_eur = abs(position.total_cost_eur) / short_quantity
+                close_sale_price_eur = close_quantity * short_average_price_eur
+                position.quantity += close_quantity
+                position.total_cost_eur += close_sale_price_eur
+                remaining_quantity -= close_quantity
+
+            if remaining_quantity > ZERO:
+                position.quantity += remaining_quantity
+                position.total_cost_eur += opening_value_eur
+        else:
+            position.quantity += quantity
+            position.total_cost_eur += execution_value_eur
+
+        self._normalize_position(asset=normalized, position=position, context=context)
+
     def seed(self, asset: str, *, quantity: Decimal, total_cost_eur: Decimal, context: str) -> None:
         normalized = asset.strip().upper()
         if normalized == "":

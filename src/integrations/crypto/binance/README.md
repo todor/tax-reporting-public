@@ -27,6 +27,14 @@ Input CSV header (required columns):
 - `Change`
 - `Remark`
 
+`Time` parsing accepts:
+
+- ISO timestamp (with or without timezone; naive timestamps are treated as UTC)
+- `YYYY-MM-DD HH:MM:SS`
+- `YYYY/MM/DD HH:MM:SS`
+- `YY-MM-DD HH:MM:SS`
+- `YY/MM/DD HH:MM:SS`
+
 Important currency rule:
 
 - Relevant rows must have `Coin=BNFCR`.
@@ -169,6 +177,14 @@ PYTHONPATH=src pyenv exec python -m integrations.crypto.binance.futures_pnl_anal
   --input path/to/binance_futures_pnl.csv \
   --tax-year 2025
 ```
+
+CLI options:
+
+- `--input` (required)
+- `--tax-year` (required)
+- `--output-dir` (optional, default `output/binance/futures`)
+- `--cache-dir` (optional BNB FX cache override)
+- `--log-level` (optional, default `INFO`)
 
 Optional:
 

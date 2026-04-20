@@ -201,8 +201,26 @@ def analyze_ir_rows(
                 summary.ignored_fiat_deposit_withdraw_rows += 1
             else:
                 source_tx = (row.source_transaction_type or "").strip().upper()
+                review_status = (row.review_status or "").strip().replace("-", "_").upper()
+                if review_status == "NON_TAXABLE":
+                    execution_value = row.cost_basis_eur if row.cost_basis_eur is not None else (row.proceeds_eur or ZERO)
+                    ledger.increase_without_realization(
+                        row.asset,
+                        quantity=abs(row.quantity),
+                        execution_value_eur=abs(execution_value),
+                        context=ctx,
+                    )
+                    position_after = ledger.position(row.asset)
+                    if position_after is None:
+                        enriched.position_quantity_after = ZERO
+                        enriched.total_cost_after_eur = ZERO
+                        enriched.average_price_after_eur = ZERO
+                    else:
+                        enriched.position_quantity_after = position_after.quantity
+                        enriched.total_cost_after_eur = position_after.total_cost_eur
+                        enriched.average_price_after_eur = position_after.average_price_eur
+                    continue
                 if source_tx == "RECEIVE":
-                    review_status = (row.review_status or "").strip().replace("-", "_").upper()
                     if review_status not in RECEIVE_REVIEW_STATUSES:
                         raise GenericCryptoAnalyzerError(
                             f"row {row.source_row_number}: invalid Review Status for Receive={row.review_status!r}; "

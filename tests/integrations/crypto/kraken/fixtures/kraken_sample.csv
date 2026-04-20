@@ -1,0 +1,11 @@
+txid,refid,time,type,subtype,aclass,subclass,asset,wallet,amount,fee,balance,Review Status,Cost Basis (EUR)
+t-eur-dep,,2025-01-01 00:00:00,deposit,,currency,fiat,EUR,spot,3000,0,3000,,
+t-spend-1,r-buy-1,2025-01-02 10:00:00,spend,,currency,fiat,EUR,spot,-1970.44,29.56,1029.56,,
+t-receive-1,r-buy-1,2025-01-02 10:00:00,receive,,currency,crypto,ETH,spot,0.86501002,0,0.86501002,,
+t-sell-1,r-trade-1,2025-01-03 12:00:00,trade,tradespot,currency,crypto,ETH,spot,-0.5,0,0.36501002,,
+t-buy-1,r-trade-1,2025-01-03 12:00:00,trade,tradespot,currency,crypto,BTC,spot,0.01,0.00001,0.00999,,
+t-transfer,,2025-01-04 00:00:00,transfer,spotfromfutures,currency,crypto,ETHW,spot,1,0,1,,
+t-auto,,2025-01-04 01:00:00,earn,autoallocation,currency,crypto,ETH,spot,0.1,0,0.1,,
+t-reward-1,,2025-01-05 00:00:00,earn,reward,currency,crypto,BTC,spot,0.001,0,0.01099,,
+t-dep-usdc,,2025-01-06 00:00:00,deposit,,currency,stable_coin,USDC,spot,100,0,100,CARRY_OVER_BASIS,80
+t-receive-standalone,,2025-01-07 00:00:00,receive,,currency,crypto,ETH,spot,0.2,0.01,0.56501002,RESET_BASIS_FROM_PRIOR_TAX_EVENT,40
