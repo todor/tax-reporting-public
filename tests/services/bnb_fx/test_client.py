@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 import requests
 
+import services.bnb_fx.client as bnb_client
 from services.bnb_fx.client import (
     BnbCsvClient,
     EUR_FIXED_RATE_BGN,
@@ -289,7 +290,7 @@ def test_fallback_log_emitted_once_for_repeated_lookup(monkeypatch, tmp_path, ca
 
     monkeypatch.setattr(BnbCsvClient, "fetch_quarter", fake_fetch_quarter)
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         _ = get_exchange_rate("USD", "2031-10-12", cache_dir=tmp_path)
         _ = get_exchange_rate("USD", "2031-10-12", cache_dir=tmp_path)
 
@@ -318,3 +319,79 @@ def test_post_2026_returns_eur_for_one_symbol(monkeypatch, tmp_path) -> None:
 
     assert rate.base_currency == "EUR"
     assert rate.rate == Decimal("0.8511")
+
+
+def test_cache_dir_key_memoizes_default_cache_dir(monkeypatch, tmp_path) -> None:
+    calls = {"count": 0}
+
+    def fake_default_cache_dir():  # noqa: ANN201
+        calls["count"] += 1
+        return tmp_path / "bnb"
+
+    monkeypatch.setattr(bnb_client, "default_cache_dir", fake_default_cache_dir)
+    bnb_client._CACHE_DIR_KEY_CACHE.clear()
+
+    first = bnb_client._cache_dir_key(None)
+    second = bnb_client._cache_dir_key(None)
+
+    assert first == second
+    assert calls["count"] == 1
+
+
+def test_rate_lookup_is_cached_in_memory_per_symbol_and_date(monkeypatch, tmp_path) -> None:
+    load_calls = {"count": 0}
+    quarter = QuarterKey(2024, 1)
+    cached = _make_data(quarter, symbol="USD", on_date=date(2024, 2, 15))
+
+    def fake_load_quarter_cache(q: QuarterKey, cache_dir=None):  # noqa: ANN001
+        load_calls["count"] += 1
+        assert q == quarter
+        return cached
+
+    monkeypatch.setattr("services.bnb_fx.client.load_quarter_cache", fake_load_quarter_cache)
+
+    first = get_exchange_rate("USD", "2024-02-15", cache_dir=tmp_path)
+    second = get_exchange_rate("USD", "2024-02-15", cache_dir=tmp_path)
+
+    assert first.rate == second.rate
+    assert load_calls["count"] == 1
+
+
+def test_quarter_cache_merge_keeps_previously_fetched_symbols(monkeypatch, tmp_path) -> None:
+    fetch_calls = {"count": 0}
+
+    def fake_fetch_quarter(self: BnbCsvClient, quarter: QuarterKey, symbols=None):  # noqa: ANN001
+        fetch_calls["count"] += 1
+        assert symbols is not None and len(symbols) == 1
+        symbol = str(symbols[0]).upper()
+        rate = Decimal("1.50") if symbol == "USD" else Decimal("2.00")
+        return QuarterCacheData(
+            quarter=quarter,
+            base_currency="BGN",
+            rates=[
+                FxRate(
+                    symbol=symbol,
+                    date=date(2024, 2, 15),
+                    rate=rate,
+                    nominal=Decimal("1"),
+                    base_currency="BGN",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(BnbCsvClient, "fetch_quarter", fake_fetch_quarter)
+
+    usd = get_exchange_rate("USD", "2024-02-15", cache_dir=tmp_path)
+    gbp = get_exchange_rate("GBP", "2024-02-15", cache_dir=tmp_path)
+
+    assert usd.rate == Decimal("1.50") / EUR_FIXED_RATE_BGN
+    assert gbp.rate == Decimal("2.00") / EUR_FIXED_RATE_BGN
+    assert fetch_calls["count"] == 2
+
+    # Verify USD remains available after GBP fetch without re-fetching quarter data.
+    def fail_fetch(*args, **kwargs):  # noqa: ANN001, ANN002
+        raise AssertionError("unexpected fetch")
+
+    monkeypatch.setattr(BnbCsvClient, "fetch_quarter", fail_fetch)
+    usd_follow_up = get_exchange_rate("USD", "2024-02-16", cache_dir=tmp_path)
+    assert usd_follow_up.rate == Decimal("1.50") / EUR_FIXED_RATE_BGN

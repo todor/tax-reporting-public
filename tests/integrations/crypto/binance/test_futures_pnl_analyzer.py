@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -230,6 +231,36 @@ def test_fx_applied_per_row(tmp_path: Path) -> None:
     assert detailed[1]["amount_eur"] == "1.50000000"
     summary = _read_json(result.summary_json_path)
     assert summary["profit_eur"] == "2.50"
+
+
+def test_default_fx_provider_reuses_same_day_rate_lookup(monkeypatch, tmp_path: Path) -> None:
+    input_csv = tmp_path / "input.csv"
+    _write_csv(
+        input_csv,
+        [
+            _base_row(time="2025-01-01 00:00:00", operation="Fee", change="2"),
+            _base_row(time="2025-01-01 12:00:00", operation="Fee", change="3"),
+            _base_row(time="2025-01-02 00:00:00", operation="Fee", change="4"),
+        ],
+    )
+
+    calls = {"count": 0}
+
+    def fake_get_exchange_rate(symbol: str, on_date, cache_dir=None):  # noqa: ANN001
+        calls["count"] += 1
+        assert symbol == "USD"
+        return SimpleNamespace(rate=Decimal("0.5"))
+
+    monkeypatch.setattr(analyzer, "get_exchange_rate", fake_get_exchange_rate)
+
+    _ = analyzer.analyze_futures_pnl_report(
+        input_csv=input_csv,
+        tax_year=2025,
+        output_dir=tmp_path / "out",
+    )
+
+    # Two unique dates only (2025-01-01 and 2025-01-02).
+    assert calls["count"] == 2
 
 
 def test_order_is_preserved_in_detailed_output(tmp_path: Path) -> None:

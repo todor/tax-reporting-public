@@ -5,7 +5,7 @@ import csv
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Callable
@@ -153,6 +153,35 @@ def _parse_time(value: str, *, row_number: int) -> datetime:
         except ValueError:
             continue
 
+    # Fast-path fixed-width legacy Binance formats to avoid repeated strptime attempts.
+    if (
+        len(text) == 17
+        and text[2] in {"-", "/"}
+        and text[5] == text[2]
+        and text[8] == " "
+        and text[11] == ":"
+        and text[14] == ":"
+    ):
+        fmt = "%y-%m-%d %H:%M:%S" if text[2] == "-" else "%y/%m/%d %H:%M:%S"
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
+    if (
+        len(text) == 19
+        and text[4] in {"-", "/"}
+        and text[7] == text[4]
+        and text[10] == " "
+        and text[13] == ":"
+        and text[16] == ":"
+    ):
+        fmt = "%Y-%m-%d %H:%M:%S" if text[4] == "-" else "%Y/%m/%d %H:%M:%S"
+        try:
+            return datetime.strptime(text, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+
     for fmt in (
         "%Y-%m-%d %H:%M:%S",
         "%Y/%m/%d %H:%M:%S",
@@ -178,8 +207,16 @@ def _parse_change(value: str, *, row_number: int) -> Decimal:
 
 
 def _default_eur_rate_provider(cache_dir: str | Path | None) -> EurRateProvider:
+    by_date_cache: dict[date, Decimal] = {}
+
     def provider(ts: datetime) -> Decimal:
-        fx = get_exchange_rate("USD", ts.date(), cache_dir=cache_dir)
+        on_date = ts.date()
+        cached = by_date_cache.get(on_date)
+        if cached is not None:
+            return cached
+
+        fx = get_exchange_rate("USD", on_date, cache_dir=cache_dir)
+        by_date_cache[on_date] = fx.rate
         return fx.rate
 
     return provider

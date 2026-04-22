@@ -14,7 +14,7 @@ from threading import Lock
 
 import requests
 
-from .cache import load_quarter_cache, quarter_is_cached, save_quarter_cache
+from .cache import default_cache_dir, load_quarter_cache, quarter_is_cached, save_quarter_cache
 from .models import (
     CacheBuildResult,
     FetchError,
@@ -48,6 +48,58 @@ EUR_SYMBOL = "EUR"
 LOOKBACK_QUARTERS = 12
 _FALLBACK_LOGGED: set[tuple[str, date, date]] = set()
 _FALLBACK_LOGGED_LOCK = Lock()
+_MEMORY_QUARTER_CACHE_MAX_SIZE = 128
+_MEMORY_RATE_CACHE_MAX_SIZE = 8192
+_MEMORY_QUARTER_CACHE: dict[tuple[str, QuarterKey], QuarterCacheData] = {}
+_MEMORY_QUARTER_CACHE_LOCK = Lock()
+_MEMORY_RATE_CACHE: dict[tuple[str, date, str], FxRate] = {}
+_MEMORY_RATE_CACHE_LOCK = Lock()
+_CACHE_DIR_KEY_CACHE: dict[str, str] = {}
+_CACHE_DIR_KEY_CACHE_LOCK = Lock()
+
+
+def _cache_dir_key(cache_dir: str | Path | None) -> str:
+    raw_key = "__DEFAULT__" if cache_dir is None else str(cache_dir)
+    with _CACHE_DIR_KEY_CACHE_LOCK:
+        cached = _CACHE_DIR_KEY_CACHE.get(raw_key)
+    if cached is not None:
+        return cached
+
+    path = Path(cache_dir).expanduser() if cache_dir is not None else default_cache_dir()
+    resolved = str(path.resolve())
+    with _CACHE_DIR_KEY_CACHE_LOCK:
+        _CACHE_DIR_KEY_CACHE[raw_key] = resolved
+    return resolved
+
+
+def _put_quarter_cache_in_memory(key: tuple[str, QuarterKey], data: QuarterCacheData) -> None:
+    with _MEMORY_QUARTER_CACHE_LOCK:
+        if len(_MEMORY_QUARTER_CACHE) >= _MEMORY_QUARTER_CACHE_MAX_SIZE:
+            _MEMORY_QUARTER_CACHE.clear()
+        _MEMORY_QUARTER_CACHE[key] = data
+
+
+def _put_rate_cache_in_memory(key: tuple[str, date, str], rate: FxRate) -> None:
+    with _MEMORY_RATE_CACHE_LOCK:
+        if len(_MEMORY_RATE_CACHE) >= _MEMORY_RATE_CACHE_MAX_SIZE:
+            _MEMORY_RATE_CACHE.clear()
+        _MEMORY_RATE_CACHE[key] = rate
+
+
+def _merge_quarter_data(existing: QuarterCacheData, fetched: QuarterCacheData) -> QuarterCacheData:
+    merged_by_key: dict[tuple[str, date], FxRate] = {
+        (rate.symbol, rate.date): rate for rate in existing.rates
+    }
+    for rate in fetched.rates:
+        merged_by_key[(rate.symbol, rate.date)] = rate
+
+    return QuarterCacheData(
+        quarter=fetched.quarter,
+        base_currency=fetched.base_currency,
+        source=fetched.source,
+        fetched_at=fetched.fetched_at,
+        rates=sorted(merged_by_key.values(), key=lambda rate: (rate.symbol, rate.date)),
+    )
 
 
 def _decode_response_payload(response: requests.Response) -> str:
@@ -578,18 +630,32 @@ def _load_or_fetch_quarter_for_symbol(
     cache_dir: str | Path | None,
     client: BnbCsvClient,
 ) -> QuarterCacheData:
+    cache_key = (_cache_dir_key(cache_dir), quarter)
+    with _MEMORY_QUARTER_CACHE_LOCK:
+        memory_cached = _MEMORY_QUARTER_CACHE.get(cache_key)
+    if memory_cached is not None and memory_cached.has_symbol(symbol):
+        logger.debug("In-memory cache hit for %s (%s)", quarter.label, symbol)
+        return memory_cached
+
     cached = load_quarter_cache(quarter, cache_dir=cache_dir)
-    if cached is not None and cached.has_symbol(symbol):
-        logger.debug("Cache hit for %s (%s)", quarter.label, symbol)
-        return cached
+    if cached is not None:
+        _put_quarter_cache_in_memory(cache_key, cached)
+        if cached.has_symbol(symbol):
+            logger.debug("Cache hit for %s (%s)", quarter.label, symbol)
+            return cached
 
     logger.info("Cache miss for %s (%s); fetching quarter", quarter.label, symbol)
-    return _fetch_and_cache_quarter(
+    fetched = _fetch_and_cache_quarter(
         quarter,
         cache_dir=cache_dir,
         symbols=[symbol],
         client=client,
     )
+    merged = _merge_quarter_data(cached, fetched) if cached is not None else fetched
+    if merged is not fetched:
+        save_quarter_cache(merged, cache_dir=cache_dir)
+    _put_quarter_cache_in_memory(cache_key, merged)
+    return merged
 
 
 def _to_eur_per_symbol_quote(rate: FxRate) -> FxRate:
@@ -626,7 +692,7 @@ def _log_fallback_once(symbol: str, requested_date: date, effective_date: date) 
             return
         _FALLBACK_LOGGED.add(key)
 
-    logger.info(
+    logger.debug(
         "No exact rate for %s on %s, using previous date %s",
         symbol,
         requested_date.isoformat(),
@@ -646,8 +712,16 @@ def get_exchange_rate(
     """
     normalized_symbol = normalize_symbol(symbol)
     target_date = parse_date(on_date, field_name="on_date")
+    cache_dir_key = _cache_dir_key(cache_dir)
+
+    rate_cache_key = (normalized_symbol, target_date, cache_dir_key)
+    with _MEMORY_RATE_CACHE_LOCK:
+        cached_rate = _MEMORY_RATE_CACHE.get(rate_cache_key)
+    if cached_rate is not None:
+        return cached_rate
+
     if normalized_symbol == EUR_SYMBOL:
-        return FxRate(
+        rate = FxRate(
             symbol=EUR_SYMBOL,
             date=target_date,
             rate=Decimal("1"),
@@ -660,6 +734,8 @@ def get_exchange_rate(
                 "fixed_eur_bgn_rate": str(EUR_FIXED_RATE_BGN),
             },
         )
+        _put_rate_cache_in_memory(rate_cache_key, rate)
+        return rate
 
     quarter = quarter_for_date(target_date)
     client = BnbCsvClient()
@@ -677,7 +753,9 @@ def get_exchange_rate(
         if found is not None:
             if found.date != target_date:
                 _log_fallback_once(normalized_symbol, target_date, found.date)
-            return _to_eur_per_symbol_quote(found)
+            converted = _to_eur_per_symbol_quote(found)
+            _put_rate_cache_in_memory(rate_cache_key, converted)
+            return converted
 
         current_quarter = _previous_quarter(current_quarter)
 
