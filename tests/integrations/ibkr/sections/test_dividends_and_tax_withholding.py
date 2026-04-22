@@ -288,7 +288,7 @@ def test_appendix_8_company_mode_groups_rows_and_computes_credit_per_company(tmp
     assert company_row.tax_due_bg_eur == Decimal("4.5")
 
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert "- Наименование на лицето, изплатило дохода: Alpha Corp" in text
+    assert "  Наименование на лицето, изплатило дохода: Alpha Corp" in text
     assert "Код за прилагане на метод за избягване на двойното данъчно облагане: 1" in text
 
 def test_appendix_8_country_mode_aggregates_company_rows_with_same_method(tmp_path: Path) -> None:
@@ -330,7 +330,7 @@ def test_appendix_8_country_mode_aggregates_company_rows_with_same_method(tmp_pa
         Decimal("0"),
     )
     text = country_result.declaration_txt_path.read_text(encoding="utf-8")
-    assert "- Наименование на лицето, изплатило дохода: Различни чуждестранни дружества (чрез Interactive Brokers)" in text
+    assert "  Наименование на лицето, изплатило дохода: Различни чуждестранни дружества (чрез Interactive Brokers)" in text
 
 def test_appendix_8_country_mode_splits_same_country_by_method_code(tmp_path: Path) -> None:
     rows = _rows_with_dividends_and_withholding(

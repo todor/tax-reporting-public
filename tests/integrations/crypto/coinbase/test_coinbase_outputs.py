@@ -43,12 +43,12 @@ def test_end_to_end_on_coinbase_since_inception_fixture(tmp_path: Path) -> None:
 
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "СТАТУС: NOT REQUIRED" in text
-    assert "- продажна цена (EUR) - код 5082: 2700.00" in text
-    assert "- цена на придобиване (EUR) - код 5082: 2600.00" in text
-    assert "- печалба (EUR) - код 5082: 100.00" in text
-    assert "- загуба (EUR) - код 5082: 0.00" in text
-    assert "- нетен резултат (EUR): 100.00" in text
-    assert "- брой сделки: 2" in text
+    assert "- Продажна цена (EUR) - код 5082: 2700.00" in text
+    assert "  Цена на придобиване (EUR) - код 5082: 2600.00" in text
+    assert "  Печалба (EUR) - код 5082: 100.00" in text
+    assert "  Загуба (EUR) - код 5082: 0.00" in text
+    assert "- Нетен резултат (EUR): 100.00" in text
+    assert "- Брой сделки: 2" in text
     assert "ИНСТРУКЦИЯ ЗА СЛЕДВАЩ АНАЛИЗАТОР" not in text
 
     state_payload = json.loads(result.year_end_state_json_path.read_text(encoding="utf-8"))

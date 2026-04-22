@@ -467,9 +467,15 @@ def _process_closing_trade_row(
         summary.review_required_rows += 1
         if review_notes == "":
             review_notes = "Review required by tax mode rules"
-        summary.warnings.append(
-            f"row {ctx.row_number}: {reason} (symbol={ctx.symbol}, execution_exchange={ctx.execution_exchange_norm or '<EMPTY>'})"
+        skip_duplicate_review_warning = (
+            tax_exempt_mode == TAX_MODE_EXECUTION_EXCHANGE
+            and appendix_target == APPENDIX_REVIEW
+            and reason in {"EU-listed + non-regulated execution", "EU-listed + unknown execution"}
         )
+        if not skip_duplicate_review_warning:
+            summary.warnings.append(
+                f"row {ctx.row_number}: {reason} (symbol={ctx.symbol}, execution_exchange={ctx.execution_exchange_norm or '<EMPTY>'})"
+            )
         logger.warning(
             "row %s marked REVIEW_REQUIRED: %s (symbol=%s, execution_exchange=%s)",
             ctx.row_number,

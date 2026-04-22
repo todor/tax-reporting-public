@@ -223,12 +223,12 @@ The analyzer prints totals and all output paths to stdout.
 - `Информативни`
 - `Таблица 2` rows:
 - `данъчна година`
-- `продажна цена (EUR) - код 5082`
-- `цена на придобиване (EUR) - код 5082`
-- `печалба (EUR) - код 5082`
-- `загуба (EUR) - код 5082`
+- `Продажна цена (EUR) - код 5082`
+- `Цена на придобиване (EUR) - код 5082`
+- `Печалба (EUR) - код 5082`
+- `Загуба (EUR) - код 5082`
 - `Информативни` includes:
-- `нетна печалба (EUR)`
+- `Нетен резултат (EUR)`
 - Includes USD totals and processing counters.
 
 `futures_pnl_summary_<year>.json`

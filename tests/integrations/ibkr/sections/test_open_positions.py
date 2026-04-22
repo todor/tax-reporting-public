@@ -104,8 +104,8 @@ def test_appendix8_part1_single_country_aggregation_and_reminder(tmp_path: Path)
     assert row.cost_basis_eur == Decimal("270")
 
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert "Част І, Акции, ред 1.N" in text
-    assert "Приложение 8, Част І, Акции, ред 1.1" in text
+    assert "Част І, Акции" in text
+    assert "- ред 1.1" in text
     assert "Държава: САЩ" in text
     assert "Брой: 5" in text
     assert "Дата и година на придобиване: 31.12.2025" in text

@@ -122,6 +122,7 @@ def test_execution_mode_review_for_non_regulated_or_unknown(tmp_path: Path) -> N
     assert result.summary.review_rows == 1
     assert result.summary.appendix_13.rows == 0
     assert result.summary.review.rows == 1
+    assert not any("EU-listed + non-regulated execution" in warning for warning in result.summary.warnings)
 
 def test_trade_filtering_only_code_with_closing_token(tmp_path: Path) -> None:
     rows = _base_rows()

@@ -100,15 +100,15 @@ def build_declaration_text(*, summary: FundAnalysisSummary) -> str:
     bucket = summary.appendix_5
     lines.append("Приложение 5")
     lines.append("Таблица 2")
-    lines.append(f"- продажна цена (EUR) - код 5082: {fmt_decimal(bucket.sale_price_eur, quant=DECIMAL_TWO)}")
+    lines.append(f"- Продажна цена (EUR) - код 5082: {fmt_decimal(bucket.sale_price_eur, quant=DECIMAL_TWO)}")
     lines.append(
-        f"- цена на придобиване (EUR) - код 5082: {fmt_decimal(bucket.purchase_price_eur, quant=DECIMAL_TWO)}"
+        f"  Цена на придобиване (EUR) - код 5082: {fmt_decimal(bucket.purchase_price_eur, quant=DECIMAL_TWO)}"
     )
-    lines.append(f"- печалба (EUR) - код 5082: {fmt_decimal(bucket.wins_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- загуба (EUR) - код 5082: {fmt_decimal(bucket.losses_eur, quant=DECIMAL_TWO)}")
+    lines.append(f"  Печалба (EUR) - код 5082: {fmt_decimal(bucket.wins_eur, quant=DECIMAL_TWO)}")
+    lines.append(f"  Загуба (EUR) - код 5082: {fmt_decimal(bucket.losses_eur, quant=DECIMAL_TWO)}")
     lines.append("Информативни")
-    lines.append(f"- нетен резултат (EUR): {fmt_decimal(bucket.net_result_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- брой сделки: {bucket.rows}")
+    lines.append(f"- Нетен резултат (EUR): {fmt_decimal(bucket.net_result_eur, quant=DECIMAL_TWO)}")
+    lines.append(f"- Брой сделки: {bucket.rows}")
     lines.append("")
 
     lines.append(f"- обработени редове: {summary.processed_rows}")
