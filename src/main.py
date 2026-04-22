@@ -86,6 +86,16 @@ def run_integration(
             year,
         )
         return 0
+    if integration == "afranga":
+        logger.info(
+            "Afranga integration is available via dedicated CLI: "
+            "`python -m integrations.p2p.afranga.report_analyzer` "
+            "(input=%s, output=%s, year=%s)",
+            input_path,
+            output_path,
+            year,
+        )
+        return 0
 
     logger.error("Unknown integration: %s", integration)
     return 2

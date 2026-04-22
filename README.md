@@ -9,6 +9,7 @@ The repository now includes:
 - Coinbase report analyzer (spot transactions mapped to shared crypto IR engine)
 - Kraken report analyzer (spot ledger mapped to shared crypto IR engine)
 - Finexify fund analyzer (fund events mapped to shared fund IR engine)
+- Afranga P2P analyzer (PDF statement mapped to shared P2P Appendix 6 model/renderer)
 - IBKR activity statement analyzer (trades + interest + dividends)
 
 Some areas are still intentionally phased and evolving (for example broader asset coverage and additional appendices).
@@ -30,6 +31,17 @@ Install dependencies:
 ```bash
 pyenv exec python -m pip install -r requirements.txt
 ```
+
+Current external dependencies in `requirements.txt`:
+
+- `requests` (FX services HTTP clients)
+- `pypdf` (machine-generated PDF text extraction for P2P analyzers)
+- `pytest` (test runner)
+
+Dependency policy:
+
+- `requirements.txt` is the single install list for both runtime and repository tests.
+- third-party imports currently used by the codebase are limited to the three packages above.
 
 ## Run
 
@@ -177,13 +189,15 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/main.py`: single CLI entry point
 - `src/config.py`: central project paths
 - `src/logging_config.py`: minimal logging setup
-- `src/integrations/`: integration packages (`crypto`, `fund`, `ibkr`)
+- `src/integrations/`: integration packages (`crypto`, `fund`, `p2p`, `ibkr`)
 - `src/integrations/crypto/shared/`: shared crypto IR models, generic analyzer, shared outputs/runtime helpers
 - `src/integrations/crypto/coinbase/`: Coinbase parser, mapper, and orchestrator
 - `src/integrations/crypto/kraken/`: Kraken parser, mapper, and orchestrator
 - `src/integrations/crypto/binance/`: Binance crypto analyzers
 - `src/integrations/fund/shared/`: shared fund IR models, generic analyzer, and outputs/state helpers
 - `src/integrations/fund/finexify/`: Finexify parser, mapper, and orchestrator
+- `src/integrations/p2p/shared/`: shared P2P Appendix 6 result model and renderer
+- `src/integrations/p2p/afranga/`: Afranga PDF parser and orchestrator
 - `src/integrations/ibkr/activity_statement_analyzer.py`: IBKR analyzer facade/orchestrator
 - `src/integrations/ibkr/sections/`: IBKR business/source processing modules (`trades`, `interest`, `dividends`, `tax_withholding`, `open_positions`, `instruments`, etc.)
 - `src/integrations/ibkr/appendices/`: IBKR declaration shaping/output modules
@@ -192,6 +206,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/integrations/ibkr/shared.py`: shared IBKR parsing/matching/conversion helpers
 - `src/services/bnb_fx/`: BNB CSV client + quarter cache + CLI
 - `src/services/crypto_fx/`: crypto-to-EUR layer (pair resolution + Binance hourly pricing + CLI)
+- `src/services/pdf_reader.py`: shared machine-generated PDF text extraction utility
 - `tests/test_imports.py`: import smoke tests
 - `tests/services/bnb_fx/`: BNB FX tests
 - `tests/services/crypto_fx/`: crypto FX tests
@@ -200,6 +215,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `tests/integrations/crypto/coinbase/`: Coinbase analyzer tests
 - `tests/integrations/crypto/kraken/`: Kraken analyzer tests
 - `tests/integrations/fund/`: shared and Finexify fund analyzer tests
+- `tests/integrations/p2p/`: shared and Afranga P2P analyzer tests
 - `tests/integrations/ibkr/`: IBKR tests (organized by `sections/` and `appendices/`)
 - `output/`: output directory kept in git via `.gitkeep`
   Default analyzer outputs are written under this repo folder (for example `output/binance/futures/`).
@@ -223,6 +239,9 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - Fund integrations: [src/integrations/fund/README.md](src/integrations/fund/README.md)
 - Shared fund engine: [src/integrations/fund/shared/README.md](src/integrations/fund/shared/README.md)
 - Finexify fund analyzer: [src/integrations/fund/finexify/README.md](src/integrations/fund/finexify/README.md)
+- P2P integrations: [src/integrations/p2p/README.md](src/integrations/p2p/README.md)
+- Shared P2P engine: [src/integrations/p2p/shared/README.md](src/integrations/p2p/shared/README.md)
+- Afranga P2P analyzer: [src/integrations/p2p/afranga/README.md](src/integrations/p2p/afranga/README.md)
 - IBKR integrations: [src/integrations/ibkr/README.md](src/integrations/ibkr/README.md)
 
 ### Binance futures PnL cashflow analyzer
@@ -266,6 +285,19 @@ PYTHONPATH=src pyenv exec python -m integrations.fund.finexify.report_analyzer \
   --input "path/to/finexify.csv" \
   --tax-year 2025
 ```
+
+### Afranga P2P analyzer
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.p2p.afranga.report_analyzer \
+  --input "path/to/afranga_statement.pdf" \
+  --tax-year 2025
+```
+
+Notes:
+
+- secondary-market mode defaults to `appendix_6`
+- `appendix_5` mode is reserved for future analyzers and currently fails explicitly as not supported
 
 Optional:
 
