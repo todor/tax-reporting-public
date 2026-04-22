@@ -10,6 +10,7 @@ from services.bnb_fx import BnbFxError, get_exchange_rate
 from services.crypto_fx import get_crypto_eur_rate
 
 EurUnitRateProvider = Callable[[str, datetime], Decimal]
+USD_LIKE_SYMBOLS = {"USD", "USDC", "USDT"}
 
 
 def default_eur_unit_rate_provider(
@@ -21,9 +22,10 @@ def default_eur_unit_rate_provider(
         normalized = currency.strip().upper()
         if normalized == "EUR":
             return Decimal("1")
+        bnb_symbol = "USD" if normalized in USD_LIKE_SYMBOLS else normalized
 
         try:
-            fx = get_exchange_rate(normalized, timestamp.date(), cache_dir=cache_dir)
+            fx = get_exchange_rate(bnb_symbol, timestamp.date(), cache_dir=cache_dir)
             return fx.rate
         except BnbFxError:
             pass

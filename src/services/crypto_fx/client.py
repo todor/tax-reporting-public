@@ -386,6 +386,7 @@ def get_crypto_eur_rate(
     exchange: str,
     is_future: bool = False,
     cache_dir: str | Path | None = None,
+    assume_single_symbol: bool = False,
 ) -> CryptoFxRate:
     """Return EUR conversion for crypto tax valuation at timestamp.
 
@@ -403,12 +404,23 @@ def get_crypto_eur_rate(
     floored_ts = floor_to_hour(requested_ts)
 
     session = requests.Session()
-    resolved = resolve_target_symbol(
-        requested_input,
-        resolved_exchange,
-        is_future=is_future,
-        session=session,
-    )
+    if assume_single_symbol:
+        resolved = ResolvedAsset(
+            requested_input=requested_input,
+            exchange=resolved_exchange,
+            is_pair=False,
+            base_asset=None,
+            quote_asset=None,
+            target_symbol=requested_input,
+            raw_metadata={"resolution_mode": "assume_single_symbol"},
+        )
+    else:
+        resolved = resolve_target_symbol(
+            requested_input,
+            resolved_exchange,
+            is_future=is_future,
+            session=session,
+        )
     target_symbol = resolved.target_symbol.upper()
 
     if target_symbol in FIAT_SYMBOLS:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from threading import Lock
 from typing import Any
 
 import requests
@@ -15,6 +16,9 @@ BINANCE_FUTURES_BASE_URL = "https://fapi.binance.com"
 KRAKEN_BASE_URL = "https://api.kraken.com"
 KRAKEN_FUTURES_BASE_URL = "https://futures.kraken.com"
 BINANCE_FALLBACK_QUOTES = ("USDT", "USDC", "USD", "EUR")
+_RESOLUTION_CACHE_MAX_SIZE = 4096
+_RESOLUTION_CACHE: dict[tuple[str, bool, str, int], ResolvedAsset] = {}
+_RESOLUTION_CACHE_LOCK = Lock()
 
 KRAKEN_SYMBOL_MAP = {
     "XBT": "BTC",
@@ -410,9 +414,19 @@ def resolve_target_symbol(
     if not symbol:
         raise PairResolutionError("symbol_or_pair must not be empty")
 
+    # Cache key includes `_request_json` identity so monkeypatched test stubs naturally
+    # invalidate old entries and avoid cross-test leakage.
+    cache_key = (resolved_exchange, is_future, symbol, id(_request_json))
+    with _RESOLUTION_CACHE_LOCK:
+        cached = _RESOLUTION_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
     if resolved_exchange == "binance":
         quick_pair = _fallback_pair_from_suffix(symbol, exchange=resolved_exchange)
         if quick_pair is not None:
+            with _RESOLUTION_CACHE_LOCK:
+                _RESOLUTION_CACHE[cache_key] = quick_pair
             return quick_pair
 
     client = session or requests.Session()
@@ -428,4 +442,9 @@ def resolve_target_symbol(
         else:
             resolved = _resolve_kraken_spot_pair(symbol, session=client)
 
-    return _normalize_kraken_resolved(resolved) if resolved_exchange == "kraken" else resolved
+    normalized = _normalize_kraken_resolved(resolved) if resolved_exchange == "kraken" else resolved
+    with _RESOLUTION_CACHE_LOCK:
+        if len(_RESOLUTION_CACHE) >= _RESOLUTION_CACHE_MAX_SIZE:
+            _RESOLUTION_CACHE.clear()
+        _RESOLUTION_CACHE[cache_key] = normalized
+    return normalized

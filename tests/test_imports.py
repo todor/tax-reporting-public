@@ -18,6 +18,10 @@ def test_kraken_package_import() -> None:
     import integrations.crypto.kraken  # noqa: F401
 
 
+def test_finexify_package_import() -> None:
+    import integrations.fund.finexify  # noqa: F401
+
+
 def test_bnb_fx_package_import() -> None:
     import services.bnb_fx  # noqa: F401
 

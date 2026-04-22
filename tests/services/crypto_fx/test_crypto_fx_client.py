@@ -54,6 +54,25 @@ def test_main_api_accepts_is_future(monkeypatch) -> None:
     assert result.pricing_source == "fiat_shortcut"
 
 
+def test_assume_single_symbol_skips_pair_resolution(monkeypatch) -> None:
+    def fail_resolve(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("resolve_target_symbol should not be called when assume_single_symbol=True")
+
+    monkeypatch.setattr("services.crypto_fx.client.resolve_target_symbol", fail_resolve)
+    monkeypatch.setattr("services.crypto_fx.client._usd_to_eur_rate", lambda on_date: (Decimal("0.91"), on_date))
+
+    result = get_crypto_eur_rate(
+        "USDC",
+        "2025-10-11T10:30:15Z",
+        "binance",
+        assume_single_symbol=True,
+    )
+
+    assert result.is_pair is False
+    assert result.resolved_symbol == "USD"
+    assert result.price_eur == Decimal("0.91")
+
+
 def test_pair_input_resolves_quote_asset_and_uses_fiat_shortcut(monkeypatch) -> None:
     monkeypatch.setattr(
         "services.crypto_fx.client.resolve_target_symbol",

@@ -128,6 +128,27 @@ def test_known_quote_suffix_skips_metadata_calls(monkeypatch) -> None:
     assert resolved.target_symbol == "USDT"
 
 
+def test_resolution_results_are_cached_for_repeated_calls(monkeypatch) -> None:
+    calls = {"count": 0}
+
+    def fake_request_json(session, url, params=None, timeout_seconds=20.0, retries=2):  # noqa: ANN001
+        calls["count"] += 1
+        assert "exchangeInfo" in url
+        assert params == {"symbol": "ALCHBTC"}
+        return 200, {
+            "symbols": [{"symbol": "ALCHBTC", "baseAsset": "ALCH", "quoteAsset": "BTC"}]
+        }
+
+    monkeypatch.setattr("services.crypto_fx.exchanges._request_json", fake_request_json)
+
+    first = resolve_target_symbol("ALCHBTC", "binance", session=_DummySession())
+    second = resolve_target_symbol("ALCHBTC", "binance", session=_DummySession())
+
+    assert first.is_pair is True
+    assert second.is_pair is True
+    assert calls["count"] == 1
+
+
 def test_kraken_mapping_table() -> None:
     assert normalize_kraken_symbol("XBT") == "BTC"
     assert normalize_kraken_symbol("XXBT") == "BTC"

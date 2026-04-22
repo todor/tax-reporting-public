@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
+import integrations.crypto.shared.runtime as runtime
 from integrations.crypto.shared.runtime import (
     build_enriched_ir_output_paths,
     default_eur_unit_rate_provider,
@@ -40,3 +42,19 @@ def test_default_eur_unit_rate_provider_returns_one_for_eur() -> None:
     provider = default_eur_unit_rate_provider(cache_dir=None)
     rate = provider("eur", datetime(2025, 1, 1, tzinfo=timezone.utc))
     assert rate == Decimal("1")
+
+
+def test_default_eur_unit_rate_provider_maps_usdc_to_usd_for_bnb_lookup(monkeypatch) -> None:
+    seen: dict[str, str] = {}
+
+    def fake_get_exchange_rate(symbol: str, on_date, cache_dir=None):  # noqa: ANN001
+        seen["symbol"] = symbol
+        return SimpleNamespace(rate=Decimal("0.92"))
+
+    monkeypatch.setattr(runtime, "get_exchange_rate", fake_get_exchange_rate)
+
+    provider = default_eur_unit_rate_provider(cache_dir=None)
+    rate = provider("USDC", datetime(2025, 1, 1, tzinfo=timezone.utc))
+
+    assert seen["symbol"] == "USD"
+    assert rate == Decimal("0.92")

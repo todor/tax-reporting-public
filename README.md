@@ -8,6 +8,7 @@ The repository now includes:
 - Binance analyzers
 - Coinbase report analyzer (spot transactions mapped to shared crypto IR engine)
 - Kraken report analyzer (spot ledger mapped to shared crypto IR engine)
+- Finexify fund analyzer (fund events mapped to shared fund IR engine)
 - IBKR activity statement analyzer (trades + interest + dividends)
 
 Some areas are still intentionally phased and evolving (for example broader asset coverage and additional appendices).
@@ -176,11 +177,13 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/main.py`: single CLI entry point
 - `src/config.py`: central project paths
 - `src/logging_config.py`: minimal logging setup
-- `src/integrations/`: integration packages (`crypto`, `ibkr`)
+- `src/integrations/`: integration packages (`crypto`, `fund`, `ibkr`)
 - `src/integrations/crypto/shared/`: shared crypto IR models, generic analyzer, shared outputs/runtime helpers
 - `src/integrations/crypto/coinbase/`: Coinbase parser, mapper, and orchestrator
 - `src/integrations/crypto/kraken/`: Kraken parser, mapper, and orchestrator
 - `src/integrations/crypto/binance/`: Binance crypto analyzers
+- `src/integrations/fund/shared/`: shared fund IR models, generic analyzer, and outputs/state helpers
+- `src/integrations/fund/finexify/`: Finexify parser, mapper, and orchestrator
 - `src/integrations/ibkr/activity_statement_analyzer.py`: IBKR analyzer facade/orchestrator
 - `src/integrations/ibkr/sections/`: IBKR business/source processing modules (`trades`, `interest`, `dividends`, `tax_withholding`, `open_positions`, `instruments`, etc.)
 - `src/integrations/ibkr/appendices/`: IBKR declaration shaping/output modules
@@ -196,6 +199,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `tests/integrations/crypto/`: shared crypto IR/analyzer tests
 - `tests/integrations/crypto/coinbase/`: Coinbase analyzer tests
 - `tests/integrations/crypto/kraken/`: Kraken analyzer tests
+- `tests/integrations/fund/`: shared and Finexify fund analyzer tests
 - `tests/integrations/ibkr/`: IBKR tests (organized by `sections/` and `appendices/`)
 - `output/`: output directory kept in git via `.gitkeep`
   Default analyzer outputs are written under this repo folder (for example `output/binance/futures/`).
@@ -216,6 +220,9 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - Coinbase integrations: [src/integrations/crypto/coinbase/README.md](src/integrations/crypto/coinbase/README.md)
 - Kraken integrations: [src/integrations/crypto/kraken/README.md](src/integrations/crypto/kraken/README.md)
 - Shared crypto engine: [src/integrations/crypto/shared/README.md](src/integrations/crypto/shared/README.md)
+- Fund integrations: [src/integrations/fund/README.md](src/integrations/fund/README.md)
+- Shared fund engine: [src/integrations/fund/shared/README.md](src/integrations/fund/shared/README.md)
+- Finexify fund analyzer: [src/integrations/fund/finexify/README.md](src/integrations/fund/finexify/README.md)
 - IBKR integrations: [src/integrations/ibkr/README.md](src/integrations/ibkr/README.md)
 
 ### Binance futures PnL cashflow analyzer
@@ -249,6 +256,14 @@ IBKR appendix credit math note:
 ```bash
 PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer \
   --input "path/to/Coinbase Report - since inception.csv" \
+  --tax-year 2025
+```
+
+### Finexify fund analyzer
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.fund.finexify.report_analyzer \
+  --input "path/to/finexify.csv" \
   --tax-year 2025
 ```
 
