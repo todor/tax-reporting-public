@@ -11,6 +11,10 @@ from ..constants import (
 from ..models import AnalysisResult, AnalysisSummary, BucketTotals
 from ..shared import _fmt
 
+TECHNICAL_DETAILS_SEPARATOR = (
+    "------------------------------ Technical Details ------------------------------"
+)
+
 
 def _sum_bucket(bucket: BucketTotals, sale_price_eur: Decimal, purchase_eur: Decimal, pnl_eur: Decimal) -> None:
     bucket.sale_price_eur += sale_price_eur
@@ -26,7 +30,7 @@ def _sum_bucket(bucket: BucketTotals, sale_price_eur: Decimal, purchase_eur: Dec
 def _build_manual_check_reasons(summary: AnalysisSummary) -> list[str]:
     reasons: list[str] = []
     if summary.sanity_failures_count > 0:
-        reasons.append(f"sanity checks failed: {summary.sanity_failures_count}")
+        reasons.append(f"има {summary.sanity_failures_count} неуспешни sanity проверки")
     if summary.review_required_rows > 0:
         reasons.append(f"има {summary.review_required_rows} записа с изисквана ръчна проверка")
     if summary.interest_unknown_rows > 0:
@@ -62,15 +66,15 @@ def _append_manual_check_section(lines: list[str], *, summary: AnalysisSummary) 
 
 
 def _append_sanity_section(lines: list[str], *, summary: AnalysisSummary) -> None:
-    lines.append("ПРОВЕРКА НА ИЗЧИСЛЕНИЯТА")
+    lines.append("Sanity Check")
     lines.append(f"- Sanity checks: {'PASS' if summary.sanity_passed else 'FAIL'}")
-    lines.append(f"- Проверени Trade редове (entry + exit): {summary.sanity_checked_closing_trades}")
-    lines.append(f"- Проверени ClosedLot редове: {summary.sanity_checked_closedlots}")
-    lines.append(f"- Проверени SubTotal редове: {summary.sanity_checked_subtotals}")
-    lines.append(f"- Проверени Total редове: {summary.sanity_checked_totals}")
-    lines.append(f"- Игнорирани Forex редове: {summary.sanity_forex_ignored_rows}")
+    lines.append(f"- Checked Trade rows (entry + exit): {summary.sanity_checked_closing_trades}")
+    lines.append(f"- Checked ClosedLot rows: {summary.sanity_checked_closedlots}")
+    lines.append(f"- Checked SubTotal rows: {summary.sanity_checked_subtotals}")
+    lines.append(f"- Checked Total rows: {summary.sanity_checked_totals}")
+    lines.append(f"- Ignored Forex rows: {summary.sanity_forex_ignored_rows}")
     if summary.sanity_forex_ignored_rows > 0:
-        lines.append("- ВНИМАНИЕ: Forex операциите не са включени в sanity проверките, защото са игнорирани от анализатора в тази версия.")
+        lines.append("- NOTE: Forex operations are excluded from sanity checks because they are ignored by this analyzer version.")
     if summary.sanity_debug_artifacts_dir:
         lines.append(f"- Sanity-check debug artifacts path: {summary.sanity_debug_artifacts_dir}")
         lines.append("- Debug artifacts are verification-only and not production tax outputs.")
@@ -283,7 +287,7 @@ def _append_forex_section(lines: list[str], *, summary: AnalysisSummary) -> None
 
 def _append_processing_notes_section(lines: list[str], *, summary: AnalysisSummary) -> None:
     if summary.warnings:
-        lines.append("Бележки по обработката")
+        lines.append("Processing Notes")
         for warning in summary.warnings:
             lines.append(f"- {warning}")
         lines.append("")
@@ -297,43 +301,43 @@ def _append_proof_section(lines: list[str], *, result: AnalysisResult) -> None:
             return "-"
         return ", ".join(cleaned)
 
-    lines.append("Одитни данни")
-    lines.append(f"- режим на класификация на пазари: {summary.exchange_classification_mode or '-'}")
+    lines.append("Audit Data")
+    lines.append(f"- market classification mode: {summary.exchange_classification_mode or '-'}")
     if summary.tax_exempt_mode == TAX_MODE_LISTED_SYMBOL:
         lines.append(
-            "- В режим listed_symbol execution exchange не участва в класификацията и е само информативен."
+            "- In listed_symbol mode, execution exchange does not participate in classification and is informational only."
         )
     lines.append(
-        "- допълнително подадени EU-регулирани пазари: "
+        "- additional CLI EU-regulated markets: "
         f"{_fmt_set(summary.cli_eu_regulated_overrides)}"
     )
     lines.append(
-        "- EU-регулирани пазари, открити в отчета: "
+        "- EU-regulated markets found in report: "
         f"{_fmt_set(summary.encountered_eu_regulated_exchanges)}"
     )
     lines.append(
-        "- EU нерегулирани пазари, открити в отчета: "
+        "- EU non-regulated markets found in report: "
         f"{_fmt_set(summary.encountered_eu_non_regulated_exchanges)}"
     )
     lines.append(
-        "- Не-EU пазари, открити в отчета: "
+        "- non-EU markets found in report: "
         f"{_fmt_set(summary.encountered_non_eu_exchanges)}"
     )
     lines.append(
-        "- Неразпознати пазари, открити в отчета: "
+        "- unmapped markets found in report: "
         f"{_fmt_set(summary.encountered_unmapped_exchanges)}"
     )
     lines.append(
-        "- Невалидни/нечетими стойности за пазар, открити в отчета: "
+        "- invalid/unreadable market values found in report: "
         f"{_fmt_set(summary.encountered_invalid_exchange_values)}"
     )
-    lines.append(f"- избран режим: {summary.tax_exempt_mode}")
-    lines.append(f"- Приложение 8 дивидентен режим: {summary.appendix8_dividend_list_mode}")
+    lines.append(f"- selected mode: {summary.tax_exempt_mode}")
+    lines.append(f"- Appendix 8 dividend list mode: {summary.appendix8_dividend_list_mode}")
     lines.append(f"- report alias: {result.report_alias or '-'}")
-    lines.append(f"- данъчна година: {summary.tax_year}")
-    lines.append(f"- обработени сделки (в данъчната година): {summary.processed_trades_in_tax_year}")
-    lines.append(f"- сделки извън данъчната година: {summary.trades_outside_tax_year}")
-    lines.append(f"- игнорирани редове без token C: {summary.ignored_non_closing_trade_rows}")
+    lines.append(f"- tax year: {summary.tax_year}")
+    lines.append(f"- processed trades (in tax year): {summary.processed_trades_in_tax_year}")
+    lines.append(f"- trades outside tax year: {summary.trades_outside_tax_year}")
+    lines.append(f"- ignored rows without token C: {summary.ignored_non_closing_trade_rows}")
     lines.append(f"- review overrides (TAXABLE/NON-TAXABLE): {summary.review_status_overrides_rows}")
     lines.append(f"- unknown Review Status rows: {summary.unknown_review_status_rows}")
     if summary.unknown_review_status_values:
@@ -383,9 +387,14 @@ def _build_declaration_text(
         summary=summary,
         appendix9_allowable_credit_rate=appendix9_allowable_credit_rate,
     )
-    _append_processing_notes_section(lines, summary=summary)
     _append_review_section(lines, summary=summary)
-    _append_proof_section(lines, result=result)
-    _append_sanity_section(lines, summary=summary)
+    technical_lines: list[str] = []
+    _append_processing_notes_section(technical_lines, summary=summary)
+    _append_proof_section(technical_lines, result=result)
+    _append_sanity_section(technical_lines, summary=summary)
+    if technical_lines:
+        lines.append(TECHNICAL_DETAILS_SEPARATOR)
+        lines.append("")
+        lines.extend(technical_lines)
 
     return "\n".join(lines).rstrip() + "\n"

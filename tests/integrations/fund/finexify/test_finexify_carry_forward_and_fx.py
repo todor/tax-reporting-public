@@ -6,6 +6,8 @@ from pathlib import Path
 
 from tests.integrations.fund.finexify import support as h
 
+TECHNICAL_DETAILS_SEPARATOR = "------------------------------ Technical Details ------------------------------"
+
 
 def test_opening_state_carry_forward(tmp_path: Path) -> None:
     result_2025 = h.run(
@@ -86,6 +88,8 @@ def test_declaration_txt_contains_summary_and_warnings(tmp_path: Path) -> None:
     assert "Приложение 5" in text
     assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" in text
     assert "неподдържани/неясни записа" in text
+    assert TECHNICAL_DETAILS_SEPARATOR in text
+    assert "Audit Data" in text
 
 
 def test_year_end_state_json_keeps_native_and_eur_balances(tmp_path: Path) -> None:

@@ -8,6 +8,8 @@ from pathlib import Path
 from integrations.crypto.coinbase import report_analyzer as analyzer
 from tests.integrations.crypto.coinbase import support as h
 
+TECHNICAL_DETAILS_SEPARATOR = "------------------------------ Technical Details ------------------------------"
+
 
 def test_end_to_end_on_coinbase_since_inception_fixture(tmp_path: Path) -> None:
     fixture = Path(__file__).parent / "fixtures" / "Coinbase Report - since inception.csv"
@@ -210,6 +212,8 @@ def test_manual_check_overrides_metric_counts_non_empty_review_status_rows(tmp_p
     assert result.summary.manual_check_required is False
 
     text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert TECHNICAL_DETAILS_SEPARATOR in text
+    assert "Audit Data" in text
     assert "manual check overrides (Review Status non-empty): 3" in text
 
 
@@ -240,6 +244,8 @@ def test_manual_check_overrides_metric_is_zero_when_review_status_column_is_miss
 
     assert result.summary.manual_check_overrides_rows == 0
     text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert TECHNICAL_DETAILS_SEPARATOR in text
+    assert "Audit Data" in text
     assert "manual check overrides (Review Status non-empty): 0" in text
 
 

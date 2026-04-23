@@ -6,6 +6,9 @@ from pathlib import Path
 from .appendix6_models import P2PAppendix6Result
 
 DECIMAL_TWO = Decimal("0.01")
+TECHNICAL_DETAILS_SEPARATOR = (
+    "------------------------------ Technical Details ------------------------------"
+)
 
 
 def _fmt_decimal(value: Decimal, *, quant: Decimal = DECIMAL_TWO) -> str:
@@ -50,16 +53,22 @@ def build_appendix6_text(*, result: P2PAppendix6Result) -> str:
         for warning in result.warnings:
             lines.append(f"- {warning}")
 
+    technical_lines: list[str] = []
     if result.informational_messages:
-        lines.append("")
-        lines.append("Бележки по обработката")
+        technical_lines.append("Processing Notes")
         for message in result.informational_messages:
-            lines.append(f"- {message}")
+            technical_lines.append(f"- {message}")
+        technical_lines.append("")
 
-    lines.append("")
-    lines.append("Одитни данни")
+    technical_lines.append("Audit Data")
     for info in result.informative_rows:
-        lines.append(f"- {info.label}: {_fmt_informative_value(info.value)}")
+        technical_lines.append(f"- {info.label}: {_fmt_informative_value(info.value)}")
+
+    if technical_lines:
+        lines.append("")
+        lines.append(TECHNICAL_DETAILS_SEPARATOR)
+        lines.append("")
+        lines.extend(technical_lines)
 
     return "\n".join(lines).rstrip() + "\n"
 

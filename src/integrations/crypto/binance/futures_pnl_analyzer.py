@@ -27,6 +27,9 @@ REQUIRED_COLUMNS = [
 
 RELEVANT_OPERATIONS = {"Fee", "Funding Fee", "Realized Profit and Loss"}
 EXPECTED_COIN = "BNFCR"
+TECHNICAL_DETAILS_SEPARATOR = (
+    "------------------------------ Technical Details ------------------------------"
+)
 
 DECIMAL_TWO = Decimal("0.01")
 DECIMAL_EIGHT = Decimal("0.00000001")
@@ -341,7 +344,7 @@ def _write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) ->
 
 def _write_tax_text(path: Path, *, tax_year: int, totals: AggregatedTotals) -> None:
     lines = [
-        f"данъчна година: {tax_year}",
+        f"tax year: {tax_year}",
         "",
         "Приложение 5",
         "Таблица 2",
@@ -351,16 +354,20 @@ def _write_tax_text(path: Path, *, tax_year: int, totals: AggregatedTotals) -> N
         f"  Загуба (EUR) - код 5082: {_fmt_decimal(totals.loss_eur, quant=DECIMAL_TWO)}",
         "Информативни",
         f"- Нетен резултат (EUR): {_fmt_decimal(totals.net_result_eur, quant=DECIMAL_TWO)}",
-        "",
+    ]
+    technical_lines = [
+        "Audit Data",
         f"- profit_usd: {_fmt_decimal(totals.profit_usd)}",
         f"- loss_usd: {_fmt_decimal(totals.loss_usd)}",
         f"- sale_price_usd: {_fmt_decimal(totals.sale_price_usd)}",
         f"- purchase_price_usd: {_fmt_decimal(totals.purchase_price_usd)}",
         f"- net_result_usd: {_fmt_decimal(totals.net_result_usd)}",
-        "",
         f"- processed_rows: {totals.processed_rows}",
         f"- ignored_rows: {totals.ignored_rows}",
     ]
+    if technical_lines:
+        lines.extend(["", TECHNICAL_DETAILS_SEPARATOR, ""])
+        lines.extend(technical_lines)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

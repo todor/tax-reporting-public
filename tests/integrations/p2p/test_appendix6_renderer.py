@@ -5,6 +5,8 @@ from decimal import Decimal
 from integrations.p2p.shared.appendix6_models import Appendix6Part1Row, InformativeRow, P2PAppendix6Result
 from integrations.p2p.shared.appendix6_renderer import build_appendix6_text
 
+TECHNICAL_DETAILS_SEPARATOR = "------------------------------ Technical Details ------------------------------"
+
 
 def test_appendix6_renderer_renders_expected_sections() -> None:
     result = P2PAppendix6Result(
@@ -39,7 +41,8 @@ def test_appendix6_renderer_renders_expected_sections() -> None:
     assert "- Обща сума на доходите с код 603: 23.76" in text
     assert "- Облагаем доход по чл. 35, код 603: 150.42" in text
     assert "- Удържан и/или внесен окончателен данък за доходи: 12.67" in text
-    assert "Одитни данни" in text
+    assert TECHNICAL_DETAILS_SEPARATOR in text
+    assert "Audit Data" in text
     assert "- Secondary-market mode used: appendix_6" in text
 
 
@@ -60,5 +63,6 @@ def test_appendix6_renderer_separates_manual_check_and_informational_messages() 
     text = build_appendix6_text(result=result)
     assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" in text
     assert "- mismatch in required report field" in text
-    assert "Бележки по обработката" in text
+    assert TECHNICAL_DETAILS_SEPARATOR in text
+    assert "Processing Notes" in text
     assert "- secondary market <= 0, omitted from code 606" in text

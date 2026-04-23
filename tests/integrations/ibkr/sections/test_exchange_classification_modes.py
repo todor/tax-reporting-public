@@ -175,12 +175,12 @@ def test_audit_section_contains_exchange_categories(tmp_path: Path) -> None:
     result = _run(tmp_path, rows, mode="execution_exchange")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
 
-    assert "Одитни данни" in text
-    assert "EU-регулирани пазари, открити в отчета" in text
-    assert "EU нерегулирани пазари, открити в отчета" in text
-    assert "Не-EU пазари, открити в отчета" in text
-    assert "Неразпознати пазари, открити в отчета" in text
-    assert "Невалидни/нечетими стойности за пазар, открити в отчета" in text
+    assert "Audit Data" in text
+    assert "EU-regulated markets found in report" in text
+    assert "EU non-regulated markets found in report" in text
+    assert "non-EU markets found in report" in text
+    assert "unmapped markets found in report" in text
+    assert "invalid/unreadable market values found in report" in text
     assert "NEWCODE" in text
 
 

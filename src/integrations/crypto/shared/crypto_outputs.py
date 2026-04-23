@@ -15,6 +15,9 @@ from .crypto_ir_models import (
 
 DECIMAL_TWO = Decimal("0.01")
 DECIMAL_EIGHT = Decimal("0.00000001")
+TECHNICAL_DETAILS_SEPARATOR = (
+    "------------------------------ Technical Details ------------------------------"
+)
 
 
 def fmt_decimal(value: Decimal, *, quant: Decimal | None = None) -> str:
@@ -107,18 +110,24 @@ def build_declaration_text(*, summary: IrAnalysisSummary) -> str:
     lines.append(f"- Брой сделки: {bucket.rows}")
     lines.append("")
 
+    technical_lines: list[str] = []
     if summary.warnings:
-        lines.append("Бележки по обработката")
+        technical_lines.append("Processing Notes")
         for warning in summary.warnings:
-            lines.append(f"- {warning}")
-        lines.append("")
+            technical_lines.append(f"- {warning}")
+        technical_lines.append("")
 
-    lines.append("Одитни данни")
-    lines.append(f"- обработени редове: {summary.processed_rows}")
-    lines.append(
+    technical_lines.append("Audit Data")
+    technical_lines.append(f"- processed rows: {summary.processed_rows}")
+    technical_lines.append(
         f"- manual check overrides (Review Status non-empty): {summary.manual_check_overrides_rows}"
     )
-    lines.append(f"- игнорирани fiat Deposit/Withdraw: {summary.ignored_fiat_deposit_withdraw_rows}")
+    technical_lines.append(f"- ignored fiat Deposit/Withdraw rows: {summary.ignored_fiat_deposit_withdraw_rows}")
+
+    if technical_lines:
+        lines.append(TECHNICAL_DETAILS_SEPARATOR)
+        lines.append("")
+        lines.extend(technical_lines)
     return "\n".join(lines).rstrip() + "\n"
 
 

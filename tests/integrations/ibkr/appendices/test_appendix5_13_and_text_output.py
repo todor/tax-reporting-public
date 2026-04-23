@@ -6,6 +6,7 @@ from tests.integrations.ibkr import support as h
 
 _base_rows = h._base_rows
 _run = h._run
+TECHNICAL_DETAILS_SEPARATOR = "------------------------------ Technical Details ------------------------------"
 
 
 def test_known_non_regulated_execution_is_routed_to_appendix_5(tmp_path: Path) -> None:
@@ -28,7 +29,10 @@ def test_declaration_text_contains_required_sections(tmp_path: Path) -> None:
     assert "Приложение 13" in text
     assert "РЪЧНА ПРОВЕРКА (ИЗКЛЮЧЕНИ ОТ АВТОМАТИЧНИТЕ ТАБЛИЦИ)" not in text
     assert "ВНИМАНИЕ: FOREX ОПЕРАЦИИ" not in text
-    assert text.index("ПРОВЕРКА НА ИЗЧИСЛЕНИЯТА") > text.index("Одитни данни")
+    assert TECHNICAL_DETAILS_SEPARATOR in text
+    assert text.index(TECHNICAL_DETAILS_SEPARATOR) > text.index("Приложение 9")
+    assert text.index("Audit Data") > text.index(TECHNICAL_DETAILS_SEPARATOR)
+    assert text.index("Sanity Check") > text.index("Audit Data")
 
 
 def test_forex_rows_are_ignored_with_warning_in_text(tmp_path: Path) -> None:
@@ -177,6 +181,6 @@ def test_listed_symbol_execution_exchange_note_is_global_not_per_row_warning(tmp
     assert result.summary.review_required_rows == 0
     assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" not in text
     assert (
-        "В режим listed_symbol execution exchange не участва в класификацията и е само информативен."
+        "In listed_symbol mode, execution exchange does not participate in classification and is informational only."
         in text
     )

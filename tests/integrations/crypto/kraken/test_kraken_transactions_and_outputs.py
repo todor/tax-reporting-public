@@ -8,6 +8,8 @@ from pathlib import Path
 from integrations.crypto.kraken import report_analyzer as analyzer
 from tests.integrations.crypto.kraken import support as h
 
+TECHNICAL_DETAILS_SEPARATOR = "------------------------------ Technical Details ------------------------------"
+
 
 def test_deposit_fiat_is_ignored_for_pnl(tmp_path: Path) -> None:
     result = h.run(
@@ -154,6 +156,8 @@ def test_end_to_end_on_kraken_sample_fixture(tmp_path: Path) -> None:
 
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Приложение 5" in text
+    assert TECHNICAL_DETAILS_SEPARATOR in text
+    assert "Audit Data" in text
     assert "manual check overrides (Review Status non-empty): 2" in text
 
     state_payload = json.loads(result.year_end_state_json_path.read_text(encoding="utf-8"))

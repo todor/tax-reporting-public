@@ -11,6 +11,8 @@ import pytest
 
 from integrations.crypto.binance import futures_pnl_analyzer as analyzer
 
+TECHNICAL_DETAILS_SEPARATOR = "------------------------------ Technical Details ------------------------------"
+
 HEADER = ["User ID", "Time", "Account", "Operation", "Coin", "Change", "Remark"]
 
 
@@ -392,5 +394,8 @@ def test_tax_text_groups_eur_usd_and_processing_sections(tmp_path: Path) -> None
     assert "  Загуба (EUR) - код 5082: 1.00" in text
     assert "Информативни" in text
     assert "- Нетен резултат (EUR): 1.00" in text
-    assert "\n\n- profit_usd:" in text
-    assert "\n\n- processed_rows: 2" in text
+    assert "tax year: 2025" in text
+    assert TECHNICAL_DETAILS_SEPARATOR in text
+    assert "Audit Data" in text
+    assert "- profit_usd:" in text
+    assert "- processed_rows: 2" in text
