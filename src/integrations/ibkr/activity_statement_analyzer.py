@@ -17,12 +17,11 @@ from .appendices.aggregations import (
     _write_tax_credit_debug_report,
 )
 from .appendices.csv_output import build_output_rows, validate_output_rows
-from .appendices.declaration_text import _build_declaration_text
+from .appendices.declaration_text import _build_declaration_text, _build_manual_check_reasons
 from .constants import (
     APPENDIX8_LIST_MODE_COMPANY,
     APPENDIX8_LIST_MODE_COUNTRY,
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
-    DECIMAL_TWO,
     DEFAULT_OUTPUT_DIR,
     DIVIDEND_TAX_RATE,
     FxRateProvider,
@@ -64,7 +63,7 @@ from .sections.trades import (
     populate_trade_aggregate_extras,
     process_trades_section,
 )
-from .shared import _build_active_headers, _default_fx_provider, _fmt, _normalize_report_alias
+from .shared import _build_active_headers, _default_fx_provider, _normalize_report_alias
 
 logger = logging.getLogger(__name__)
 
@@ -534,72 +533,14 @@ def main() -> int:
         )
     except IbkrAnalyzerError as exc:
         logger.error("%s", exc)
+        print("STATUS: ERROR")
         return 2
 
     summary = result.summary
-    print(f"processed_rows: {summary.processed_trades_in_tax_year}")
-    print(f"ignored_rows: {summary.ignored_non_closing_trade_rows + summary.forex_ignored_rows + summary.trades_outside_tax_year}")
-    print(f"trades_data_rows_total: {summary.trades_data_rows_total}")
-    print(f"trade_discriminator_rows: {summary.trade_discriminator_rows}")
-    print(f"closedlot_discriminator_rows: {summary.closedlot_discriminator_rows}")
-    print(f"order_discriminator_rows: {summary.order_discriminator_rows}")
-    print(f"closing_trade_candidates: {summary.closing_trade_candidates}")
-    print(f"forex_ignored_rows: {summary.forex_ignored_rows}")
-    print(f"ignored_non_closing_trade_rows: {summary.ignored_non_closing_trade_rows}")
-    print(f"trades_outside_tax_year: {summary.trades_outside_tax_year}")
-    print(f"appendix_5_rows: {summary.appendix_5.rows}")
-    print(f"appendix_13_rows: {summary.appendix_13.rows}")
-    print(f"review_rows: {summary.review_rows}")
-    print(f"review_status_overrides_rows: {summary.review_status_overrides_rows}")
-    print(f"unknown_review_status_rows: {summary.unknown_review_status_rows}")
-    if summary.unknown_review_status_values:
-        print(f"unknown_review_status_values: {', '.join(sorted(summary.unknown_review_status_values))}")
-    print(f"interest_processed_rows: {summary.interest_processed_rows}")
-    print(f"interest_total_rows_skipped: {summary.interest_total_rows_skipped}")
-    print(f"interest_taxable_rows: {summary.interest_taxable_rows}")
-    print(f"interest_non_taxable_rows: {summary.interest_non_taxable_rows}")
-    print(f"interest_unknown_rows: {summary.interest_unknown_rows}")
-    if summary.interest_unknown_types:
-        print(f"interest_unknown_types: {', '.join(sorted(summary.interest_unknown_types))}")
-    print(f"dividends_processed_rows: {summary.dividends_processed_rows}")
-    print(f"dividends_total_rows_skipped: {summary.dividends_total_rows_skipped}")
-    print(f"dividends_cash_rows: {summary.dividends_cash_rows}")
-    print(f"dividends_lieu_rows: {summary.dividends_lieu_rows}")
-    print(f"dividends_unknown_rows: {summary.dividends_unknown_rows}")
-    print(f"withholding_processed_rows: {summary.withholding_processed_rows}")
-    print(f"withholding_total_rows_skipped: {summary.withholding_total_rows_skipped}")
-    print(f"withholding_dividend_rows: {summary.withholding_dividend_rows}")
-    print(f"withholding_non_dividend_rows: {summary.withholding_non_dividend_rows}")
-    print(f"open_positions_summary_rows: {summary.open_positions_summary_rows}")
-    print(f"appendix_8_part1_rows: {summary.open_positions_part1_rows}")
-    print(f"dividend_tax_rate: {_fmt(summary.dividend_tax_rate)}")
-    print(f"appendix8_dividend_list_mode: {summary.appendix8_dividend_list_mode}")
-    print(f"appendix_5_profit_eur: {_fmt(summary.appendix_5.wins_eur, quant=DECIMAL_TWO)}")
-    print(f"appendix_5_loss_eur: {_fmt(summary.appendix_5.losses_eur, quant=DECIMAL_TWO)}")
-    print(f"appendix_13_profit_eur: {_fmt(summary.appendix_13.wins_eur, quant=DECIMAL_TWO)}")
-    print(f"appendix_13_loss_eur: {_fmt(summary.appendix_13.losses_eur, quant=DECIMAL_TWO)}")
-    print(f"review_profit_eur: {_fmt(summary.review.wins_eur, quant=DECIMAL_TWO)}")
-    print(f"review_loss_eur: {_fmt(summary.review.losses_eur, quant=DECIMAL_TWO)}")
-    print(f"appendix_6_code_603_eur: {_fmt(summary.appendix_6_code_603_eur, quant=DECIMAL_TWO)}")
-    print(f"appendix_9_credit_interest_eur: {_fmt(summary.appendix_9_credit_interest_eur, quant=DECIMAL_TWO)}")
-    print(f"appendix_9_withholding_paid_eur: {_fmt(summary.appendix_9_withholding_paid_eur, quant=DECIMAL_TWO)}")
-    print("SANITY CHECKS PASSED" if summary.sanity_passed else "SANITY CHECKS FAILED")
-    print(f"sanity_checks_passed: {'YES' if summary.sanity_passed else 'NO'}")
-    print(f"sanity_checked_trade_rows: {summary.sanity_checked_closing_trades}")
-    print(f"sanity_checked_closedlots: {summary.sanity_checked_closedlots}")
-    print(f"sanity_checked_subtotals: {summary.sanity_checked_subtotals}")
-    print(f"sanity_checked_totals: {summary.sanity_checked_totals}")
-    print(f"sanity_forex_ignored_rows: {summary.sanity_forex_ignored_rows}")
+    manual_check_required = bool(_build_manual_check_reasons(summary))
+    print(f"STATUS: {'MANUAL CHECK REQUIRED' if manual_check_required else 'SUCCESS'}")
     print(f"Modified CSV: {result.output_csv_path}")
     print(f"Declaration TXT: {result.declaration_txt_path}")
-    if summary.tax_credit_debug_report_path:
-        print(f"Tax credit debug report: {summary.tax_credit_debug_report_path}")
-    print(f"Sanity-check debug artifacts written to: {summary.sanity_debug_artifacts_dir}")
-    print("These are verification artifacts, not production tax outputs.")
-    if summary.warnings:
-        print("Warnings:")
-        for warning in summary.warnings:
-            print(f"- {warning}")
     return 0
 
 

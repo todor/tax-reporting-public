@@ -39,5 +39,26 @@ def test_appendix6_renderer_renders_expected_sections() -> None:
     assert "- Обща сума на доходите с код 603: 23.76" in text
     assert "- Облагаем доход по чл. 35, код 603: 150.42" in text
     assert "- Удържан и/или внесен окончателен данък за доходи: 12.67" in text
-    assert "Информативни" in text
+    assert "Одитни данни" in text
     assert "- Secondary-market mode used: appendix_6" in text
+
+
+def test_appendix6_renderer_separates_manual_check_and_informational_messages() -> None:
+    result = P2PAppendix6Result(
+        platform="test",
+        tax_year=2025,
+        part1_rows=[],
+        aggregate_code_603=Decimal("1"),
+        aggregate_code_606=Decimal("2"),
+        taxable_code_603=Decimal("1"),
+        taxable_code_606=Decimal("2"),
+        withheld_tax=Decimal("0"),
+        warnings=["mismatch in required report field"],
+        informational_messages=["secondary market <= 0, omitted from code 606"],
+    )
+
+    text = build_appendix6_text(result=result)
+    assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" in text
+    assert "- mismatch in required report field" in text
+    assert "Бележки по обработката" in text
+    assert "- secondary market <= 0, omitted from code 606" in text

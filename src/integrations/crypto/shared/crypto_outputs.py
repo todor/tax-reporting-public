@@ -87,16 +87,11 @@ def write_enriched_ir_csv(path: Path, *, rows: list[IrEnrichedRow]) -> None:
 def build_declaration_text(*, summary: IrAnalysisSummary) -> str:
     lines: list[str] = []
 
-    lines.append("!!! РЪЧНА ПРОВЕРКА / MANUAL CHECK !!!")
     if summary.manual_check_required:
-        lines.append("СТАТУС: REQUIRED")
+        lines.append("!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!")
         for reason in summary.manual_check_reasons:
             lines.append(f"- {reason}")
-    else:
-        lines.append("СТАТУС: NOT REQUIRED")
-        lines.append("- няма записи, които изискват ръчна проверка")
-
-    lines.append("")
+        lines.append("")
 
     bucket = summary.appendix_5
     lines.append("Приложение 5")
@@ -112,14 +107,18 @@ def build_declaration_text(*, summary: IrAnalysisSummary) -> str:
     lines.append(f"- Брой сделки: {bucket.rows}")
     lines.append("")
 
+    if summary.warnings:
+        lines.append("Бележки по обработката")
+        for warning in summary.warnings:
+            lines.append(f"- {warning}")
+        lines.append("")
+
+    lines.append("Одитни данни")
     lines.append(f"- обработени редове: {summary.processed_rows}")
     lines.append(
         f"- manual check overrides (Review Status non-empty): {summary.manual_check_overrides_rows}"
     )
     lines.append(f"- игнорирани fiat Deposit/Withdraw: {summary.ignored_fiat_deposit_withdraw_rows}")
-    lines.append(f"- предупреждения: {len(summary.warnings)}")
-    for warning in summary.warnings:
-        lines.append(f"  {warning}")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -132,25 +131,12 @@ def build_ir_run_cli_summary_lines(
     *,
     result: IrAnalysisRunResult,
 ) -> list[str]:
-    bucket = result.summary.appendix_5
-    lines = [
-        f"processed_rows: {result.summary.processed_rows}",
-        f"manual_check_overrides_rows: {result.summary.manual_check_overrides_rows}",
-        f"manual_check_required: {'YES' if result.summary.manual_check_required else 'NO'}",
-        f"sale_price_eur: {fmt_decimal(bucket.sale_price_eur, quant=DECIMAL_TWO)}",
-        f"purchase_price_eur: {fmt_decimal(bucket.purchase_price_eur, quant=DECIMAL_TWO)}",
-        f"wins_eur: {fmt_decimal(bucket.wins_eur, quant=DECIMAL_TWO)}",
-        f"losses_eur: {fmt_decimal(bucket.losses_eur, quant=DECIMAL_TWO)}",
-        f"net_result_eur: {fmt_decimal(bucket.net_result_eur, quant=DECIMAL_TWO)}",
+    return [
+        f"STATUS: {'MANUAL CHECK REQUIRED' if result.summary.manual_check_required else 'SUCCESS'}",
         f"Enriched IR CSV: {result.output_csv_path}",
+        f"Declaration TXT: {result.declaration_txt_path}",
+        f"Year-end state JSON: {result.year_end_state_json_path}",
     ]
-    lines.extend(
-        [
-            f"Declaration TXT: {result.declaration_txt_path}",
-            f"Year-end state JSON: {result.year_end_state_json_path}",
-        ]
-    )
-    return lines
 
 
 def write_holdings_state_json(

@@ -57,6 +57,21 @@ def test_build_p2p_run_cli_summary_lines() -> None:
         withheld_tax=Decimal("5"),
     )
     lines = build_p2p_run_cli_summary_lines(result=result, output_txt_path=Path("/tmp/out.txt"))
-    assert any(line == "platform: afranga" for line in lines)
-    assert any(line == "warnings: 0" for line in lines)
+    assert any(line == "STATUS: SUCCESS" for line in lines)
     assert any("Declaration TXT: /tmp/out.txt" == line for line in lines)
+
+
+def test_build_p2p_run_cli_summary_lines_manual_check_required() -> None:
+    result = P2PAppendix6Result(
+        platform="afranga",
+        tax_year=2025,
+        part1_rows=[],
+        aggregate_code_603=Decimal("1"),
+        aggregate_code_606=Decimal("2"),
+        taxable_code_603=Decimal("3"),
+        taxable_code_606=Decimal("4"),
+        withheld_tax=Decimal("5"),
+        warnings=["manual-check warning"],
+    )
+    lines = build_p2p_run_cli_summary_lines(result=result, output_txt_path=Path("/tmp/out.txt"))
+    assert any(line == "STATUS: MANUAL CHECK REQUIRED" for line in lines)

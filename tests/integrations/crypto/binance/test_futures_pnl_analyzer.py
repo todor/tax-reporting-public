@@ -322,7 +322,7 @@ def test_empty_dataset_produces_zero_outputs(tmp_path: Path) -> None:
     assert detailed == []
 
 
-def test_cli_prints_metrics_and_output_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_prints_status_and_output_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     input_csv = tmp_path / "input.csv"
     _write_csv(
         input_csv,
@@ -350,7 +350,7 @@ def test_cli_prints_metrics_and_output_paths(tmp_path: Path, monkeypatch: pytest
     exit_code = analyzer.main()
     output = capsys.readouterr().out
     assert exit_code == 0
-    assert "processed_rows: 1" in output
+    assert "STATUS: SUCCESS" in output
     assert "Detailed CSV:" in output
     assert "Tax text file:" in output
     assert "Summary file:" in output

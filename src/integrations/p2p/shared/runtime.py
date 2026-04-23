@@ -46,15 +46,7 @@ def build_p2p_run_cli_summary_lines(
     output_txt_path: Path,
 ) -> list[str]:
     return [
-        f"platform: {result.platform}",
-        f"tax_year: {result.tax_year if result.tax_year is not None else '-'}",
-        f"aggregate_code_603: {result.aggregate_code_603}",
-        f"aggregate_code_606: {result.aggregate_code_606}",
-        f"taxable_code_603: {result.taxable_code_603}",
-        f"taxable_code_606: {result.taxable_code_606}",
-        f"withheld_tax: {result.withheld_tax}",
-        f"part1_rows: {len(result.part1_rows)}",
-        f"warnings: {len(result.warnings)}",
+        f"STATUS: {'MANUAL CHECK REQUIRED' if result.warnings else 'SUCCESS'}",
         f"Declaration TXT: {output_txt_path}",
     ]
 

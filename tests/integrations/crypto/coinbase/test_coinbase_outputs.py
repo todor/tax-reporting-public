@@ -42,7 +42,7 @@ def test_end_to_end_on_coinbase_since_inception_fixture(tmp_path: Path) -> None:
     assert app5.rows == 2
 
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert "СТАТУС: NOT REQUIRED" in text
+    assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" not in text
     assert "- Продажна цена (EUR) - код 5082: 2700.00" in text
     assert "  Цена на придобиване (EUR) - код 5082: 2600.00" in text
     assert "  Печалба (EUR) - код 5082: 100.00" in text
@@ -90,8 +90,7 @@ def test_manual_check_summary_is_rendered_when_required(tmp_path: Path) -> None:
     )
 
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert "!!! РЪЧНА ПРОВЕРКА / MANUAL CHECK !!!" in text
-    assert "СТАТУС: REQUIRED" in text
+    assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" in text
     assert "неподдържани/неясни записа" in text
     assert "Send запис без валиден Review Status" in text
 
@@ -244,7 +243,7 @@ def test_manual_check_overrides_metric_is_zero_when_review_status_column_is_miss
     assert "manual check overrides (Review Status non-empty): 0" in text
 
 
-def test_cli_stdout_formats_totals_with_two_decimals(
+def test_cli_stdout_prints_status_and_output_paths(
     monkeypatch,
     capsys,
 ) -> None:
@@ -277,10 +276,7 @@ def test_cli_stdout_formats_totals_with_two_decimals(
     output = capsys.readouterr().out
 
     assert exit_code == 0
-    assert "manual_check_overrides_rows: 0" in output
-    assert "sale_price_eur: 123.46" in output
-    assert "purchase_price_eur: 100.00" in output
-    assert "wins_eur: 23.46" in output
-    assert "losses_eur: 0.00" in output
-    assert "net_result_eur: 23.46" in output
+    assert "STATUS: SUCCESS" in output
+    assert "Enriched IR CSV: /tmp/out.csv" in output
+    assert "Declaration TXT: /tmp/out.txt" in output
     assert "Year-end state JSON: /tmp/state.json" in output

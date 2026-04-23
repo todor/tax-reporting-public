@@ -140,6 +140,7 @@ def main() -> int:
         )
     except KrakenAnalyzerError as exc:
         logger.error("%s", exc)
+        print("STATUS: ERROR")
         return 2
 
     for line in build_ir_run_cli_summary_lines(result=result):
@@ -149,4 +150,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

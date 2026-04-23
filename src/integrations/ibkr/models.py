@@ -152,6 +152,8 @@ class AnalysisSummary:
     processed_trades_in_tax_year: int = 0
     trades_outside_tax_year: int = 0
     forex_ignored_rows: int = 0
+    forex_non_taxable_ignored_rows: int = 0
+    forex_review_required_rows: int = 0
     forex_ignored_abs_proceeds_eur: Decimal = ZERO
     ignored_non_closing_trade_rows: int = 0
     review_rows: int = 0

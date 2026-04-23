@@ -206,7 +206,10 @@ Default output location is under this repository:
 
 - `tax-reporting/output/binance/futures/`
 
-The analyzer prints totals and all output paths to stdout.
+Stdout is intentionally concise and prints only:
+
+- status: `SUCCESS` or `ERROR`
+- output file paths
 
 ## Output Files
 

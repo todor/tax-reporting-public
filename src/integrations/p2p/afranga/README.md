@@ -116,7 +116,8 @@ Output sections:
 - `Приложение 6 / Част I`
 - `Част II`
 - `Част III`
-- `Информативни`
+- `Одитни данни`
+- `Бележки по обработката` (when parser emits non-blocking explanatory notes)
 
 Informative rows include reporting year, statement period, summary metrics, appendix net/WHT totals, and active secondary-market mode.
 
@@ -150,7 +151,7 @@ The rendered `.txt` follows this deterministic structure:
 Част III
 - Удържан и/или внесен окончателен данък за доходи: ...
 
-Информативни
+Одитни данни
 - ...
 ```
 

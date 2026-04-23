@@ -273,6 +273,9 @@ def _set_forex_trade_extras(
     ctx: _TradeRowContext,
     tax_exempt_mode: str,
     row_extras: dict[int, list[str]],
+    tax_treatment_reason: str,
+    review_required: bool,
+    review_notes: str,
 ) -> None:
     values: dict[str, str] = {
         "Fx Rate": _fmt(ctx.trade_fx_rate, quant=DECIMAL_EIGHT),
@@ -280,14 +283,62 @@ def _set_forex_trade_extras(
         "Proceeds (EUR)": _fmt(ctx.proceeds_eur, quant=DECIMAL_EIGHT),
         "Tax Exempt Mode": tax_exempt_mode,
         "Appendix Target": APPENDIX_IGNORED,
-        "Tax Treatment Reason": "Forex ignored (not included in Appendix 5/13)",
-        "Review Required": "NO",
+        "Tax Treatment Reason": tax_treatment_reason,
+        "Review Required": "YES" if review_required else "NO",
+        "Review Notes": review_notes,
     }
     if ctx.trade_basis_eur_from_trade is not None:
         values["Basis (EUR)"] = _fmt(ctx.trade_basis_eur_from_trade, quant=DECIMAL_EIGHT)
     if ctx.realized_pl_eur is not None:
         values["Realized P/L (EUR)"] = _fmt(ctx.realized_pl_eur, quant=DECIMAL_EIGHT)
     _set_trade_extras(row_extras, row_idx=ctx.row_idx, values=values)
+
+
+def _apply_forex_review_status(
+    summary: AnalysisSummary,
+    *,
+    row_number: int,
+    symbol: str,
+    execution_exchange_norm: str,
+    review_status_normalized: str,
+) -> tuple[str, bool, str]:
+    reason = "Forex ignored (not included in Appendix 5/13)"
+    review_required = False
+    review_notes_parts: list[str] = []
+
+    if review_status_normalized == REVIEW_STATUS_NON_TAXABLE:
+        summary.review_status_overrides_rows += 1
+        summary.forex_non_taxable_ignored_rows += 1
+        reason = "Forex ignored: Review Status override NON-TAXABLE"
+        review_notes_parts.append("Review Status override applied")
+        return reason, review_required, "; ".join(review_notes_parts)
+
+    summary.forex_review_required_rows += 1
+    summary.review_required_rows += 1
+    review_required = True
+
+    if review_status_normalized == REVIEW_STATUS_TAXABLE:
+        summary.review_status_overrides_rows += 1
+        reason = "Forex ignored: Review Status override TAXABLE (taxable forex not supported)"
+        review_notes_parts.append("Review Status override applied")
+    elif review_status_normalized == "":
+        reason = "Forex ignored: missing Review Status (taxable forex not supported)"
+    else:
+        summary.unknown_review_status_rows += 1
+        summary.unknown_review_status_values.add(review_status_normalized)
+        reason = (
+            f"Forex ignored: unknown Review Status={review_status_normalized} "
+            "(taxable forex not supported)"
+        )
+        review_notes_parts.append("Unknown Review Status value")
+
+    warning = (
+        f"row {row_number}: {reason} "
+        f"(symbol={symbol}, execution_exchange={execution_exchange_norm or '<EMPTY>'})"
+    )
+    summary.warnings.append(warning)
+    logger.debug("%s", warning)
+    return reason, review_required, "; ".join(review_notes_parts)
 
 
 def _set_non_closing_trade_extras(
@@ -476,7 +527,7 @@ def _process_closing_trade_row(
             summary.warnings.append(
                 f"row {ctx.row_number}: {reason} (symbol={ctx.symbol}, execution_exchange={ctx.execution_exchange_norm or '<EMPTY>'})"
             )
-        logger.warning(
+        logger.debug(
             "row %s marked REVIEW_REQUIRED: %s (symbol=%s, execution_exchange=%s)",
             ctx.row_number,
             reason,
@@ -491,7 +542,7 @@ def _process_closing_trade_row(
                 "is informational only in listed_symbol mode"
             )
             summary.warnings.append(warning)
-            logger.warning("%s", warning)
+            logger.debug("%s", warning)
 
     in_tax_year = ctx.trade_date.year == tax_year
     if in_tax_year:
@@ -635,12 +686,28 @@ def process_trades_section(
         if _is_forex_asset(ctx.asset_category):
             summary.forex_ignored_rows += 1
             summary.forex_ignored_abs_proceeds_eur += abs(ctx.proceeds_eur)
+            review_status_raw = (
+                ctx.data[ctx.field_idx.review_status].strip()
+                if ctx.field_idx.review_status is not None
+                else ""
+            )
+            review_status_normalized = _normalize_review_status(review_status_raw)
+            reason, review_required, review_notes = _apply_forex_review_status(
+                summary,
+                row_number=ctx.row_number,
+                symbol=ctx.symbol,
+                execution_exchange_norm=ctx.execution_exchange_norm,
+                review_status_normalized=review_status_normalized,
+            )
             for closed_idx in closedlot_indices:
                 consumed_closedlots.add(closed_idx)
             _set_forex_trade_extras(
                 ctx=ctx,
                 tax_exempt_mode=tax_exempt_mode,
                 row_extras=row_extras,
+                tax_treatment_reason=reason,
+                review_required=review_required,
+                review_notes=review_notes,
             )
             continue
 

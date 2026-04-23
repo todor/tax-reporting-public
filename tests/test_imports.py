@@ -26,6 +26,26 @@ def test_afranga_package_import() -> None:
     import integrations.p2p.afranga  # noqa: F401
 
 
+def test_estateguru_package_import() -> None:
+    import integrations.p2p.estateguru  # noqa: F401
+
+
+def test_lendermarket_package_import() -> None:
+    import integrations.p2p.lendermarket  # noqa: F401
+
+
+def test_iuvo_package_import() -> None:
+    import integrations.p2p.iuvo  # noqa: F401
+
+
+def test_robocash_package_import() -> None:
+    import integrations.p2p.robocash  # noqa: F401
+
+
+def test_bondora_go_grow_package_import() -> None:
+    import integrations.p2p.bondora_go_grow  # noqa: F401
+
+
 def test_bnb_fx_package_import() -> None:
     import services.bnb_fx  # noqa: F401
 

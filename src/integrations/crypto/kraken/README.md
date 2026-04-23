@@ -144,6 +144,12 @@ CLI options:
 - `--cache-dir` (optional FX cache override)
 - `--log-level` (optional, default `INFO`)
 
+CLI stdout policy:
+
+- `STATUS: SUCCESS` or `STATUS: MANUAL CHECK REQUIRED` on successful runs
+- `STATUS: ERROR` on failure
+- output file paths only (no duplicated diagnostic counters)
+
 With opening state:
 
 ```bash

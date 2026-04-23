@@ -140,6 +140,7 @@ def main() -> int:
         )
     except CoinbaseAnalyzerError as exc:
         logger.error("%s", exc)
+        print("STATUS: ERROR")
         return 2
 
     for line in build_ir_run_cli_summary_lines(result=result):

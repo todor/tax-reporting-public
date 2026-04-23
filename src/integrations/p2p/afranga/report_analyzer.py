@@ -103,6 +103,7 @@ def main() -> int:
         )
     except AfrangaAnalyzerError as exc:
         logger.error("%s", exc)
+        print("STATUS: ERROR")
         return 2
 
     for line in build_p2p_run_cli_summary_lines(

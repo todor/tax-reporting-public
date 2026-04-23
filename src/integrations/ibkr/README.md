@@ -85,7 +85,7 @@ Outputs:
 - modified CSV (multi-section preserved; only selected sections are extended)
 - declaration text file (Bulgarian)
 - sanity debug artifacts (`_sanity_debug`)
-- stdout diagnostics
+- stdout status + output paths (`SUCCESS` / `MANUAL CHECK REQUIRED` / `ERROR`)
 
 ## Core Principles
 
@@ -621,7 +621,7 @@ The declaration text includes:
 - Приложение 9 (interest-only withholding credit flow)
 - optional manual-check block when review is required
 - sanity-check section (`PASS`/`FAIL` + artifact paths)
-- mandatory Forex warning section
+- conditional Forex warning section (shown only when Forex rows require manual check)
 - evidence section (counts and diagnostics)
 
 `нетен резултат (EUR)` is reported as `печалба - загуба`.
@@ -647,8 +647,9 @@ If sanity fails:
 Forex trades are excluded from Appendix 5/13 calculations in this implementation.
 
 - no hard failure on Forex rows
-- explicit warnings in declaration output
-- manual review is required when Forex rows exist
+- explicit warnings in declaration output when Forex rows require manual check
+- if `Review Status=NON-TAXABLE` on a Forex Trade row, the row is ignored without manual-check requirement
+- if Forex `Review Status` is `TAXABLE`, empty, or unknown, manual check is required (taxable Forex is not supported in this version)
 
 ## Errors (Fail Loudly)
 

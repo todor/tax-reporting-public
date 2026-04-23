@@ -477,17 +477,10 @@ def main() -> int:
         )
     except FuturesPnlAnalyzerError as exc:
         logger.error("%s", exc)
+        print("STATUS: ERROR")
         return 2
 
-    totals = result.totals
-    print(f"processed_rows: {totals.processed_rows}")
-    print(f"ignored_rows: {totals.ignored_rows}")
-    print(f"profit_usd: {_fmt_decimal(totals.profit_usd)}")
-    print(f"loss_usd: {_fmt_decimal(totals.loss_usd)}")
-    print(f"net_result_usd: {_fmt_decimal(totals.net_result_usd)}")
-    print(f"profit_eur: {_fmt_decimal(totals.profit_eur, quant=DECIMAL_TWO)}")
-    print(f"loss_eur: {_fmt_decimal(totals.loss_eur, quant=DECIMAL_TWO)}")
-    print(f"net_result_eur: {_fmt_decimal(totals.net_result_eur, quant=DECIMAL_TWO)}")
+    print("STATUS: SUCCESS")
     print(f"Detailed CSV: {result.detailed_csv_path}")
     print(f"Tax text file: {result.tax_text_path}")
     print(f"Summary file: {result.summary_json_path}")

@@ -44,16 +44,22 @@ def build_appendix6_text(*, result: P2PAppendix6Result) -> str:
         f"{_fmt_decimal(result.withheld_tax)}"
     )
 
-    lines.append("")
-    lines.append("Информативни")
-    for info in result.informative_rows:
-        lines.append(f"- {info.label}: {_fmt_informative_value(info.value)}")
-
     if result.warnings:
         lines.append("")
-        lines.append("Предупреждения")
+        lines.append("!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!")
         for warning in result.warnings:
             lines.append(f"- {warning}")
+
+    if result.informational_messages:
+        lines.append("")
+        lines.append("Бележки по обработката")
+        for message in result.informational_messages:
+            lines.append(f"- {message}")
+
+    lines.append("")
+    lines.append("Одитни данни")
+    for info in result.informative_rows:
+        lines.append(f"- {info.label}: {_fmt_informative_value(info.value)}")
 
     return "\n".join(lines).rstrip() + "\n"
 

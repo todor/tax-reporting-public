@@ -131,3 +131,9 @@ Options:
 - `--output-dir` (optional, default `output/finexify`)
 - `--cache-dir` (optional FX cache override)
 - `--log-level` (optional)
+
+CLI stdout policy:
+
+- `STATUS: SUCCESS` or `STATUS: MANUAL CHECK REQUIRED` on successful runs
+- `STATUS: ERROR` on failure
+- output file paths only (no duplicated diagnostic counters)

@@ -9,7 +9,13 @@ The repository now includes:
 - Coinbase report analyzer (spot transactions mapped to shared crypto IR engine)
 - Kraken report analyzer (spot ledger mapped to shared crypto IR engine)
 - Finexify fund analyzer (fund events mapped to shared fund IR engine)
-- Afranga P2P analyzer (PDF statement mapped to shared P2P Appendix 6 model/renderer)
+- P2P analyzers:
+- Afranga (payer-level Appendix 6 extraction + withheld-tax carry-through)
+- Estateguru (aggregate Appendix 6 mapping)
+- Lendermarket (aggregate Appendix 6 mapping)
+- Iuvo (aggregate Appendix 6 mapping)
+- Robocash (aggregate Appendix 6 mapping)
+- Bondora Go & Grow (aggregate Appendix 6 mapping)
 - IBKR activity statement analyzer (trades + interest + dividends)
 
 Some areas are still intentionally phased and evolving (for example broader asset coverage and additional appendices).
@@ -198,6 +204,11 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/integrations/fund/finexify/`: Finexify parser, mapper, and orchestrator
 - `src/integrations/p2p/shared/`: shared P2P Appendix 6 result model and renderer
 - `src/integrations/p2p/afranga/`: Afranga PDF parser and orchestrator
+- `src/integrations/p2p/estateguru/`: Estateguru PDF parser and orchestrator
+- `src/integrations/p2p/lendermarket/`: Lendermarket PDF parser and orchestrator
+- `src/integrations/p2p/iuvo/`: Iuvo PDF parser and orchestrator
+- `src/integrations/p2p/robocash/`: Robocash PDF parser and orchestrator
+- `src/integrations/p2p/bondora_go_grow/`: Bondora Go & Grow PDF parser and orchestrator
 - `src/integrations/ibkr/activity_statement_analyzer.py`: IBKR analyzer facade/orchestrator
 - `src/integrations/ibkr/sections/`: IBKR business/source processing modules (`trades`, `interest`, `dividends`, `tax_withholding`, `open_positions`, `instruments`, etc.)
 - `src/integrations/ibkr/appendices/`: IBKR declaration shaping/output modules
@@ -215,7 +226,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `tests/integrations/crypto/coinbase/`: Coinbase analyzer tests
 - `tests/integrations/crypto/kraken/`: Kraken analyzer tests
 - `tests/integrations/fund/`: shared and Finexify fund analyzer tests
-- `tests/integrations/p2p/`: shared and Afranga P2P analyzer tests
+- `tests/integrations/p2p/`: shared + platform-specific P2P analyzer tests
 - `tests/integrations/ibkr/`: IBKR tests (organized by `sections/` and `appendices/`)
 - `output/`: output directory kept in git via `.gitkeep`
   Default analyzer outputs are written under this repo folder (for example `output/binance/futures/`).
@@ -242,6 +253,11 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - P2P integrations: [src/integrations/p2p/README.md](src/integrations/p2p/README.md)
 - Shared P2P engine: [src/integrations/p2p/shared/README.md](src/integrations/p2p/shared/README.md)
 - Afranga P2P analyzer: [src/integrations/p2p/afranga/README.md](src/integrations/p2p/afranga/README.md)
+- Estateguru P2P analyzer: [src/integrations/p2p/estateguru/README.md](src/integrations/p2p/estateguru/README.md)
+- Lendermarket P2P analyzer: [src/integrations/p2p/lendermarket/README.md](src/integrations/p2p/lendermarket/README.md)
+- Iuvo P2P analyzer: [src/integrations/p2p/iuvo/README.md](src/integrations/p2p/iuvo/README.md)
+- Robocash P2P analyzer: [src/integrations/p2p/robocash/README.md](src/integrations/p2p/robocash/README.md)
+- Bondora Go & Grow P2P analyzer: [src/integrations/p2p/bondora_go_grow/README.md](src/integrations/p2p/bondora_go_grow/README.md)
 - IBKR integrations: [src/integrations/ibkr/README.md](src/integrations/ibkr/README.md)
 
 ### Binance futures PnL cashflow analyzer
@@ -298,6 +314,48 @@ Notes:
 
 - secondary-market mode defaults to `appendix_6`
 - `appendix_5` mode is reserved for future analyzers and currently fails explicitly as not supported
+
+### Additional P2P analyzers
+
+Estateguru:
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.p2p.estateguru.report_analyzer \
+  --input "path/to/Estateguru report.pdf" \
+  --tax-year 2025
+```
+
+Lendermarket:
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.p2p.lendermarket.report_analyzer \
+  --input "path/to/Lendermarket report.pdf" \
+  --tax-year 2025
+```
+
+Iuvo:
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.p2p.iuvo.report_analyzer \
+  --input "path/to/Iuvo report.pdf" \
+  --tax-year 2025
+```
+
+Robocash:
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.p2p.robocash.report_analyzer \
+  --input "path/to/Robocash report.pdf" \
+  --tax-year 2025
+```
+
+Bondora Go & Grow:
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.p2p.bondora_go_grow.report_analyzer \
+  --input "path/to/Go & Grow report.pdf" \
+  --tax-year 2025
+```
 
 Optional:
 

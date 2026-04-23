@@ -79,6 +79,7 @@ This supports:
 - Enriched IR CSV
 - Bulgarian declaration TXT (`Приложение 5 / Таблица 2`)
 - Holdings/state JSON (`quantity`, `total_cost_eur`, `average_price_eur`)
+- CLI summary lines (status + output paths only)
 
 Enriched IR CSV column schema:
 
@@ -121,6 +122,12 @@ Opening state JSON schema (consumed by `load_holdings_state_json`):
 - `quantity`
 - `total_cost_eur`
 - optional top-level: `state_tax_year_end`
+
+CLI status contract for crypto integrations:
+
+- `STATUS: SUCCESS` (no manual-check issues)
+- `STATUS: MANUAL CHECK REQUIRED` (warning-level issues exist)
+- `STATUS: ERROR` (run failed)
 
 ## Validation Policy
 

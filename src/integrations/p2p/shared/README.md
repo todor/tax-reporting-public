@@ -7,7 +7,7 @@ Shared P2P modules are intentionally small:
 - `runtime.py`: shared mode validation, CLI summary lines, output path helper
 - `text_money.py`: shared text-line normalization and Decimal parsing helpers
 
-This layer is designed for immediate reuse by future P2P integrations (Estateguru, Lendermarket, Iuvo, Robocash, Bondora Go & Grow) without forcing a shared parser hierarchy.
+This layer is reused by current P2P integrations (Afranga, Estateguru, Lendermarket, Iuvo, Robocash, Bondora Go & Grow) without forcing a shared parser hierarchy.
 
 ## Result model
 
@@ -18,7 +18,8 @@ This layer is designed for immediate reuse by future P2P integrations (Estategur
 - Part II taxable totals
 - Part III withheld tax
 - ordered informative rows
-- warnings
+- warnings (manual-check-required issues)
+- informational messages (non-blocking explanatory notes)
 
 The model is renderer-friendly and ready for future cross-analyzer aggregation.
 
@@ -45,6 +46,7 @@ The model is renderer-friendly and ready for future cross-analyzer aggregation.
 - `withheld_tax`
 - `informative_rows`
 - `warnings`
+- `informational_messages`
 
 ## Rendering contract
 
@@ -56,6 +58,9 @@ Renderer guarantees:
 - stable ordering of sections and rows
 - deterministic decimal formatting for money values
 - identical field labels across P2P providers
+- manual-check block is shown only when warning-level issues exist
+- processing notes are rendered separately under `Бележки по обработката`
+- extracted audit context is rendered under `Одитни данни`
 
 ## Mode handling
 
@@ -65,3 +70,9 @@ Runtime helper enforces mode validation:
 - `appendix_5`: explicit `not supported yet` error unless future analyzer opts in
 
 This avoids silent behavioral drift before Appendix 5 mode is implemented.
+
+CLI summary lines are intentionally minimal:
+
+- `STATUS: SUCCESS` or `STATUS: MANUAL CHECK REQUIRED`
+- declaration output path
+- `STATUS: ERROR` is printed by integration entrypoints on failure

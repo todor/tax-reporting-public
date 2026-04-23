@@ -96,6 +96,56 @@ def run_integration(
             year,
         )
         return 0
+    if integration == "estateguru":
+        logger.info(
+            "Estateguru integration is available via dedicated CLI: "
+            "`python -m integrations.p2p.estateguru.report_analyzer` "
+            "(input=%s, output=%s, year=%s)",
+            input_path,
+            output_path,
+            year,
+        )
+        return 0
+    if integration == "lendermarket":
+        logger.info(
+            "Lendermarket integration is available via dedicated CLI: "
+            "`python -m integrations.p2p.lendermarket.report_analyzer` "
+            "(input=%s, output=%s, year=%s)",
+            input_path,
+            output_path,
+            year,
+        )
+        return 0
+    if integration == "iuvo":
+        logger.info(
+            "Iuvo integration is available via dedicated CLI: "
+            "`python -m integrations.p2p.iuvo.report_analyzer` "
+            "(input=%s, output=%s, year=%s)",
+            input_path,
+            output_path,
+            year,
+        )
+        return 0
+    if integration == "robocash":
+        logger.info(
+            "Robocash integration is available via dedicated CLI: "
+            "`python -m integrations.p2p.robocash.report_analyzer` "
+            "(input=%s, output=%s, year=%s)",
+            input_path,
+            output_path,
+            year,
+        )
+        return 0
+    if integration == "bondora_go_grow":
+        logger.info(
+            "Bondora Go & Grow integration is available via dedicated CLI: "
+            "`python -m integrations.p2p.bondora_go_grow.report_analyzer` "
+            "(input=%s, output=%s, year=%s)",
+            input_path,
+            output_path,
+            year,
+        )
+        return 0
 
     logger.error("Unknown integration: %s", integration)
     return 2

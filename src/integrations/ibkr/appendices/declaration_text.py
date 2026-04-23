@@ -41,8 +41,11 @@ def _build_manual_check_reasons(summary: AnalysisSummary) -> list[str]:
         reasons.append(
             f"има {summary.unknown_review_status_rows} записа с непознат Review Status ({values})"
         )
-    if summary.forex_ignored_rows > 0:
-        reasons.append(f"има {summary.forex_ignored_rows} Forex записа, които са изключени")
+    if summary.forex_review_required_rows > 0:
+        reasons.append(
+            f"има {summary.forex_review_required_rows} Forex записа "
+            "(TAXABLE/липсващ/непознат Review Status), които са изключени"
+        )
     return reasons
 
 
@@ -51,8 +54,7 @@ def _append_manual_check_section(lines: list[str], *, summary: AnalysisSummary) 
     if not reasons:
         return
 
-    lines.append("!!! РЪЧНА ПРОВЕРКА / MANUAL CHECK !!!")
-    lines.append("СТАТУС: REQUIRED")
+    lines.append("!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!")
     for reason in reasons:
         lines.append(f"- {reason}")
     lines.append("")
@@ -261,18 +263,32 @@ def _append_review_section(lines: list[str], *, summary: AnalysisSummary) -> Non
 
 
 def _append_forex_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+    if summary.forex_review_required_rows <= 0:
+        return
+
     lines.append("ВНИМАНИЕ: FOREX ОПЕРАЦИИ")
     lines.append("- Forex сделки (конвертиране на валута или търговия) НЕ са включени в изчисленията за Приложение 5 и Приложение 13")
     lines.append("- Тези операции са игнорирани от анализатора в тази версия")
-    lines.append("- При наличие на значителни Forex операции е необходима ръчна проверка")
-    lines.append(f"- брой Forex записи: {summary.forex_ignored_rows}")
+    lines.append("- Forex ред с Review Status=NON-TAXABLE е обработен като нетаксируем и не изисква ръчна проверка")
+    lines.append("- Forex ред с Review Status=TAXABLE, празен или непознат статус изисква ръчна проверка")
+    lines.append(f"- брой Forex записи (общо): {summary.forex_ignored_rows}")
+    lines.append(f"- брой Forex записи с NON-TAXABLE: {summary.forex_non_taxable_ignored_rows}")
+    lines.append(f"- брой Forex записи с изисквана ръчна проверка: {summary.forex_review_required_rows}")
     lines.append(f"- общ обем (EUR): {_fmt(summary.forex_ignored_abs_proceeds_eur, quant=DECIMAL_TWO)}")
     lines.append("")
 
 
+def _append_processing_notes_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+    if summary.warnings:
+        lines.append("Бележки по обработката")
+        for warning in summary.warnings:
+            lines.append(f"- {warning}")
+        lines.append("")
+
+
 def _append_proof_section(lines: list[str], *, result: AnalysisResult) -> None:
     summary = result.summary
-    lines.append("Доказателствена част")
+    lines.append("Одитни данни")
     lines.append(f"- избран режим: {summary.tax_exempt_mode}")
     lines.append(f"- Приложение 8 дивидентен режим: {summary.appendix8_dividend_list_mode}")
     lines.append(f"- report alias: {result.report_alias or '-'}")
@@ -311,12 +327,6 @@ def _append_proof_section(lines: list[str], *, result: AnalysisResult) -> None:
     lines.append(f"- review execution борси: {', '.join(sorted(summary.review_exchanges)) or '-'}")
     lines.append("")
 
-    if summary.warnings:
-        lines.append("Warnings")
-        for warning in summary.warnings:
-            lines.append(f"- {warning}")
-        lines.append("")
-
 
 def _build_declaration_text(
     result: AnalysisResult,
@@ -326,7 +336,7 @@ def _build_declaration_text(
     summary = result.summary
     lines: list[str] = []
     _append_manual_check_section(lines, summary=summary)
-    _append_sanity_section(lines, summary=summary)
+    _append_forex_section(lines, summary=summary)
     _append_appendix5_section(lines, summary=summary)
     _append_appendix13_section(lines, summary=summary)
     _append_appendix6_section(lines, summary=summary)
@@ -337,8 +347,9 @@ def _build_declaration_text(
         summary=summary,
         appendix9_allowable_credit_rate=appendix9_allowable_credit_rate,
     )
+    _append_processing_notes_section(lines, summary=summary)
     _append_review_section(lines, summary=summary)
-    _append_forex_section(lines, summary=summary)
     _append_proof_section(lines, result=result)
+    _append_sanity_section(lines, summary=summary)
 
     return "\n".join(lines).rstrip() + "\n"

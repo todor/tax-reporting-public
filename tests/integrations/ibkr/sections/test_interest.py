@@ -104,7 +104,7 @@ def test_unknown_interest_type_marks_review_required(tmp_path: Path) -> None:
 
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "НУЖЕН Е ПРЕГЛЕД: открити са непознати видове лихви" in text
-    assert "!!! РЪЧНА ПРОВЕРКА / MANUAL CHECK !!!" in text
+    assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" in text
 
 def test_interest_review_status_human_override_is_applied(tmp_path: Path) -> None:
     rows = _base_rows()

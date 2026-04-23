@@ -411,7 +411,7 @@ def test_dividend_unknown_or_bad_isin_marks_review(tmp_path: Path) -> None:
     assert any("unknown ISIN country code=ZZ" in w for w in result.summary.warnings)
 
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert "!!! РЪЧНА ПРОВЕРКА / MANUAL CHECK !!!" in text
+    assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" in text
 
 def test_dividend_status_column_auto_fill_and_unknown_triggers_review(tmp_path: Path) -> None:
     rows = _rows_with_dividends_and_withholding(

@@ -1,0 +1,76 @@
+# Bondora Go & Grow P2P Analyzer
+
+Entry point:
+
+- `integrations.p2p.bondora_go_grow.report_analyzer`
+
+## Overview
+
+Parses Bondora Go & Grow Tax Report PDF and maps selected fields to Appendix 6.
+
+Default mode:
+
+- `appendix_6` (supported)
+
+Reserved mode:
+
+- `appendix_5` (not supported yet; explicit error)
+
+## Input
+
+- machine-generated Bondora Go & Grow tax report PDF
+
+Expected key content:
+
+Portfolio table row (`Go & Grow`) with sequence:
+
+- `Capital invested`
+- `Capital withdrawn`
+- `Withdrawal fees`
+- `Profit realized`
+- `Interest Accrued`
+- `Net profit`
+
+Other income section:
+
+- `Bonus income received on Bondora account*`
+
+Parser accepts label quirk `Bonusincome` (without space).
+
+## Tax mapping
+
+- `code 603 = Interest Accrued`
+- `code 606 = Bonus income received on Bondora account` (only when positive)
+
+Excluded from Appendix 6 totals:
+
+- `Capital invested`
+- `Capital withdrawn`
+- `Withdrawal fees`
+- `Profit realized`
+- `Net profit`
+
+## Validations and warnings
+
+Hard fail:
+
+- missing report marker/period
+- missing `Go & Grow` row
+- missing or malformed row amounts
+- missing bonus income field
+
+Warnings:
+
+- portfolio capital/profit/net fields are parsed but treated as informational only
+
+## Output
+
+- `<input_stem>_declaration.txt` in `output/p2p/bondora_go_grow` by default
+
+## CLI
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.p2p.bondora_go_grow.report_analyzer \
+  --input "path/to/Go & Grow report.pdf" \
+  --tax-year 2025
+```

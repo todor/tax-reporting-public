@@ -77,6 +77,7 @@ Performance note:
 - Enriched IR CSV (`*_modified.csv`)
 - Declaration TXT (`*_declaration.txt`) with `Приложение 5 / Таблица 2`
 - Year-end state JSON (`*_state_end_<year>.json`)
+- CLI summary lines (status + output paths only)
 
 Enriched IR CSV columns:
 
@@ -115,3 +116,9 @@ State JSON schema:
 
 - Warning + manual-check required:
 - unsupported/unknown provider transaction types
+
+CLI status contract for fund integrations:
+
+- `STATUS: SUCCESS` (no manual-check issues)
+- `STATUS: MANUAL CHECK REQUIRED` (warning-level issues exist)
+- `STATUS: ERROR` (run failed)

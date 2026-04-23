@@ -52,6 +52,7 @@ class P2PAppendix6Result:
     withheld_tax: Decimal
     informative_rows: list[InformativeRow] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    informational_messages: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

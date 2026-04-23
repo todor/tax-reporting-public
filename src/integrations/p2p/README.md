@@ -6,9 +6,14 @@ P2P integrations are built around a shared Appendix 6 flow:
 2. normalization into shared `P2PAppendix6Result`
 3. shared Appendix 6 text rendering
 
-Current integration:
+Current integrations:
 
-- `afranga` (PDF statement)
+- `afranga` (PDF statement, payer-level appendix parsing)
+- `estateguru` (PDF income statement, aggregate Appendix 6 mapping)
+- `lendermarket` (PDF tax statement, aggregate Appendix 6 mapping)
+- `iuvo` (PDF profit statement, aggregate Appendix 6 mapping)
+- `robocash` (PDF tax report, aggregate Appendix 6 mapping)
+- `bondora_go_grow` (PDF tax report, aggregate Appendix 6 mapping)
 
 ## Shared foundation
 
@@ -18,6 +23,13 @@ Shared components live in `integrations.p2p.shared`:
 - common renderer for deterministic `.txt` output
 - small runtime helpers (mode validation, output naming, CLI summary lines)
 - shared text/money parsing helpers
+
+CLI stdout policy for P2P analyzers:
+
+- `STATUS: SUCCESS` when no warning-level issues exist
+- `STATUS: MANUAL CHECK REQUIRED` when warnings exist
+- `STATUS: ERROR` on failure
+- declaration output path
 
 Shared PDF extraction utility:
 
@@ -39,7 +51,7 @@ If `appendix_5` is requested, analyzers fail explicitly with a "not supported ye
 
 ## Input and output contract
 
-Input format is provider-specific (currently Afranga PDF), but all providers must produce the same normalized result and final declaration shape.
+Input format is provider-specific (machine-generated PDFs), but all providers must produce the same normalized result and final declaration shape.
 
 ## Current Output Contract
 
@@ -50,7 +62,8 @@ All P2P integrations should produce:
 - `Приложение 6 / Част I`
 - `Част II`
 - `Част III`
-- `Информативни`
+- `Одитни данни`
+- `Бележки по обработката` (only when applicable)
 
 And should expose in normalized result:
 
@@ -71,3 +84,8 @@ And should expose in normalized result:
 
 - Shared P2P modules: [src/integrations/p2p/shared/README.md](shared/README.md)
 - Afranga integration: [src/integrations/p2p/afranga/README.md](afranga/README.md)
+- Estateguru integration: [src/integrations/p2p/estateguru/README.md](estateguru/README.md)
+- Lendermarket integration: [src/integrations/p2p/lendermarket/README.md](lendermarket/README.md)
+- Iuvo integration: [src/integrations/p2p/iuvo/README.md](iuvo/README.md)
+- Robocash integration: [src/integrations/p2p/robocash/README.md](robocash/README.md)
+- Bondora Go & Grow integration: [src/integrations/p2p/bondora_go_grow/README.md](bondora_go_grow/README.md)

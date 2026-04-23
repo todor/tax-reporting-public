@@ -142,6 +142,7 @@ def main() -> int:
         )
     except FinexifyAnalyzerError as exc:
         logger.error("%s", exc)
+        print("STATUS: ERROR")
         return 2
 
     for line in build_fund_run_cli_summary_lines(result=result):
