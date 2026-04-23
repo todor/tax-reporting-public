@@ -8,11 +8,13 @@ _base_rows = h._base_rows
 _run = h._run
 
 
-def test_review_bucket_excluded_from_appendix_totals(tmp_path: Path) -> None:
+def test_known_non_regulated_execution_is_routed_to_appendix_5(tmp_path: Path) -> None:
     rows = _base_rows()
     rows[7][6] = "EUIBSI"  # non-regulated
     result = _run(tmp_path, rows, mode="execution_exchange")
-    assert result.summary.review.rows == 1
+    assert result.summary.review.rows == 0
+    assert result.summary.review_rows == 0
+    assert result.summary.appendix_5.rows == 2
     assert result.summary.appendix_13.rows == 0
 
 
@@ -21,10 +23,10 @@ def test_declaration_text_contains_required_sections(tmp_path: Path) -> None:
     rows[7][6] = "GETTEX2"
     result = _run(tmp_path, rows, mode="execution_exchange")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" in text
+    assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" not in text
     assert "Приложение 5" in text
     assert "Приложение 13" in text
-    assert "РЪЧНА ПРОВЕРКА (ИЗКЛЮЧЕНИ ОТ АВТОМАТИЧНИТЕ ТАБЛИЦИ)" in text
+    assert "РЪЧНА ПРОВЕРКА (ИЗКЛЮЧЕНИ ОТ АВТОМАТИЧНИТЕ ТАБЛИЦИ)" not in text
     assert "ВНИМАНИЕ: FOREX ОПЕРАЦИИ" not in text
     assert text.index("ПРОВЕРКА НА ИЗЧИСЛЕНИЯТА") > text.index("Одитни данни")
 
@@ -166,13 +168,15 @@ def test_manual_check_section_is_omitted_when_not_required(tmp_path: Path) -> No
     assert "СТАТУС: NOT REQUIRED" not in text
 
 
-def test_informational_warnings_do_not_trigger_manual_check_required(tmp_path: Path) -> None:
+def test_listed_symbol_execution_exchange_note_is_global_not_per_row_warning(tmp_path: Path) -> None:
     rows = _base_rows()
-    rows[7][6] = "EUDARK"  # informational only in listed_symbol mode for EU-listed symbol
+    rows[7][6] = "EUDARK"  # execution exchange should be ignored for classification in listed_symbol mode
     result = _run(tmp_path, rows, mode="listed_symbol")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert any("informational only" in warning for warning in result.summary.warnings)
+    assert not any("informational only in listed_symbol mode" in warning for warning in result.summary.warnings)
     assert result.summary.review_required_rows == 0
     assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" not in text
-    assert "Бележки по обработката" in text
-    assert text.index("Бележки по обработката") > text.index("Приложение 9")
+    assert (
+        "В режим listed_symbol execution exchange не участва в класификацията и е само информативен."
+        in text
+    )

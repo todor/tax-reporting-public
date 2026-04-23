@@ -14,8 +14,11 @@ from integrations.ibkr.activity_statement_analyzer import (
 from integrations.ibkr.constants import (
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
     DIVIDEND_TAX_RATE,
+    EXCHANGE_CLASS_INVALID,
+    EXCHANGE_CLASS_NON_EU,
     EXCHANGE_CLASS_EU_NON_REGULATED,
     EXCHANGE_CLASS_EU_REGULATED,
+    EXCHANGE_CLASS_UNMAPPED,
     EXCHANGE_CLASS_UNKNOWN,
 )
 from integrations.ibkr.sections.instruments import (
@@ -28,6 +31,7 @@ from integrations.ibkr.models import (
 
 
 def _write_rows(path: Path, rows: list[list[str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerows(rows)
@@ -231,6 +235,8 @@ def _run(
     appendix8_dividend_list_mode: str = "company",
     year: int = 2025,
     report_alias: str | None = None,
+    eu_regulated_exchanges: list[str] | None = None,
+    closed_world: bool = False,
 ):
     input_csv = tmp_path / "input.csv"
     _write_rows(input_csv, rows)
@@ -241,6 +247,8 @@ def _run(
         appendix8_dividend_list_mode=appendix8_dividend_list_mode,  # type: ignore[arg-type]
         report_alias=report_alias,
         output_dir=tmp_path / "out",
+        eu_regulated_exchanges=eu_regulated_exchanges,
+        closed_world=closed_world,
         fx_rate_provider=_fx_provider,
     )
 

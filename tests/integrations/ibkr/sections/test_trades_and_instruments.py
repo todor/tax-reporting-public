@@ -9,7 +9,9 @@ from tests.integrations.ibkr import support as h
 
 EXCHANGE_CLASS_EU_NON_REGULATED = h.EXCHANGE_CLASS_EU_NON_REGULATED
 EXCHANGE_CLASS_EU_REGULATED = h.EXCHANGE_CLASS_EU_REGULATED
-EXCHANGE_CLASS_UNKNOWN = h.EXCHANGE_CLASS_UNKNOWN
+EXCHANGE_CLASS_NON_EU = h.EXCHANGE_CLASS_NON_EU
+EXCHANGE_CLASS_UNMAPPED = h.EXCHANGE_CLASS_UNMAPPED
+EXCHANGE_CLASS_INVALID = h.EXCHANGE_CLASS_INVALID
 IbkrAnalyzerError = h.IbkrAnalyzerError
 _base_rows = h._base_rows
 _classify_exchange = h._classify_exchange
@@ -32,7 +34,9 @@ def test_exchange_normalization_aliases() -> None:
     assert _classify_exchange("ISE") == EXCHANGE_CLASS_EU_REGULATED
     assert _classify_exchange("EUIBSILP") == EXCHANGE_CLASS_EU_NON_REGULATED
     assert _classify_exchange("GETTEX2") == EXCHANGE_CLASS_EU_NON_REGULATED
-    assert _classify_exchange("UNKNOWNX") == EXCHANGE_CLASS_UNKNOWN
+    assert _classify_exchange("NYSE") == EXCHANGE_CLASS_NON_EU
+    assert _classify_exchange("UNKNOWNX") == EXCHANGE_CLASS_UNMAPPED
+    assert _classify_exchange("  ") == EXCHANGE_CLASS_INVALID
 
 def test_financial_instrument_parsing_supports_stocks_and_treasury_bills(tmp_path: Path) -> None:
     rows = _base_rows()
@@ -110,18 +114,38 @@ def test_treasury_bills_extracted_identifier_uses_financial_instrument_mapping(t
     assert result.summary.appendix_5.rows == 1
     assert result.summary.appendix_13.rows == 0
 
+
+def test_treasury_bills_missing_listing_exchange_is_non_eu_not_invalid(tmp_path: Path) -> None:
+    rows = _treasury_rows(
+        trade_symbol="United States Treasury B 06/05/25<br/>912797NP8 4.28601533%",
+        listing_exchange="",
+    )
+    rows[4][6] = "TRADEWEBG"
+    result = _run(tmp_path, rows, mode="execution_exchange")
+
+    assert result.summary.appendix_5.rows == 1
+    assert result.summary.appendix_13.rows == 0
+    assert result.summary.review_rows == 0
+    assert all(entry.reason != "Invalid listing exchange" for entry in result.summary.review_entries)
+    assert not any("Invalid listing exchange" in warning for warning in result.summary.warnings)
+    assert "" not in result.summary.encountered_non_eu_exchanges
+
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Не-EU пазари, открити в отчета: ," not in text
+
 def test_listing_mode_eu_vs_non_eu_classification(tmp_path: Path) -> None:
     result = _run(tmp_path, _base_rows(), mode="listed_symbol")
     assert result.summary.appendix_13.rows == 1  # BMW (IBIS2)
     assert result.summary.appendix_5.rows == 1  # TSLA (NASDAQ)
 
-def test_execution_mode_review_for_non_regulated_or_unknown(tmp_path: Path) -> None:
+def test_execution_mode_known_non_regulated_execution_routes_to_appendix_5(tmp_path: Path) -> None:
     rows = _base_rows()
-    rows[7][6] = "EUDARK"  # BMW, EU-listed + non-regulated execution -> review
+    rows[7][6] = "EUDARK"  # BMW, EU-listed + known non-regulated execution -> Appendix 5
     result = _run(tmp_path, rows, mode="execution_exchange")
-    assert result.summary.review_rows == 1
+    assert result.summary.review_rows == 0
     assert result.summary.appendix_13.rows == 0
-    assert result.summary.review.rows == 1
+    assert result.summary.appendix_5.rows == 2
+    assert result.summary.review.rows == 0
     assert not any("EU-listed + non-regulated execution" in warning for warning in result.summary.warnings)
 
 def test_trade_filtering_only_code_with_closing_token(tmp_path: Path) -> None:
@@ -368,8 +392,9 @@ def test_empty_review_status_uses_existing_mode_logic(tmp_path: Path) -> None:
         review_status="",
     )
     result = _run(tmp_path, rows, mode="execution_exchange")
-    assert result.summary.review_rows == 1
-    assert result.summary.review.rows == 1
+    assert result.summary.review_rows == 0
+    assert result.summary.review.rows == 0
+    assert result.summary.appendix_5.rows == 1
     assert result.summary.review_status_overrides_rows == 0
     assert result.summary.unknown_review_status_rows == 0
 
@@ -462,7 +487,7 @@ def test_missing_symbol_mapping_review_not_silent(tmp_path: Path) -> None:
     rows = [row for row in rows if not (row[0] == "Financial Instrument Information" and len(row) > 3 and row[3] == "TSLA")]
     result = _run(tmp_path, rows, mode="execution_exchange")
     assert result.summary.review_rows == 1
-    assert any("Missing symbol mapping" in item for item in result.summary.warnings)
+    assert any(entry.reason == "Missing symbol mapping" for entry in result.summary.review_entries)
 
 def test_conflicting_symbol_mapping_fails_when_classification_differs(tmp_path: Path) -> None:
     rows = _base_rows()
@@ -506,10 +531,9 @@ def test_realistic_fixture_with_requested_exchanges(tmp_path: Path) -> None:
         ["Cash Report", "Data", "USD", "1000"],
     ]
     result = _run(tmp_path, rows, mode="execution_exchange")
-    assert result.summary.review_rows == 3
-    assert "EUDARK" in result.summary.review_exchanges
-    assert "EUIBSI" in result.summary.review_exchanges
-    assert "GETTEX2" in result.summary.review_exchanges
+    assert result.summary.review_rows == 0
+    assert result.summary.review_exchanges == set()
+    assert result.summary.appendix_5.rows == 3
 
 def test_commission_is_applied_for_long_closing_trade(tmp_path: Path) -> None:
     rows = [

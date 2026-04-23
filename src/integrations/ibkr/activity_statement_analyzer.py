@@ -42,7 +42,11 @@ from .models import (
 )
 from .sections.dividends import DividendsSectionResult, process_dividends_section
 from .sections.income import _appendix9_default_country
-from .sections.instruments import parse_instrument_listings_with_headers
+from .sections.instruments import (
+    _exchange_classification_mode_label,
+    _normalize_exchange,
+    parse_instrument_listings_with_headers,
+)
 from .sections.interest import (
     InterestSectionResult,
     extract_interest_withholding_paid_eur,
@@ -139,6 +143,8 @@ def _process_sections(
     fx_provider: FxRateProvider,
     tax_year: int,
     tax_exempt_mode: str,
+    eu_regulated_exchange_overrides: set[str],
+    closed_world_mode: bool,
 ) -> _ProcessedSections:
     trades = process_trades_section(
         rows=rows,
@@ -148,6 +154,8 @@ def _process_sections(
         fx_provider=fx_provider,
         tax_year=tax_year,
         tax_exempt_mode=tax_exempt_mode,  # type: ignore[arg-type]
+        eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
+        closed_world_mode=closed_world_mode,
     )
     interest = process_interest_section(
         rows=rows,
@@ -187,6 +195,23 @@ def _process_sections(
         withholding=withholding,
         open_positions=open_positions,
     )
+
+
+def _normalize_cli_eu_regulated_exchanges(raw_values: list[str] | None) -> set[str]:
+    normalized: set[str] = set()
+    for raw in raw_values or []:
+        for token in raw.split(","):
+            candidate = token.strip()
+            if candidate == "":
+                continue
+            normalized_exchange = _normalize_exchange(candidate)
+            if normalized_exchange == "":
+                raise IbkrAnalyzerError(
+                    "invalid --eu-regulated-exchange value: "
+                    f"{candidate!r}"
+                )
+            normalized.add(normalized_exchange)
+    return normalized
 
 
 def _apply_interest_withholding_source(
@@ -316,6 +341,8 @@ def analyze_ibkr_activity_statement(
     report_alias: str | None = None,
     output_dir: str | Path | None = None,
     cache_dir: str | Path | None = None,
+    eu_regulated_exchanges: list[str] | None = None,
+    closed_world: bool = False,
     fx_rate_provider: FxRateProvider | None = None,
 ) -> AnalysisResult:
     _validate_analysis_request(
@@ -330,12 +357,29 @@ def analyze_ibkr_activity_statement(
     out_dir.mkdir(parents=True, exist_ok=True)
     fx_provider = fx_rate_provider if fx_rate_provider is not None else _default_fx_provider(cache_dir)
     rows = _load_csv_rows(input_path)
+    eu_regulated_exchange_overrides = _normalize_cli_eu_regulated_exchanges(eu_regulated_exchanges)
+    closed_world_mode = closed_world or bool(eu_regulated_exchange_overrides)
+
+    summary = AnalysisSummary(
+        tax_year=tax_year,
+        tax_exempt_mode=tax_exempt_mode,
+        dividend_tax_rate=DIVIDEND_TAX_RATE,
+        appendix8_dividend_list_mode=appendix8_dividend_list_mode,
+    )
+    summary.exchange_classification_mode = _exchange_classification_mode_label(
+        eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
+        force_closed_world=closed_world_mode,
+    )
+    summary.cli_eu_regulated_overrides = set(eu_regulated_exchange_overrides)
 
     active_headers, seen_headers = _build_active_headers(rows)
     listings = parse_instrument_listings_with_headers(
         rows,
         active_headers=active_headers,
         seen_headers=seen_headers,
+        summary=summary,
+        eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
+        closed_world_mode=closed_world_mode,
     )
     trades_row_extras: dict[int, list[str]] = {}
     trades_row_base_len: dict[int, int] = {}
@@ -350,13 +394,6 @@ def analyze_ibkr_activity_statement(
     dividends_row_added_columns: dict[int, list[str]] = {}
     withholding_row_added_columns: dict[int, list[str]] = {}
     open_positions_row_added_columns: dict[int, list[str]] = {}
-    summary = AnalysisSummary(
-        tax_year=tax_year,
-        tax_exempt_mode=tax_exempt_mode,
-        dividend_tax_rate=DIVIDEND_TAX_RATE,
-        appendix8_dividend_list_mode=appendix8_dividend_list_mode,
-    )
-
     reconciliation_warnings = run_open_position_reconciliation(
         rows=rows,
         active_headers=active_headers,
@@ -373,6 +410,8 @@ def analyze_ibkr_activity_statement(
         fx_provider=fx_provider,
         tax_year=tax_year,
         tax_exempt_mode=tax_exempt_mode,
+        eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
+        closed_world_mode=closed_world_mode,
     )
     appendix9_components = processed.interest.components_by_country
 
@@ -498,6 +537,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Appendix 8 dividend listing mode (default: company)",
     )
     parser.add_argument(
+        "--eu-regulated-exchange",
+        action="append",
+        default=[],
+        help=(
+            "Additional EU-regulated exchange code override. "
+            "Can be passed multiple times or comma-separated."
+        ),
+    )
+    parser.add_argument(
+        "--closed-world",
+        action="store_true",
+        help=(
+            "Use closed-world exchange classification even without "
+            "--eu-regulated-exchange overrides."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=DEFAULT_OUTPUT_DIR,
@@ -530,6 +586,8 @@ def main() -> int:
             report_alias=args.report_alias,
             output_dir=args.output_dir,
             cache_dir=args.cache_dir,
+            eu_regulated_exchanges=args.eu_regulated_exchange,
+            closed_world=args.closed_world,
         )
     except IbkrAnalyzerError as exc:
         logger.error("%s", exc)

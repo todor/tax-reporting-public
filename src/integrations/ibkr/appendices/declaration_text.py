@@ -6,6 +6,7 @@ from ..constants import (
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
     DECIMAL_TWO,
     TAX_MODE_EXECUTION_EXCHANGE,
+    TAX_MODE_LISTED_SYMBOL,
 )
 from ..models import AnalysisResult, AnalysisSummary, BucketTotals
 from ..shared import _fmt
@@ -234,6 +235,8 @@ def _append_appendix9_section(
 def _append_review_section(lines: list[str], *, summary: AnalysisSummary) -> None:
     if summary.tax_exempt_mode != TAX_MODE_EXECUTION_EXCHANGE:
         return
+    if summary.review_rows <= 0:
+        return
 
     review = summary.review
     lines.append("РЪЧНА ПРОВЕРКА (ИЗКЛЮЧЕНИ ОТ АВТОМАТИЧНИТЕ ТАБЛИЦИ)")
@@ -288,7 +291,42 @@ def _append_processing_notes_section(lines: list[str], *, summary: AnalysisSumma
 
 def _append_proof_section(lines: list[str], *, result: AnalysisResult) -> None:
     summary = result.summary
+    def _fmt_set(values: set[str]) -> str:
+        cleaned = sorted(value for value in values if value.strip() != "")
+        if not cleaned:
+            return "-"
+        return ", ".join(cleaned)
+
     lines.append("Одитни данни")
+    lines.append(f"- режим на класификация на пазари: {summary.exchange_classification_mode or '-'}")
+    if summary.tax_exempt_mode == TAX_MODE_LISTED_SYMBOL:
+        lines.append(
+            "- В режим listed_symbol execution exchange не участва в класификацията и е само информативен."
+        )
+    lines.append(
+        "- допълнително подадени EU-регулирани пазари: "
+        f"{_fmt_set(summary.cli_eu_regulated_overrides)}"
+    )
+    lines.append(
+        "- EU-регулирани пазари, открити в отчета: "
+        f"{_fmt_set(summary.encountered_eu_regulated_exchanges)}"
+    )
+    lines.append(
+        "- EU нерегулирани пазари, открити в отчета: "
+        f"{_fmt_set(summary.encountered_eu_non_regulated_exchanges)}"
+    )
+    lines.append(
+        "- Не-EU пазари, открити в отчета: "
+        f"{_fmt_set(summary.encountered_non_eu_exchanges)}"
+    )
+    lines.append(
+        "- Неразпознати пазари, открити в отчета: "
+        f"{_fmt_set(summary.encountered_unmapped_exchanges)}"
+    )
+    lines.append(
+        "- Невалидни/нечетими стойности за пазар, открити в отчета: "
+        f"{_fmt_set(summary.encountered_invalid_exchange_values)}"
+    )
     lines.append(f"- избран режим: {summary.tax_exempt_mode}")
     lines.append(f"- Приложение 8 дивидентен режим: {summary.appendix8_dividend_list_mode}")
     lines.append(f"- report alias: {result.report_alias or '-'}")
@@ -323,8 +361,6 @@ def _append_proof_section(lines: list[str], *, result: AnalysisResult) -> None:
     )
     if summary.tax_credit_debug_report_path:
         lines.append(f"- tax credit debug report: {summary.tax_credit_debug_report_path}")
-    lines.append(f"- използвани execution борси: {', '.join(sorted(summary.exchanges_used)) or '-'}")
-    lines.append(f"- review execution борси: {', '.join(sorted(summary.review_exchanges)) or '-'}")
     lines.append("")
 
 

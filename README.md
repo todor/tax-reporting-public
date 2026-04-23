@@ -280,11 +280,38 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
   --report-alias account1
 ```
 
+Optional venue override inputs (activates closed-world venue classification for this run):
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+  --input path/to/ibkr_activity_statement.csv \
+  --tax-year 2025 \
+  --tax-exempt-mode execution_exchange \
+  --eu-regulated-exchange TGATE \
+  --eu-regulated-exchange "ENEXT.FR,NYSE"
+```
+
+Closed-world without adding extra regulated exchanges:
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+  --input path/to/ibkr_activity_statement.csv \
+  --tax-year 2025 \
+  --tax-exempt-mode execution_exchange \
+  --closed-world
+```
+
 IBKR appendix credit math note:
 
 - Appendix 8 credit math is computed per company first (source-of-truth calculation), then optionally presented aggregated by country in country-list mode.
 - Appendix 9 credit math remains country-level.
 - IBKR also runs a minimal open-position reconciliation safety check (`Open Positions Summary` vs signed `Trades Order` quantities, by canonical instrument) and triggers manual review on mismatch/unmatched instruments.
+- IBKR venue classification supports:
+  - open-world mode (default): unmapped venues stay review-worthy
+  - closed-world mode (activated by `--eu-regulated-exchange` or `--closed-world`): built-in EU regulated + CLI overrides become the effective regulated universe for this run
+  - in closed-world mode, readable normalized venues are forced to non-regulated classification unless explicitly regulated (only invalid/garbled values remain review-worthy)
+- IBKR declaration output includes `Одитни данни` with encountered venue categories and active classification mode.
+- In `listed_symbol` mode, execution exchange is documented once as a global informational note (no per-row informational noise).
 
 ### Coinbase report analyzer
 

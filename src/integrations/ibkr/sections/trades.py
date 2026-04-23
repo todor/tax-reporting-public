@@ -13,8 +13,11 @@ from ..constants import (
     APPENDIX_IGNORED,
     APPENDIX_REVIEW,
     DECIMAL_EIGHT,
+    EXCHANGE_CLASS_INVALID,
+    EXCHANGE_CLASS_NON_EU,
     EXCHANGE_CLASS_EU_NON_REGULATED,
-    EXCHANGE_CLASS_UNKNOWN,
+    EXCHANGE_CLASS_EU_REGULATED,
+    EXCHANGE_CLASS_UNMAPPED,
     REVIEW_STATUS_NON_TAXABLE,
     REVIEW_STATUS_TAXABLE,
     TAX_MODE_EXECUTION_EXCHANGE,
@@ -44,10 +47,10 @@ from ..shared import (
     _try_parse_decimal,
 )
 from .instruments import (
-    _classify_exchange,
+    _classify_exchange_with_normalized,
+    _record_exchange_observation,
     _is_forex_asset,
     _is_supported_asset,
-    _normalize_exchange,
     _resolve_instrument_for_trade_symbol,
     _resolve_tax_target,
 )
@@ -94,6 +97,7 @@ class _TradeRowContext:
     trade_basis: Decimal | None
     trade_date: object
     realized_pl: Decimal | None
+    execution_exchange_raw: str
     execution_exchange_norm: str
     execution_exchange_class: str
     proceeds_eur: Decimal
@@ -141,6 +145,8 @@ def _parse_trade_context(
     field_idx: _TradeFieldIndexes,
     row_base_len: dict[int, int],
     fx_provider: FxRateProvider,
+    eu_regulated_exchange_overrides: set[str],
+    closed_world_mode: bool,
 ) -> _TradeRowContext:
     padded = row + [""] * (row_base_len[row_idx] - len(row))
     data = padded[2 : 2 + len(active_trades_header.headers)]
@@ -177,8 +183,11 @@ def _parse_trade_context(
             realized_pl = _parse_decimal(realized_raw, row_number=row_number, field_name="Realized P/L")
 
     execution_exchange_raw = data[field_idx.exchange].strip() if field_idx.exchange is not None else ""
-    execution_exchange_norm = _normalize_exchange(execution_exchange_raw)
-    execution_exchange_class = _classify_exchange(execution_exchange_raw)
+    execution_exchange_class, execution_exchange_norm = _classify_exchange_with_normalized(
+        execution_exchange_raw,
+        eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
+        closed_world_mode=closed_world_mode,
+    )
 
     proceeds_eur, trade_fx_rate = _to_eur(
         proceeds,
@@ -230,6 +239,7 @@ def _parse_trade_context(
         trade_basis=trade_basis,
         trade_date=trade_date,
         realized_pl=realized_pl,
+        execution_exchange_raw=execution_exchange_raw,
         execution_exchange_norm=execution_exchange_norm,
         execution_exchange_class=execution_exchange_class,
         proceeds_eur=proceeds_eur,
@@ -454,6 +464,7 @@ def _process_closing_trade_row(
     fx_provider: FxRateProvider,
     tax_year: int,
     tax_exempt_mode: str,
+    closed_world_mode: bool,
     row_extras: dict[int, list[str]],
     row_base_len: dict[int, int],
     consumed_closedlots: set[int],
@@ -488,15 +499,18 @@ def _process_closing_trade_row(
         trade_symbol=ctx.symbol_raw,
         listings=listings,
     )
+    symbol_for_messages = normalized_symbol or ctx.symbol
     missing_symbol_mapping = instrument is None
     listing_exchange = instrument.listing_exchange_normalized if instrument is not None else ""
+    listing_exchange_class = instrument.listing_exchange_class if instrument is not None else None
     symbol_is_eu_listed: bool | None = None if instrument is None else instrument.is_eu_listed
 
     appendix_target, reason, review_required = _resolve_tax_target(
         tax_exempt_mode=tax_exempt_mode,
-        symbol_is_eu_listed=symbol_is_eu_listed,
+        listing_exchange_class=listing_exchange_class,
         execution_exchange_class=ctx.execution_exchange_class,
         missing_symbol_mapping=missing_symbol_mapping,
+        closed_world_mode=closed_world_mode,
         forced_review_reason=forced_review_reason,
     )
 
@@ -518,34 +532,66 @@ def _process_closing_trade_row(
         summary.review_required_rows += 1
         if review_notes == "":
             review_notes = "Review required by tax mode rules"
+        # In execution_exchange mode, rows routed to the REVIEW bucket are
+        # rendered with full numeric detail in the dedicated review section.
+        # Keep processing notes for non-review warnings to avoid duplication.
         skip_duplicate_review_warning = (
             tax_exempt_mode == TAX_MODE_EXECUTION_EXCHANGE
             and appendix_target == APPENDIX_REVIEW
-            and reason in {"EU-listed + non-regulated execution", "EU-listed + unknown execution"}
         )
         if not skip_duplicate_review_warning:
             summary.warnings.append(
-                f"row {ctx.row_number}: {reason} (symbol={ctx.symbol}, execution_exchange={ctx.execution_exchange_norm or '<EMPTY>'})"
+                f"row {ctx.row_number}: {reason} (symbol={symbol_for_messages}, execution_exchange={ctx.execution_exchange_norm or '<EMPTY>'})"
             )
         logger.debug(
             "row %s marked REVIEW_REQUIRED: %s (symbol=%s, execution_exchange=%s)",
             ctx.row_number,
             reason,
-            ctx.symbol,
+            symbol_for_messages,
             ctx.execution_exchange_norm or "<EMPTY>",
         )
 
-    if tax_exempt_mode == TAX_MODE_LISTED_SYMBOL and symbol_is_eu_listed:
-        if ctx.execution_exchange_class in {EXCHANGE_CLASS_EU_NON_REGULATED, EXCHANGE_CLASS_UNKNOWN}:
-            warning = (
-                f"row {ctx.row_number}: execution exchange {ctx.execution_exchange_norm or '<EMPTY>'} "
-                "is informational only in listed_symbol mode"
-            )
-            summary.warnings.append(warning)
-            logger.debug("%s", warning)
-
     in_tax_year = ctx.trade_date.year == tax_year
     if in_tax_year:
+        # Mode-scoped audit source:
+        # - listed_symbol: listing exchange only
+        # - execution_exchange: always listing; execution only when listing
+        #   is EU_REGULATED or UNMAPPED (the branch where execution participates
+        #   in final routing)
+        if tax_exempt_mode == TAX_MODE_LISTED_SYMBOL:
+            if listing_exchange_class is not None:
+                _record_exchange_observation(
+                    summary,
+                    classification=listing_exchange_class,
+                    normalized_exchange=listing_exchange,
+                    raw_exchange=listing_exchange,
+                )
+        else:
+            if listing_exchange_class is not None:
+                _record_exchange_observation(
+                    summary,
+                    classification=listing_exchange_class,
+                    normalized_exchange=listing_exchange,
+                    raw_exchange=listing_exchange,
+                )
+            if listing_exchange_class in {EXCHANGE_CLASS_EU_REGULATED, EXCHANGE_CLASS_UNMAPPED}:
+                _record_exchange_observation(
+                    summary,
+                    classification=ctx.execution_exchange_class,
+                    normalized_exchange=ctx.execution_exchange_norm,
+                    raw_exchange=ctx.execution_exchange_raw,
+                )
+            elif listing_exchange_class == EXCHANGE_CLASS_INVALID:
+                # Audit discovery exception:
+                # when listing exchange is invalid/missing, still surface a readable
+                # execution venue in audit buckets (for transparency/debugging),
+                # even though tax routing for the row stays review-required.
+                _record_exchange_observation(
+                    summary,
+                    classification=ctx.execution_exchange_class,
+                    normalized_exchange=ctx.execution_exchange_norm,
+                    raw_exchange=ctx.execution_exchange_raw,
+                )
         summary.processed_trades_in_tax_year += 1
         if tax_exempt_mode == TAX_MODE_EXECUTION_EXCHANGE and appendix_target == APPENDIX_REVIEW:
             summary.review_rows += 1
@@ -554,7 +600,7 @@ def _process_closing_trade_row(
             summary.review_entries.append(
                 ReviewEntry(
                     row_number=ctx.row_number,
-                    symbol=ctx.symbol,
+                    symbol=symbol_for_messages,
                     trade_date=ctx.trade_date.isoformat(),
                     listing_exchange=listing_exchange or "<MISSING>",
                     execution_exchange=ctx.execution_exchange_norm or "<EMPTY>",
@@ -608,6 +654,8 @@ def process_trades_section(
     fx_provider: FxRateProvider,
     tax_year: int,
     tax_exempt_mode: Literal["listed_symbol", "execution_exchange"],
+    eu_regulated_exchange_overrides: set[str],
+    closed_world_mode: bool,
 ) -> TradesSectionResult:
     row_extras: dict[int, list[str]] = {}
     row_base_len: dict[int, int] = {}
@@ -674,8 +722,9 @@ def process_trades_section(
             field_idx=field_idx,
             row_base_len=row_base_len,
             fx_provider=fx_provider,
+            eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
+            closed_world_mode=closed_world_mode,
         )
-        summary.exchanges_used.add(ctx.execution_exchange_norm or "<EMPTY>")
         closedlot_indices = _find_attached_closedlot_indices(
             rows=rows,
             active_headers=active_headers,
@@ -738,6 +787,7 @@ def process_trades_section(
             fx_provider=fx_provider,
             tax_year=tax_year,
             tax_exempt_mode=tax_exempt_mode,
+            closed_world_mode=closed_world_mode,
             row_extras=row_extras,
             row_base_len=row_base_len,
             consumed_closedlots=consumed_closedlots,

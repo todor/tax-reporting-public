@@ -39,8 +39,9 @@ EU_REGULATED_MARKETS = {
     "OSE",
 }
 
-EU_NON_REGULATED = {
+EU_NON_REGULATED_MARKETS = {
     "EUIBSI",
+    "EUIBFRSH",
     "EUDARK",
     "IBDARK",
     "CHIXEN",
@@ -52,7 +53,53 @@ EU_NON_REGULATED = {
     "GETTEX",
     "GETTEX2",
     "TGATE",
+    "TRWBIT",
+    "TRWBEN",
+    "TRADEWEBG",
     "SWB",
+}
+
+KNOWN_NON_EU_MARKETS = {
+    # US
+    "NYSE",
+    "NASDAQ",
+    "ARCA",
+    "AMEX",
+    "IEX",
+    "BEX",
+    # UK
+    "LSE",
+    "AIM",
+    # Switzerland
+    "SWX",
+    "VTX",
+    # Canada
+    "TSX",
+    "TSXV",
+    "NEO",
+    # Australia
+    "ASX",
+    # Japan
+    "TSEJ",
+    "OSE.JPN",
+    # Hong Kong
+    "SEHK",
+    "HKFE",
+    # Singapore
+    "SGX",
+    # India
+    "NSE",
+    "BSE",
+}
+
+INVALID_EXCHANGE_VALUES = {
+    "",
+    "-",
+    "N/A",
+    "NA",
+    "NONE",
+    "NULL",
+    "UNKNOWN",
 }
 
 EXCHANGE_ALIASES = {
@@ -99,10 +146,20 @@ APPENDIX_5 = "APPENDIX_5"
 APPENDIX_13 = "APPENDIX_13"
 APPENDIX_REVIEW = "REVIEW_REQUIRED"
 APPENDIX_IGNORED = "IGNORED"
-
+    
 EXCHANGE_CLASS_EU_REGULATED = "EU_REGULATED"
 EXCHANGE_CLASS_EU_NON_REGULATED = "EU_NON_REGULATED"
-EXCHANGE_CLASS_UNKNOWN = "UNKNOWN"
+EXCHANGE_CLASS_NON_EU = "NON_EU"
+EXCHANGE_CLASS_UNMAPPED = "UNMAPPED"
+EXCHANGE_CLASS_INVALID = "INVALID"
+# Backward-compatible alias for tests/callers still importing UNKNOWN.
+EXCHANGE_CLASS_UNKNOWN = EXCHANGE_CLASS_UNMAPPED
+
+EXCHANGE_CLASSIFICATION_MODE_OPEN_WORLD = "OPEN_WORLD MODE"
+EXCHANGE_CLASSIFICATION_MODE_CLOSED_WORLD = "CLOSED_WORLD MODE"
+
+# Backward-compatible alias kept while callers migrate.
+EU_NON_REGULATED = EU_NON_REGULATED_MARKETS
 REVIEW_STATUS_TAXABLE = "TAXABLE"
 REVIEW_STATUS_NON_TAXABLE = "NON-TAXABLE"
 

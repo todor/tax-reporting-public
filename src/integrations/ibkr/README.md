@@ -53,12 +53,35 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
   --report-alias account2
 ```
 
+Closed-world venue classification example (adds regulated overrides for this run):
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+  --input path/to/ibkr_activity_statement.csv \
+  --tax-year 2025 \
+  --tax-exempt-mode execution_exchange \
+  --eu-regulated-exchange TGATE \
+  --eu-regulated-exchange "enext.fr,nyse"
+```
+
+Closed-world without adding extra regulated venues:
+
+```bash
+PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+  --input path/to/ibkr_activity_statement.csv \
+  --tax-year 2025 \
+  --tax-exempt-mode execution_exchange \
+  --closed-world
+```
+
 ## CLI Options
 
 - `--input`: IBKR Activity Statement CSV (required)
 - `--tax-year`: target tax year, for example `2025` (required)
 - `--tax-exempt-mode`: `listed_symbol` or `execution_exchange` (required)
 - `--appendix8-dividend-list-mode`: `company` (default) or `country`
+- `--eu-regulated-exchange`: additional EU-regulated exchange code override; can be passed multiple times or comma-separated
+- `--closed-world`: force closed-world exchange classification even without `--eu-regulated-exchange`
 - `--report-alias`: optional alias added in output filenames
 - `--output-dir`: optional output root (default `output/ibkr/activity_statement`)
 - `--cache-dir`: optional `bnb_fx` cache override
@@ -150,13 +173,23 @@ Scope/limits:
 
 - EU-listed symbol -> Приложение 13
 - non-EU-listed symbol -> Приложение 5
-- execution exchange is informational only (warnings for non-regulated/unknown)
+- execution exchange is informational only
+- no per-row informational warnings are emitted for execution exchange in this mode
+- a single global note is printed in `Одитни данни`: `В режим listed_symbol execution exchange не участва в класификацията и е само информативен.`
+- in open-world classification mode, unmapped listing venues still trigger manual review
+- in closed-world classification mode, unmapped listing venues are treated as non-EU/non-regulated
 
 `--tax-exempt-mode execution_exchange`
 
-- non-EU-listed symbol -> Приложение 5
-- EU-listed + EU-regulated execution -> Приложение 13
-- EU-listed + non-regulated/unknown execution -> `REVIEW_REQUIRED` bucket (excluded from appendix totals)
+- two-stage decision:
+  1. listing exchange is classified first
+  2. if listing is `NON_EU` or `EU_NON_REGULATED` -> Приложение 5
+  3. if listing is `EU_REGULATED` or `UNMAPPED` -> execution exchange is classified
+- execution-stage result:
+  - execution `EU_REGULATED` -> Приложение 13
+  - execution `NON_EU` / `EU_NON_REGULATED` -> Приложение 5
+  - execution `UNMAPPED` -> `REVIEW_REQUIRED`
+  - execution invalid/unreadable -> `REVIEW_REQUIRED`
 
 ## Review Workflow
 
@@ -225,11 +258,40 @@ Aliases:
 - `BM -> SIBE`
 - `EUIBSI* -> EUIBSI` (for example `EUIBSILP -> EUIBSI`)
 
-Classification:
+Classification classes:
 
 - `EU_REGULATED`
 - `EU_NON_REGULATED`
-- `UNKNOWN`
+- `NON_EU`
+- `UNMAPPED`
+- `INVALID`
+
+Built-in venue knowledge:
+
+- EU regulated markets: explicit curated set in code
+- EU non-regulated venues: explicit curated set (for example dark/MTF/SI style venues)
+- known non-EU markets: explicit baseline set (includes major venues like `NYSE`, `NASDAQ`, `LSE`, `SWX`, etc.)
+- placeholders/junk values (for example empty, `N/A`, `NULL`) are treated as `INVALID`
+- Treasury Bills special case: when IBKR listing venue is empty for `Treasury Bills`, the analyzer treats the instrument as non-EU listed (not invalid listing exchange)
+
+Classification mode:
+
+- `OPEN_WORLD MODE`: active when no `--eu-regulated-exchange` is provided and `--closed-world` is not set
+  - built-in knowledge is treated as partial
+  - `UNMAPPED` stays review-worthy and is never silently trusted
+- `CLOSED_WORLD MODE`: active when at least one `--eu-regulated-exchange` is provided or `--closed-world` is set
+  - effective EU-regulated universe = built-in EU regulated + CLI-provided overrides
+  - readable normalized venues do not remain `UNMAPPED`; they are forced to non-regulated classification unless explicitly regulated
+  - `INVALID` is still review-worthy
+
+CLI override behavior:
+
+- CLI-provided regulated codes are normalized the same way as report codes
+- overrides are case-insensitive after normalization and deduplicated
+- override precedence is intentional:
+  - CLI override > built-in EU non-regulated / built-in known non-EU
+- example:
+  - if built-in class for `TGATE` is EU non-regulated, `--eu-regulated-exchange TGATE` makes effective class EU-regulated for this run
 
 ## Trades Algorithm (Summary)
 
@@ -623,6 +685,18 @@ The declaration text includes:
 - sanity-check section (`PASS`/`FAIL` + artifact paths)
 - conditional Forex warning section (shown only when Forex rows require manual check)
 - evidence section (counts and diagnostics)
+- `Одитни данни` section with encountered venue groups:
+  - EU-регулирани пазари, открити в отчета
+  - EU нерегулирани пазари, открити в отчета
+  - Не-EU пазари, открити в отчета
+  - Неразпознати пазари, открити в отчета
+  - Невалидни/нечетими стойности за пазар, открити в отчета
+  - active classification mode + CLI exchange overrides used in the run
+  - in `listed_symbol` mode, `Одитни данни` contains a single global note that execution exchange is informational-only
+  - venue scope is limited to in-tax-year closing `Trades` rows (Forex, non-closing rows, and Open Positions are excluded)
+  - `listed_symbol` mode: only listing venues are included (execution venues are not used for routing)
+  - `execution_exchange` mode: listing venues are always included; execution venues are included only for rows where listing is `EU_REGULATED` or `UNMAPPED`
+  - execution-mode discovery exception: when listing is invalid/missing but execution is readable, execution is still surfaced in audit buckets for transparency (tax routing remains review-required)
 
 `нетен резултат (EUR)` is reported as `печалба - загуба`.
 

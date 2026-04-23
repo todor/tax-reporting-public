@@ -158,6 +158,13 @@ class AnalysisSummary:
     ignored_non_closing_trade_rows: int = 0
     review_rows: int = 0
     warnings: list[str] = field(default_factory=list)
+    exchange_classification_mode: str = ""
+    cli_eu_regulated_overrides: set[str] = field(default_factory=set)
+    encountered_eu_regulated_exchanges: set[str] = field(default_factory=set)
+    encountered_eu_non_regulated_exchanges: set[str] = field(default_factory=set)
+    encountered_non_eu_exchanges: set[str] = field(default_factory=set)
+    encountered_unmapped_exchanges: set[str] = field(default_factory=set)
+    encountered_invalid_exchange_values: set[str] = field(default_factory=set)
     exchanges_used: set[str] = field(default_factory=set)
     review_exchanges: set[str] = field(default_factory=set)
     review_entries: list[ReviewEntry] = field(default_factory=list)
