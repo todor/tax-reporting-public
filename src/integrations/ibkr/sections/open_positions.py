@@ -44,7 +44,7 @@ class OpenPositionsSectionResult:
     row_extras: dict[int, dict[str, str]]
     row_base_len: dict[int, int]
     row_added_columns: dict[int, list[str]]
-    part1_by_country: dict[str, Appendix8Part1Row]
+    part1_by_country_currency: dict[tuple[str, str], Appendix8Part1Row]
 
 
 @dataclass(slots=True)
@@ -276,7 +276,7 @@ def process_open_positions_section(
     row_extras: dict[int, dict[str, str]] = {}
     row_base_len: dict[int, int] = {}
     row_added_columns: dict[int, list[str]] = {}
-    part1_by_country: dict[str, Appendix8Part1Row] = {}
+    part1_by_country_currency: dict[tuple[str, str], Appendix8Part1Row] = {}
 
     def set_open_positions_extras(row_idx: int, values: dict[str, str]) -> None:
         existing = row_extras.get(row_idx, {})
@@ -289,16 +289,19 @@ def process_open_positions_section(
         country_iso: str,
         country_english: str,
         country_bulgarian: str,
+        cost_basis_original_currency: str,
     ) -> Appendix8Part1Row:
-        bucket = part1_by_country.get(country_iso)
+        key = (country_iso, cost_basis_original_currency)
+        bucket = part1_by_country_currency.get(key)
         if bucket is None:
             bucket = Appendix8Part1Row(
                 country_iso=country_iso,
                 country_english=country_english,
                 country_bulgarian=country_bulgarian,
+                cost_basis_original_currency=cost_basis_original_currency,
                 acquisition_date=date(tax_year, 12, 31),
             )
-            part1_by_country[country_iso] = bucket
+            part1_by_country_currency[key] = bucket
         return bucket
 
     current_open_positions_header: _ActiveHeader | None = None
@@ -439,6 +442,7 @@ def process_open_positions_section(
             country_iso=country_iso,
             country_english=country_english,
             country_bulgarian=country_bulgarian,
+            cost_basis_original_currency=currency,
         )
         bucket.quantity += quantity
         bucket.cost_basis_original += cost_basis_original
@@ -448,5 +452,5 @@ def process_open_positions_section(
         row_extras=row_extras,
         row_base_len=row_base_len,
         row_added_columns=row_added_columns,
-        part1_by_country=part1_by_country,
+        part1_by_country_currency=part1_by_country_currency,
     )

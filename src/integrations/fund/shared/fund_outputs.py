@@ -33,6 +33,13 @@ def _fmt_opt(value: Decimal | None, *, quant: Decimal | None = None) -> str:
     return fmt_decimal(value, quant=quant)
 
 
+def _validate_declaration_code(value: str) -> str:
+    code = value.strip()
+    if code == "":
+        raise GenericFundAnalyzerError("missing declaration code for Appendix 5 output")
+    return code
+
+
 def _row_to_csv_dict(row: FundEnrichedRow) -> dict[str, str]:
     ir = row.ir_row
     return {
@@ -86,7 +93,8 @@ def write_enriched_ir_csv(path: Path, *, rows: list[FundEnrichedRow]) -> None:
         writer.writerows(payload)
 
 
-def build_declaration_text(*, summary: FundAnalysisSummary) -> str:
+def build_declaration_text(*, summary: FundAnalysisSummary, appendix_5_declaration_code: str) -> str:
+    declaration_code = _validate_declaration_code(appendix_5_declaration_code)
     lines: list[str] = []
 
     if summary.manual_check_required:
@@ -98,12 +106,13 @@ def build_declaration_text(*, summary: FundAnalysisSummary) -> str:
     bucket = summary.appendix_5
     lines.append("Приложение 5")
     lines.append("Таблица 2")
-    lines.append(f"- Продажна цена (EUR) - код 5082: {fmt_decimal(bucket.sale_price_eur, quant=DECIMAL_TWO)}")
+    lines.append(f"- Продажна цена (EUR) - код {declaration_code}: {fmt_decimal(bucket.sale_price_eur, quant=DECIMAL_TWO)}")
     lines.append(
-        f"  Цена на придобиване (EUR) - код 5082: {fmt_decimal(bucket.purchase_price_eur, quant=DECIMAL_TWO)}"
+        f"  Цена на придобиване (EUR) - код {declaration_code}: "
+        f"{fmt_decimal(bucket.purchase_price_eur, quant=DECIMAL_TWO)}"
     )
-    lines.append(f"  Печалба (EUR) - код 5082: {fmt_decimal(bucket.wins_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"  Загуба (EUR) - код 5082: {fmt_decimal(bucket.losses_eur, quant=DECIMAL_TWO)}")
+    lines.append(f"  Печалба (EUR) - код {declaration_code}: {fmt_decimal(bucket.wins_eur, quant=DECIMAL_TWO)}")
+    lines.append(f"  Загуба (EUR) - код {declaration_code}: {fmt_decimal(bucket.losses_eur, quant=DECIMAL_TWO)}")
     lines.append("Информативни")
     lines.append(f"- Нетен резултат (EUR): {fmt_decimal(bucket.net_result_eur, quant=DECIMAL_TWO)}")
     lines.append(f"- Брой сделки: {bucket.rows}")
@@ -127,9 +136,15 @@ def build_declaration_text(*, summary: FundAnalysisSummary) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_declaration_text(path: Path, *, summary: FundAnalysisSummary) -> None:
+def write_declaration_text(path: Path, *, summary: FundAnalysisSummary, appendix_5_declaration_code: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build_declaration_text(summary=summary), encoding="utf-8")
+    path.write_text(
+        build_declaration_text(
+            summary=summary,
+            appendix_5_declaration_code=appendix_5_declaration_code,
+        ),
+        encoding="utf-8",
+    )
 
 
 def build_fund_run_cli_summary_lines(*, result: FundAnalysisRunResult) -> list[str]:

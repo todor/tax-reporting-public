@@ -155,11 +155,11 @@ def _build_appendix8_country_debug(
 
 def _build_appendix8_part1_rows(
     *,
-    totals_by_country: dict[str, Appendix8Part1Row],
+    totals_by_country_currency: dict[tuple[str, str], Appendix8Part1Row],
 ) -> list[Appendix8Part1Row]:
     return sorted(
-        totals_by_country.values(),
-        key=lambda item: item.country_iso,
+        totals_by_country_currency.values(),
+        key=lambda item: (item.country_iso, item.cost_basis_original_currency),
     )
 
 

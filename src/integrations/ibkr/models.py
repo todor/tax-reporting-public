@@ -108,6 +108,7 @@ class Appendix8Part1Row:
     country_iso: str
     country_english: str
     country_bulgarian: str
+    cost_basis_original_currency: str = ""
     quantity: Decimal = ZERO
     acquisition_date: date = date.min
     cost_basis_original: Decimal = ZERO

@@ -262,13 +262,13 @@ def _compute_appendix_outputs(
     *,
     summary: AnalysisSummary,
     appendix9_components: dict[str, dict[str, _CountryCreditComponent]],
-    appendix8_part1_by_country: dict[str, Appendix8Part1Row],
+    appendix8_part1_by_country_currency: dict[tuple[str, str], Appendix8Part1Row],
     out_dir: Path,
     normalized_alias: str,
     tax_year: int,
 ) -> None:
     summary.appendix_8_part1_rows = _build_appendix8_part1_rows(
-        totals_by_country=appendix8_part1_by_country,
+        totals_by_country_currency=appendix8_part1_by_country_currency,
     )
     summary.open_positions_part1_rows = len(summary.appendix_8_part1_rows)
 
@@ -424,7 +424,7 @@ def analyze_ibkr_activity_statement(
     _compute_appendix_outputs(
         summary=summary,
         appendix9_components=appendix9_components,
-        appendix8_part1_by_country=processed.open_positions.part1_by_country,
+        appendix8_part1_by_country_currency=processed.open_positions.part1_by_country_currency,
         out_dir=out_dir,
         normalized_alias=normalized_alias,
         tax_year=tax_year,

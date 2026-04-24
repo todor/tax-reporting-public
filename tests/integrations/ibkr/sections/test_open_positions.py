@@ -98,6 +98,7 @@ def test_appendix8_part1_single_country_aggregation_and_reminder(tmp_path: Path)
     assert result.summary.open_positions_part1_rows == 1
     row = result.summary.appendix_8_part1_rows[0]
     assert row.country_iso == "US"
+    assert row.cost_basis_original_currency == "USD"
     assert row.quantity == Decimal("5")
     assert row.acquisition_date.isoformat() == "2025-12-31"
     assert row.cost_basis_original == Decimal("300")
@@ -109,9 +110,43 @@ def test_appendix8_part1_single_country_aggregation_and_reminder(tmp_path: Path)
     assert "Държава: САЩ" in text
     assert "Брой: 5" in text
     assert "Дата и година на придобиване: 31.12.2025" in text
-    assert "Обща цена на придобиване в съответната валута: 300.00" in text
+    assert "Обща цена на придобиване в съответната валута (USD): 300.00" in text
     assert "В EUR: 270.00" in text
     assert "Напомняне: Към Приложение 8, Част I следва да се приложи файл с open positions." in text
+
+
+def test_appendix8_part1_groups_same_country_by_currency(tmp_path: Path) -> None:
+    rows = _rows_for_appendix8_part1(
+        open_rows=[
+            ("AAA", "USD", "2", "100"),
+            ("BBB", "EUR", "3", "200"),
+        ],
+        instrument_rows=[
+            ("AAA", "US1111111111"),
+            ("BBB", "US2222222222"),
+        ],
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.open_positions_part1_rows == 2
+
+    by_currency = {
+        row.cost_basis_original_currency: row
+        for row in result.summary.appendix_8_part1_rows
+    }
+    assert set(by_currency) == {"USD", "EUR"}
+    assert by_currency["USD"].country_iso == "US"
+    assert by_currency["USD"].quantity == Decimal("2")
+    assert by_currency["USD"].cost_basis_original == Decimal("100")
+    assert by_currency["USD"].cost_basis_eur == Decimal("90")
+
+    assert by_currency["EUR"].country_iso == "US"
+    assert by_currency["EUR"].quantity == Decimal("3")
+    assert by_currency["EUR"].cost_basis_original == Decimal("200")
+    assert by_currency["EUR"].cost_basis_eur == Decimal("200")
+
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Обща цена на придобиване в съответната валута (USD): 100.00" in text
+    assert "Обща цена на придобиване в съответната валута (EUR): 200.00" in text
 
 def test_appendix8_part1_multiple_countries_and_country_extraction_from_isin(tmp_path: Path) -> None:
     rows = _rows_for_appendix8_part1(

@@ -21,7 +21,7 @@ from integrations.fund.shared.runtime import (
     default_fund_eur_unit_rate_provider,
 )
 
-from .constants import DEFAULT_OUTPUT_DIR
+from .constants import APPENDIX_5_DECLARATION_CODE, DEFAULT_OUTPUT_DIR
 from .finexify_to_ir import load_and_map_finexify_csv_to_ir
 from .models import AnalysisResult, FinexifyAnalyzerError
 
@@ -96,7 +96,11 @@ def analyze_finexify_report(
     )
 
     write_enriched_ir_csv(output_csv_path, rows=analysis.enriched_rows)
-    write_declaration_text(declaration_txt_path, summary=analysis.summary)
+    write_declaration_text(
+        declaration_txt_path,
+        summary=analysis.summary,
+        appendix_5_declaration_code=APPENDIX_5_DECLARATION_CODE,
+    )
     write_fund_state_json(
         year_end_state_json_path,
         tax_year=tax_year,

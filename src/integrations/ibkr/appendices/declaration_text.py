@@ -146,7 +146,8 @@ def _append_appendix8_part1_section(lines: list[str], *, summary: AnalysisSummar
                 f"  Дата и година на придобиване: {part1.acquisition_date.strftime('%d.%m.%Y')}"
             )
             lines.append(
-                f"  Обща цена на придобиване в съответната валута: "
+                f"  Обща цена на придобиване в съответната валута "
+                f"({part1.cost_basis_original_currency or '-'}): "
                 f"{_fmt(part1.cost_basis_original, quant=DECIMAL_TWO)}"
             )
             lines.append(f"  В EUR: {_fmt(part1.cost_basis_eur, quant=DECIMAL_TWO)}")

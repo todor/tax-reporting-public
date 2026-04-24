@@ -86,6 +86,7 @@ def test_declaration_txt_contains_summary_and_warnings(tmp_path: Path) -> None:
 
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Приложение 5" in text
+    assert "код 5082" in text
     assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" in text
     assert "неподдържани/неясни записа" in text
     assert TECHNICAL_DETAILS_SEPARATOR in text
