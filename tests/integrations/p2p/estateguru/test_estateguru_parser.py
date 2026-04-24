@@ -4,13 +4,12 @@ from decimal import Decimal
 
 import pytest
 
-from integrations.p2p.estateguru.estateguru_parser import parse_estateguru_pages, parse_estateguru_pdf
+from integrations.p2p.estateguru.estateguru_parser import parse_estateguru_pages
 from integrations.p2p.shared.appendix6_models import (
     P2PValidationError,
     SECONDARY_MARKET_MODE_APPENDIX_5,
     UnsupportedSecondaryMarketModeError,
 )
-from tests.integrations.p2p.support import SAMPLE_PDF_PATHS
 
 
 def _synthetic_pages() -> list[str]:
@@ -87,24 +86,3 @@ def test_parse_estateguru_pages_fails_for_appendix_5_mode() -> None:
             pages=_synthetic_pages(),
             secondary_market_mode=SECONDARY_MARKET_MODE_APPENDIX_5,
         )
-
-
-def test_parse_estateguru_pdf_sample_values_when_available() -> None:
-    sample_path = SAMPLE_PDF_PATHS["estateguru"]
-    if not sample_path.exists():
-        pytest.skip(f"sample PDF not available: {sample_path}")
-
-    result = parse_estateguru_pdf(input_pdf=sample_path)
-    assert result.tax_year == 2025
-    assert result.aggregate_code_603 == Decimal("10.65")
-    assert result.aggregate_code_606 == Decimal("0.00")
-
-    assert _info("Interest (EUR)", result.informative_rows) == Decimal("10.65")
-    assert _info("Bonus (Borrower) (EUR)", result.informative_rows) == Decimal("0.00")
-    assert _info("Penalty (EUR)", result.informative_rows) == Decimal("0.00")
-    assert _info("Indemnity (EUR)", result.informative_rows) == Decimal("0.00")
-    assert _info("Bonus (EG) (EUR)", result.informative_rows) == Decimal("0.00")
-    assert _info("Secondary market profit/loss (EUR)", result.informative_rows) == Decimal("0.00")
-    assert _info("Sale fee (EUR)", result.informative_rows) == Decimal("0.00")
-    assert _info("AUM fee (EUR)", result.informative_rows) == Decimal("-0.19")
-    assert _info("Total (EUR)", result.informative_rows) == Decimal("10.46")

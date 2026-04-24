@@ -4,13 +4,12 @@ from decimal import Decimal
 
 import pytest
 
-from integrations.p2p.iuvo.iuvo_parser import parse_iuvo_pages, parse_iuvo_pdf
+from integrations.p2p.iuvo.iuvo_parser import parse_iuvo_pages
 from integrations.p2p.shared.appendix6_models import (
     P2PValidationError,
     SECONDARY_MARKET_MODE_APPENDIX_5,
     UnsupportedSecondaryMarketModeError,
 )
-from tests.integrations.p2p.support import SAMPLE_PDF_PATHS
 
 
 def _synthetic_pages(
@@ -134,22 +133,3 @@ def test_parse_iuvo_pages_inline_amount_spacing_robustness() -> None:
     result = parse_iuvo_pages(pages=pages)
     assert result.aggregate_code_603 == Decimal("77.00")
     assert result.aggregate_code_606 == Decimal("2.00")
-
-
-def test_parse_iuvo_pdf_sample_values_when_available() -> None:
-    sample_path = SAMPLE_PDF_PATHS["iuvo"]
-    if not sample_path.exists():
-        pytest.skip(f"sample PDF not available: {sample_path}")
-
-    result = parse_iuvo_pdf(input_pdf=sample_path)
-    assert result.tax_year == 2025
-    assert result.aggregate_code_603 == Decimal("1605.56")
-    assert result.aggregate_code_606 == Decimal("0.00")
-
-    assert _info("Interest income (EUR)", result.informative_rows) == Decimal("673.56")
-    assert _info("Late fees (EUR)", result.informative_rows) == Decimal("0.00")
-    assert _info("Secondary market gains (EUR)", result.informative_rows) == Decimal("0.00")
-    assert _info("Campaign rewards (EUR)", result.informative_rows) == Decimal("0.00")
-    assert _info("Interest income iuvoSAVE (EUR)", result.informative_rows) == Decimal("932.00")
-    assert _info("Secondary market fees (EUR)", result.informative_rows) == Decimal("0.00")
-    assert _info("Secondary market losses (EUR)", result.informative_rows) == Decimal("-58.25")

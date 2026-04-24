@@ -1,8 +1,9 @@
 # Afranga P2P Analyzer
 
-Entry point:
+Entry point (user-facing):
 
-- `integrations.p2p.afranga.report_analyzer`
+- `PYTHONPATH=src pyenv exec python -m report_analyzer afranga ...`
+
 
 ## Overview
 
@@ -116,7 +117,7 @@ Output sections:
 - `Приложение 6 / Част I`
 - `Част II`
 - `Част III`
-- `Одитни данни`
+- `Audit Data`
 - `Бележки по обработката` (when parser emits non-blocking explanatory notes)
 
 Informative rows include reporting year, statement period, summary metrics, appendix net/WHT totals, and active secondary-market mode.
@@ -151,14 +152,14 @@ The rendered `.txt` follows this deterministic structure:
 Част III
 - Удържан и/или внесен окончателен данък за доходи: ...
 
-Одитни данни
+Audit Data
 - ...
 ```
 
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.p2p.afranga.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer afranga \
   --input "path/to/afranga_statement.pdf" \
   --tax-year 2025
 ```

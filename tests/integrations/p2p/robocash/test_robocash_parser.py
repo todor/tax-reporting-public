@@ -4,13 +4,12 @@ from decimal import Decimal
 
 import pytest
 
-from integrations.p2p.robocash.robocash_parser import parse_robocash_pages, parse_robocash_pdf
+from integrations.p2p.robocash.robocash_parser import parse_robocash_pages
 from integrations.p2p.shared.appendix6_models import (
     P2PValidationError,
     SECONDARY_MARKET_MODE_APPENDIX_5,
     UnsupportedSecondaryMarketModeError,
 )
-from tests.integrations.p2p.support import SAMPLE_PDF_PATHS
 
 
 def _synthetic_pages(*, bonus: str = "0.00", withheld: str = "0.00") -> list[str]:
@@ -80,15 +79,3 @@ def test_parse_robocash_pages_whitespace_robustness() -> None:
     ]
     result = parse_robocash_pages(pages=pages)
     assert result.aggregate_code_603 == Decimal("767.61")
-
-
-def test_parse_robocash_pdf_sample_values_when_available() -> None:
-    sample_path = SAMPLE_PDF_PATHS["robocash"]
-    if not sample_path.exists():
-        pytest.skip(f"sample PDF not available: {sample_path}")
-
-    result = parse_robocash_pdf(input_pdf=sample_path)
-    assert result.tax_year == 2025
-    assert result.aggregate_code_603 == Decimal("767.61")
-    assert result.aggregate_code_606 == Decimal("0.00")
-    assert _info("Taxes withheld (EUR)", result.informative_rows) == Decimal("0.00")

@@ -1,8 +1,9 @@
 # Lendermarket P2P Analyzer
 
-Entry point:
+Entry point (user-facing):
 
-- `integrations.p2p.lendermarket.report_analyzer`
+- `PYTHONPATH=src pyenv exec python -m report_analyzer lendermarket ...`
+
 
 ## Overview
 
@@ -31,13 +32,12 @@ Expected key labels:
 
 ## Tax mapping
 
-- `code 603 = Interest + Late Payment Fees`
+- `code 603 = Interest + Late Payment Fees + Pending Payment interest`
 - `code 606 = Campaign rewards and bonuses` (non-negative contribution)
 
 Excluded from Appendix 6 totals:
 
 - `Principal Amount`
-- `Pending Payment interest` (default excluded unless explicit taxable-received interpretation is added later)
 - account value / available funds / deposits / withdrawals / invested funds / paid fees
 
 ## Validations and warnings
@@ -50,7 +50,7 @@ Hard fail:
 
 Warnings:
 
-- non-zero `Pending Payment interest` is parsed but excluded from Appendix 6 taxable totals
+- negative `Campaign rewards and bonuses` is not included in `code 606`
 
 ## Output
 
@@ -59,7 +59,7 @@ Warnings:
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.p2p.lendermarket.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer lendermarket \
   --input "path/to/Lendermarket report.pdf" \
   --tax-year 2025
 ```

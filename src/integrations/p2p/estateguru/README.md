@@ -1,8 +1,9 @@
 # Estateguru P2P Analyzer
 
-Entry point:
+Entry point (user-facing):
 
-- `integrations.p2p.estateguru.report_analyzer`
+- `PYTHONPATH=src pyenv exec python -m report_analyzer estateguru ...`
+
 
 ## Overview
 
@@ -83,7 +84,7 @@ Warnings:
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.p2p.estateguru.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer estateguru \
   --input "path/to/Estateguru report.pdf" \
   --tax-year 2025
 ```

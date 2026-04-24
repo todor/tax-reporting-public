@@ -1,8 +1,9 @@
 # Coinbase Report Analyzer
 
-Entry point:
+Entry point (user-facing):
 
-- `integrations.crypto.coinbase.report_analyzer`
+- `PYTHONPATH=src pyenv exec python -m report_analyzer coinbase ...`
+
 
 ## Architecture
 
@@ -185,7 +186,7 @@ for each asset, plus `state_tax_year_end`.
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
   --input "path/to/Coinbase Report - since inception.csv" \
   --tax-year 2025
 ```
@@ -208,7 +209,7 @@ CLI stdout policy:
 With opening state:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
   --input "path/to/Coinbase Report - 2026.csv" \
   --tax-year 2026 \
   --opening-state-json output/coinbase/<previous_run_state_end_2025>.json

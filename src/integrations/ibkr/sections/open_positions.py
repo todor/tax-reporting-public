@@ -67,6 +67,14 @@ class _TradeOrderFieldIndexes:
     discriminator: int
 
 
+@dataclass(slots=True)
+class _MtmSummaryFieldIndexes:
+    asset: int
+    symbol: int
+    prior_quantity: int
+    current_quantity: int
+
+
 def _open_positions_indexes(active_header: _ActiveHeader) -> _OpenPositionsFieldIndexes:
     section_name = f"Open Positions header at row {active_header.row_number}"
     return _OpenPositionsFieldIndexes(
@@ -107,6 +115,16 @@ def _trade_order_indexes(active_header: _ActiveHeader) -> _TradeOrderFieldIndexe
     )
 
 
+def _mtm_summary_indexes(active_header: _ActiveHeader) -> _MtmSummaryFieldIndexes:
+    section_name = f"Mark-to-Market Performance Summary header at row {active_header.row_number}"
+    return _MtmSummaryFieldIndexes(
+        asset=_index_for(active_header.headers, "Asset Category", section_name=section_name),
+        symbol=_index_for(active_header.headers, "Symbol", section_name=section_name),
+        prior_quantity=_index_for(active_header.headers, "Prior Quantity", section_name=section_name),
+        current_quantity=_index_for(active_header.headers, "Current Quantity", section_name=section_name),
+    )
+
+
 def _run_open_position_trade_quantity_reconciliation(
     *,
     rows: list[list[str]],
@@ -116,6 +134,7 @@ def _run_open_position_trade_quantity_reconciliation(
     warnings: list[str] = []
     open_qty_by_key: dict[tuple[str, str], Decimal] = {}
     trade_qty_by_key: dict[tuple[str, str], Decimal] = {}
+    mtm_prior_qty_by_key: dict[tuple[str, str], Decimal] = {}
 
     def add_qty(
         bucket: dict[tuple[str, str], Decimal],
@@ -140,6 +159,49 @@ def _run_open_position_trade_quantity_reconciliation(
         if instrument is None:
             return None, forced_reason or "symbol was not resolved via Financial Instrument Information"
         return instrument.canonical_symbol, None
+
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        if len(row) < 2 or row[0] != "Mark-to-Market Performance Summary" or row[1] != "Data":
+            continue
+        active_header = active_headers.get(row_idx)
+        if active_header is None:
+            continue
+        try:
+            field_idx = _mtm_summary_indexes(active_header)
+        except CsvStructureError:
+            continue
+
+        base_len = 2 + len(active_header.headers)
+        padded = row + [""] * (base_len - len(row))
+        data = padded[2 : 2 + len(active_header.headers)]
+        asset_category = data[field_idx.asset].strip()
+        if not _is_supported_asset(asset_category):
+            continue
+        symbol_raw = data[field_idx.symbol].strip()
+        if symbol_raw == "":
+            continue
+        prior_quantity = _parse_reconciliation_quantity(data[field_idx.prior_quantity])
+        if prior_quantity is None:
+            warnings.append(
+                f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason=invalid prior quantity in Mark-to-Market Performance Summary"
+            )
+            continue
+        canonical_symbol, resolve_error = canonical_symbol_for_row(
+            asset_category=asset_category,
+            symbol_raw=symbol_raw,
+        )
+        if canonical_symbol is None:
+            warnings.append(
+                f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason={resolve_error}"
+            )
+            continue
+        add_qty(
+            mtm_prior_qty_by_key,
+            asset_category=asset_category,
+            canonical_symbol=canonical_symbol,
+            quantity=prior_quantity,
+        )
 
     for row_idx, row in enumerate(rows):
         row_number = row_idx + 1
@@ -236,15 +298,20 @@ def _run_open_position_trade_quantity_reconciliation(
             quantity=quantity,
         )
 
-    for asset_category, canonical_symbol in sorted(set(open_qty_by_key) | set(trade_qty_by_key)):
-        expected_open_qty = trade_qty_by_key.get((asset_category, canonical_symbol), ZERO)
+    for asset_category, canonical_symbol in sorted(
+        set(open_qty_by_key) | set(trade_qty_by_key) | set(mtm_prior_qty_by_key)
+    ):
+        prior_qty = mtm_prior_qty_by_key.get((asset_category, canonical_symbol), ZERO)
+        trade_delta_qty = trade_qty_by_key.get((asset_category, canonical_symbol), ZERO)
+        expected_open_qty = prior_qty + trade_delta_qty
         actual_open_qty = open_qty_by_key.get((asset_category, canonical_symbol), ZERO)
         diff = expected_open_qty - actual_open_qty
         if abs(diff) <= QTY_RECONCILIATION_EPSILON:
             continue
         warnings.append(
             f"{REVIEW_REASON_OPEN_POSITION_TRADE_QTY_MISMATCH}: "
-            f"asset={asset_category} symbol={canonical_symbol} expected_open_qty={_fmt(expected_open_qty)} "
+            f"asset={asset_category} symbol={canonical_symbol} prior_qty={_fmt(prior_qty)} "
+            f"trade_delta_qty={_fmt(trade_delta_qty)} expected_open_qty={_fmt(expected_open_qty)} "
             f"actual_open_qty={_fmt(actual_open_qty)} diff={_fmt(diff)}"
         )
 

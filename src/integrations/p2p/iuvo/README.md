@@ -1,8 +1,9 @@
 # Iuvo P2P Analyzer
 
-Entry point:
+Entry point (user-facing):
 
-- `integrations.p2p.iuvo.report_analyzer`
+- `PYTHONPATH=src pyenv exec python -m report_analyzer iuvo ...`
+
 
 ## Overview
 
@@ -83,7 +84,7 @@ Warnings:
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.p2p.iuvo.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer iuvo \
   --input "path/to/Iuvo report.pdf" \
   --tax-year 2025
 ```

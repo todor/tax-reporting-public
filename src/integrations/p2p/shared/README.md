@@ -59,8 +59,8 @@ Renderer guarantees:
 - deterministic decimal formatting for money values
 - identical field labels across P2P providers
 - manual-check block is shown only when warning-level issues exist
-- processing notes are rendered separately under `Бележки по обработката`
-- extracted audit context is rendered under `Одитни данни`
+- tax-result clarifications are rendered in Bulgarian sections (`Информативни`, `Бележки по обработката`)
+- extracted technical/audit context is rendered in English under `Technical Details` -> `Audit Data`
 
 ## Mode handling
 

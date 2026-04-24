@@ -34,6 +34,10 @@ def test_deposit_fiat_is_ignored_for_pnl(tmp_path: Path) -> None:
 
     assert result.summary.ignored_fiat_deposit_withdraw_rows == 1
     assert result.summary.appendix_5.rows == 0
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Приложение 5" not in text
+    assert "Информативни" not in text
+    assert TECHNICAL_DETAILS_SEPARATOR in text
 
 
 def test_non_taxable_crypto_deposit_closes_short_without_taxable_pnl(tmp_path: Path) -> None:

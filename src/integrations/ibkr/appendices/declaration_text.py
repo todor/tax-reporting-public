@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 from ..constants import (
@@ -15,6 +16,13 @@ TECHNICAL_DETAILS_SEPARATOR = (
     "------------------------------ Technical Details ------------------------------"
 )
 
+_OPEN_POSITION_MISMATCH_RE = re.compile(
+    r"OPEN_POSITION_TRADE_QTY_MISMATCH:\s+asset=(?P<asset>\S+)\s+symbol=(?P<symbol>\S+)\s+"
+    r"prior_qty=(?P<prior>[-0-9.]+)\s+trade_delta_qty=(?P<trade_delta>[-0-9.]+)\s+"
+    r"expected_open_qty=(?P<expected>[-0-9.]+)\s+actual_open_qty=(?P<actual>[-0-9.]+)\s+"
+    r"diff=(?P<diff>[-0-9.]+)"
+)
+
 
 def _sum_bucket(bucket: BucketTotals, sale_price_eur: Decimal, purchase_eur: Decimal, pnl_eur: Decimal) -> None:
     bucket.sale_price_eur += sale_price_eur
@@ -25,6 +33,48 @@ def _sum_bucket(bucket: BucketTotals, sale_price_eur: Decimal, purchase_eur: Dec
     elif pnl_eur < 0:
         bucket.losses_eur += -pnl_eur
     bucket.rows += 1
+
+
+def _is_zero_amount(value: Decimal) -> bool:
+    return value == Decimal("0")
+
+
+def _bucket_has_reportable_values(bucket: BucketTotals) -> bool:
+    return any(
+        not _is_zero_amount(amount)
+        for amount in (
+            bucket.sale_price_eur,
+            bucket.purchase_eur,
+            bucket.wins_eur,
+            bucket.losses_eur,
+            bucket.wins_eur - bucket.losses_eur,
+        )
+    ) or bucket.rows > 0
+
+
+def _appendix6_has_reportable_values(summary: AnalysisSummary) -> bool:
+    return any(
+        not _is_zero_amount(amount)
+        for amount in (
+            summary.appendix_6_code_603_eur,
+            summary.appendix_6_credit_interest_eur,
+            summary.appendix_6_syep_interest_eur,
+            summary.appendix_6_other_taxable_eur,
+            summary.appendix_6_lieu_received_eur,
+        )
+    )
+
+
+def _appendix9_has_reportable_values(summary: AnalysisSummary) -> bool:
+    if summary.appendix_9_country_results:
+        return True
+    return any(
+        not _is_zero_amount(amount)
+        for amount in (
+            summary.appendix_9_credit_interest_eur,
+            summary.appendix_9_withholding_paid_eur,
+        )
+    )
 
 
 def _build_manual_check_reasons(summary: AnalysisSummary) -> list[str]:
@@ -62,6 +112,42 @@ def _append_manual_check_section(lines: list[str], *, summary: AnalysisSummary) 
     lines.append("!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!")
     for reason in reasons:
         lines.append(f"- {reason}")
+    manual_actions: list[str] = []
+    unmatched_actions = 0
+    for warning in summary.warnings:
+        match = _OPEN_POSITION_MISMATCH_RE.match(warning)
+        if match:
+            manual_actions.append(
+                "Проверете Open Positions за {asset}/{symbol}: "
+                "начално количество за периода {prior} + промяна от Trades/Order {trade_delta} = очаквано {expected}, "
+                "а отчетеното е {actual} (разлика {diff}).".format(
+                    asset=match.group("asset"),
+                    symbol=match.group("symbol"),
+                    prior=match.group("prior"),
+                    trade_delta=match.group("trade_delta"),
+                    expected=match.group("expected"),
+                    actual=match.group("actual"),
+                    diff=match.group("diff"),
+                )
+            )
+            continue
+        if (
+            warning.startswith("OPEN_POSITION_")
+            or warning.startswith("TRADE_UNMATCHED_INSTRUMENT")
+            or warning.startswith("Invalid listing exchange")
+            or warning.startswith("Invalid execution exchange")
+            or "unmapped" in warning.lower()
+        ):
+            unmatched_actions += 1
+    if manual_actions:
+        lines.append("- Конкретни действия:")
+        for action in manual_actions[:10]:
+            lines.append(f"  {action}")
+    if unmatched_actions > 0:
+        lines.append(
+            f"- Има {unmatched_actions} допълнителни технически записа за ръчна проверка в секция "
+            "\"Technical Details\" -> \"Processing Notes\"."
+        )
     lines.append("")
 
 
@@ -89,41 +175,60 @@ def _append_sanity_section(lines: list[str], *, summary: AnalysisSummary) -> Non
 
 def _append_appendix5_section(lines: list[str], *, summary: AnalysisSummary) -> None:
     app5 = summary.appendix_5
+    if not _bucket_has_reportable_values(app5):
+        return
     lines.append("Приложение 5")
     lines.append("Таблица 2")
     lines.append(f"- Продажна цена (EUR) - код 508: {_fmt(app5.sale_price_eur, quant=DECIMAL_TWO)}")
     lines.append(f"  Цена на придобиване (EUR) - код 508: {_fmt(app5.purchase_eur, quant=DECIMAL_TWO)}")
     lines.append(f"  Печалба (EUR) - код 508: {_fmt(app5.wins_eur, quant=DECIMAL_TWO)}")
     lines.append(f"  Загуба (EUR) - код 508: {_fmt(app5.losses_eur, quant=DECIMAL_TWO)}")
-    lines.append("Информативни")
-    lines.append(f"- Нетен резултат (EUR): {_fmt(app5.wins_eur - app5.losses_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- Брой сделки: {app5.rows}")
+    net_result = app5.wins_eur - app5.losses_eur
+    if (not _is_zero_amount(net_result)) or app5.rows > 0:
+        lines.append("Информативни")
+        lines.append(f"- Нетен резултат (EUR): {_fmt(net_result, quant=DECIMAL_TWO)}")
+        lines.append(f"- Брой сделки: {app5.rows}")
     lines.append("")
 
 
 def _append_appendix13_section(lines: list[str], *, summary: AnalysisSummary) -> None:
     app13 = summary.appendix_13
+    if not _bucket_has_reportable_values(app13):
+        return
     lines.append("Приложение 13")
     lines.append("Част ІІ")
     lines.append(f"- Брутен размер на дохода (EUR) - код 5081: {_fmt(app13.sale_price_eur, quant=DECIMAL_TWO)}")
     lines.append(f"  Цена на придобиване (EUR) - код 5081: {_fmt(app13.purchase_eur, quant=DECIMAL_TWO)}")
-    lines.append("Информативни")
-    lines.append(f"- печалба (EUR): {_fmt(app13.wins_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- загуба (EUR): {_fmt(app13.losses_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- нетен резултат (EUR): {_fmt(app13.wins_eur - app13.losses_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- брой сделки: {app13.rows}")
+    net_result = app13.wins_eur - app13.losses_eur
+    if (not _is_zero_amount(net_result)) or app13.rows > 0:
+        lines.append("Информативни")
+        lines.append(f"- печалба (EUR): {_fmt(app13.wins_eur, quant=DECIMAL_TWO)}")
+        lines.append(f"- загуба (EUR): {_fmt(app13.losses_eur, quant=DECIMAL_TWO)}")
+        lines.append(f"- нетен резултат (EUR): {_fmt(net_result, quant=DECIMAL_TWO)}")
+        lines.append(f"- брой сделки: {app13.rows}")
     lines.append("")
 
 
 def _append_appendix6_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+    if not _appendix6_has_reportable_values(summary):
+        return
     lines.append("Приложение 6")
     lines.append("Част I")
     lines.append(f"- Обща сума на доходите с код 603: {_fmt(summary.appendix_6_code_603_eur, quant=DECIMAL_TWO)}")
-    lines.append("Информативни")
-    lines.append(f"- Подател: Credit Interest (EUR): {_fmt(summary.appendix_6_credit_interest_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- Подател: IBKR Managed Securities (SYEP) Interest (EUR): {_fmt(summary.appendix_6_syep_interest_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- Подател: Other taxable (Review override) (EUR): {_fmt(summary.appendix_6_other_taxable_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- Подател: Lieu Received (EUR): {_fmt(summary.appendix_6_lieu_received_eur, quant=DECIMAL_TWO)}")
+    if any(
+        not _is_zero_amount(amount)
+        for amount in (
+            summary.appendix_6_credit_interest_eur,
+            summary.appendix_6_syep_interest_eur,
+            summary.appendix_6_other_taxable_eur,
+            summary.appendix_6_lieu_received_eur,
+        )
+    ):
+        lines.append("Информативни")
+        lines.append(f"- Подател: Credit Interest (EUR): {_fmt(summary.appendix_6_credit_interest_eur, quant=DECIMAL_TWO)}")
+        lines.append(f"- Подател: IBKR Managed Securities (SYEP) Interest (EUR): {_fmt(summary.appendix_6_syep_interest_eur, quant=DECIMAL_TWO)}")
+        lines.append(f"- Подател: Other taxable (Review override) (EUR): {_fmt(summary.appendix_6_other_taxable_eur, quant=DECIMAL_TWO)}")
+        lines.append(f"- Подател: Lieu Received (EUR): {_fmt(summary.appendix_6_lieu_received_eur, quant=DECIMAL_TWO)}")
     if summary.interest_unknown_rows > 0:
         lines.append("- НУЖЕН Е ПРЕГЛЕД: открити са непознати видове лихви")
         lines.append(f"- брой непознати редове: {summary.interest_unknown_rows}")
@@ -135,50 +240,48 @@ def _append_appendix6_section(lines: list[str], *, summary: AnalysisSummary) -> 
 
 
 def _append_appendix8_part1_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+    if not summary.appendix_8_part1_rows:
+        return
     lines.append("Приложение 8")
     lines.append("Част І, Акции")
-    if summary.appendix_8_part1_rows:
-        for idx, part1 in enumerate(summary.appendix_8_part1_rows, start=1):
-            lines.append(f"- ред 1.{idx}")
-            lines.append(f"  Държава: {part1.country_bulgarian}")
-            lines.append(f"  Брой: {_fmt(part1.quantity)}")
-            lines.append(
-                f"  Дата и година на придобиване: {part1.acquisition_date.strftime('%d.%m.%Y')}"
-            )
-            lines.append(
-                f"  Обща цена на придобиване в съответната валута "
-                f"({part1.cost_basis_original_currency or '-'}): "
-                f"{_fmt(part1.cost_basis_original, quant=DECIMAL_TWO)}"
-            )
-            lines.append(f"  В EUR: {_fmt(part1.cost_basis_eur, quant=DECIMAL_TWO)}")
-            lines.append("")
-    else:
-        lines.append("- Няма разпознаваеми Open Positions Summary записи за данъчната година")
+    for idx, part1 in enumerate(summary.appendix_8_part1_rows, start=1):
+        lines.append(f"- ред 1.{idx}")
+        lines.append(f"  Държава: {part1.country_bulgarian}")
+        lines.append(f"  Брой: {_fmt(part1.quantity)}")
+        lines.append(
+            f"  Дата и година на придобиване: {part1.acquisition_date.strftime('%d.%m.%Y')}"
+        )
+        lines.append(
+            f"  Обща цена на придобиване в съответната валута "
+            f"({part1.cost_basis_original_currency or '-'}): "
+            f"{_fmt(part1.cost_basis_original, quant=DECIMAL_TWO)}"
+        )
+        lines.append(f"  В EUR: {_fmt(part1.cost_basis_eur, quant=DECIMAL_TWO)}")
         lines.append("")
     lines.append("Напомняне: Към Приложение 8, Част I следва да се приложи файл с open positions.")
     lines.append("")
 
 
 def _append_appendix8_part3_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+    if not summary.appendix_8_output_rows:
+        return
+    if not summary.appendix_8_part1_rows:
+        lines.append("Приложение 8")
     lines.append("Част III,")
-    if summary.appendix_8_output_rows:
-        for idx, bucket in enumerate(summary.appendix_8_output_rows, start=1):
-            lines.append(f"- Ред 1.{idx}")
-            lines.append(
-                f"  Наименование на лицето, изплатило дохода: {bucket.payer_name}"
-            )
-            lines.append(f"  Държава: {bucket.country_bulgarian}")
-            lines.append("  Код вид доход: 8141")
-            lines.append(f"  Код за прилагане на метод за избягване на двойното данъчно облагане: {bucket.method_code}")
-            lines.append(f"  Брутен размер на дохода: {_fmt(bucket.gross_dividend_eur, quant=DECIMAL_TWO)}")
-            lines.append("  Документално доказана цена на придобиване: ")
-            lines.append(f"  Платен данък в чужбина: {_fmt(bucket.foreign_tax_paid_eur, quant=DECIMAL_TWO)}")
-            lines.append(f"  Допустим размер на данъчния кредит: {_fmt(bucket.allowable_credit_eur, quant=DECIMAL_TWO)}")
-            lines.append(f"  Размер на признатия данъчен кредит: {_fmt(bucket.recognized_credit_eur, quant=DECIMAL_TWO)}")
-            lines.append(f"  Дължим данък, подлежащ на внасяне: {_fmt(bucket.tax_due_bg_eur, quant=DECIMAL_TWO)}")
-            lines.append("")
-    else:
-        lines.append("- Няма разпознаваеми Cash Dividend записи за данъчната година")
+    for idx, bucket in enumerate(summary.appendix_8_output_rows, start=1):
+        lines.append(f"- Ред 1.{idx}")
+        lines.append(
+            f"  Наименование на лицето, изплатило дохода: {bucket.payer_name}"
+        )
+        lines.append(f"  Държава: {bucket.country_bulgarian}")
+        lines.append("  Код вид доход: 8141")
+        lines.append(f"  Код за прилагане на метод за избягване на двойното данъчно облагане: {bucket.method_code}")
+        lines.append(f"  Брутен размер на дохода: {_fmt(bucket.gross_dividend_eur, quant=DECIMAL_TWO)}")
+        lines.append("  Документално доказана цена на придобиване: ")
+        lines.append(f"  Платен данък в чужбина: {_fmt(bucket.foreign_tax_paid_eur, quant=DECIMAL_TWO)}")
+        lines.append(f"  Допустим размер на данъчния кредит: {_fmt(bucket.allowable_credit_eur, quant=DECIMAL_TWO)}")
+        lines.append(f"  Размер на признатия данъчен кредит: {_fmt(bucket.recognized_credit_eur, quant=DECIMAL_TWO)}")
+        lines.append(f"  Дължим данък, подлежащ на внасяне: {_fmt(bucket.tax_due_bg_eur, quant=DECIMAL_TWO)}")
         lines.append("")
 
 
@@ -188,6 +291,8 @@ def _append_appendix9_section(
     summary: AnalysisSummary,
     appendix9_allowable_credit_rate: Decimal,
 ) -> None:
+    if not _appendix9_has_reportable_values(summary):
+        return
     lines.append("Приложение 9")
     lines.append("Част II")
     if summary.appendix_9_country_results:

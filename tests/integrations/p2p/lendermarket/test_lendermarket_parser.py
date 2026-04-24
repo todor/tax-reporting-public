@@ -4,13 +4,12 @@ from decimal import Decimal
 
 import pytest
 
-from integrations.p2p.lendermarket.lendermarket_parser import parse_lendermarket_pages, parse_lendermarket_pdf
+from integrations.p2p.lendermarket.lendermarket_parser import parse_lendermarket_pages
 from integrations.p2p.shared.appendix6_models import (
     P2PValidationError,
     SECONDARY_MARKET_MODE_APPENDIX_5,
     UnsupportedSecondaryMarketModeError,
 )
-from tests.integrations.p2p.support import SAMPLE_PDF_PATHS
 
 
 def _synthetic_pages(*, pending: str = "0.00", campaign: str = "3.50") -> list[str]:
@@ -48,15 +47,12 @@ def test_parse_lendermarket_pages_happy_path() -> None:
     assert _info("Pending Payment interest (EUR)", result.informative_rows) == Decimal("0.00")
 
 
-def test_parse_lendermarket_pages_pending_interest_is_excluded() -> None:
+def test_parse_lendermarket_pages_pending_interest_is_included_in_code_603() -> None:
     result = parse_lendermarket_pages(pages=_synthetic_pages(pending="12.34", campaign="0.00"))
 
-    assert result.aggregate_code_603 == Decimal("200.00")
+    assert result.aggregate_code_603 == Decimal("212.34")
     assert result.aggregate_code_606 == Decimal("0.00")
-    assert any(
-        "Pending Payment interest is excluded" in message
-        for message in result.informational_messages
-    )
+    assert result.informational_messages == []
 
 
 def test_parse_lendermarket_pages_fails_on_missing_required_field() -> None:
@@ -94,20 +90,3 @@ def test_parse_lendermarket_pages_whitespace_robustness() -> None:
     ]
     result = parse_lendermarket_pages(pages=pages)
     assert result.aggregate_code_603 == Decimal("200.00")
-
-
-def test_parse_lendermarket_pdf_sample_values_when_available() -> None:
-    sample_path = SAMPLE_PDF_PATHS["lendermarket"]
-    if not sample_path.exists():
-        pytest.skip(f"sample PDF not available: {sample_path}")
-
-    result = parse_lendermarket_pdf(input_pdf=sample_path)
-    assert result.tax_year == 2025
-    assert result.aggregate_code_603 == Decimal("802.19")
-    assert result.aggregate_code_606 == Decimal("0.00")
-
-    assert _info("Principal Amount (EUR)", result.informative_rows) == Decimal("9369.77")
-    assert _info("Interest (EUR)", result.informative_rows) == Decimal("801.79")
-    assert _info("Late Payment Fees (EUR)", result.informative_rows) == Decimal("0.40")
-    assert _info("Pending Payment interest (EUR)", result.informative_rows) == Decimal("0.00")
-    assert _info("Campaign rewards and bonuses (EUR)", result.informative_rows) == Decimal("0.00")

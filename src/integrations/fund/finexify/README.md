@@ -1,8 +1,9 @@
 # Finexify Fund Analyzer
 
-Entry point:
+Entry point (user-facing):
 
-- `integrations.fund.finexify.report_analyzer`
+- `PYTHONPATH=src pyenv exec python -m report_analyzer finexify ...`
+
 
 ## Architecture
 
@@ -109,7 +110,7 @@ Only `withdraw` rows contribute to Appendix 5 totals.
 You can pass prior year-end state:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.fund.finexify.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer finexify \
   --input "path/to/finexify_2026.csv" \
   --tax-year 2026 \
   --opening-state-json output/finexify/<state_end_2025>.json
@@ -118,7 +119,7 @@ PYTHONPATH=src pyenv exec python -m integrations.fund.finexify.report_analyzer \
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.fund.finexify.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer finexify \
   --input "path/to/finexify.csv" \
   --tax-year 2025
 ```

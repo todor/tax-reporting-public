@@ -1,8 +1,9 @@
 # Bondora Go & Grow P2P Analyzer
 
-Entry point:
+Entry point (user-facing):
 
-- `integrations.p2p.bondora_go_grow.report_analyzer`
+- `PYTHONPATH=src pyenv exec python -m report_analyzer bondora_go_grow ...`
+
 
 ## Overview
 
@@ -70,7 +71,7 @@ Warnings:
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.p2p.bondora_go_grow.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer bondora_go_grow \
   --input "path/to/Go & Grow report.pdf" \
   --tax-year 2025
 ```

@@ -32,6 +32,29 @@ def _fmt_opt(value: Decimal | None, *, quant: Decimal | None = None) -> str:
     return fmt_decimal(value, quant=quant)
 
 
+def _is_zero_amount(value: Decimal) -> bool:
+    return value == ZERO
+
+
+def _should_render_appendix5(summary: IrAnalysisSummary) -> bool:
+    bucket = summary.appendix_5
+    return any(
+        not _is_zero_amount(amount)
+        for amount in (
+            bucket.sale_price_eur,
+            bucket.purchase_price_eur,
+            bucket.wins_eur,
+            bucket.losses_eur,
+            bucket.net_result_eur,
+        )
+    ) or bucket.rows > 0
+
+
+def _should_render_appendix5_informative(summary: IrAnalysisSummary) -> bool:
+    bucket = summary.appendix_5
+    return (not _is_zero_amount(bucket.net_result_eur)) or bucket.rows > 0
+
+
 def _row_to_csv_dict(row: IrEnrichedRow) -> dict[str, str]:
     ir = row.ir_row
     return {
@@ -96,19 +119,21 @@ def build_declaration_text(*, summary: IrAnalysisSummary) -> str:
             lines.append(f"- {reason}")
         lines.append("")
 
-    bucket = summary.appendix_5
-    lines.append("Приложение 5")
-    lines.append("Таблица 2")
-    lines.append(f"- Продажна цена (EUR) - код 5082: {fmt_decimal(bucket.sale_price_eur, quant=DECIMAL_TWO)}")
-    lines.append(
-        f"  Цена на придобиване (EUR) - код 5082: {fmt_decimal(bucket.purchase_price_eur, quant=DECIMAL_TWO)}"
-    )
-    lines.append(f"  Печалба (EUR) - код 5082: {fmt_decimal(bucket.wins_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"  Загуба (EUR) - код 5082: {fmt_decimal(bucket.losses_eur, quant=DECIMAL_TWO)}")
-    lines.append("Информативни")
-    lines.append(f"- Нетен резултат (EUR): {fmt_decimal(bucket.net_result_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- Брой сделки: {bucket.rows}")
-    lines.append("")
+    if _should_render_appendix5(summary):
+        bucket = summary.appendix_5
+        lines.append("Приложение 5")
+        lines.append("Таблица 2")
+        lines.append(f"- Продажна цена (EUR) - код 5082: {fmt_decimal(bucket.sale_price_eur, quant=DECIMAL_TWO)}")
+        lines.append(
+            f"  Цена на придобиване (EUR) - код 5082: {fmt_decimal(bucket.purchase_price_eur, quant=DECIMAL_TWO)}"
+        )
+        lines.append(f"  Печалба (EUR) - код 5082: {fmt_decimal(bucket.wins_eur, quant=DECIMAL_TWO)}")
+        lines.append(f"  Загуба (EUR) - код 5082: {fmt_decimal(bucket.losses_eur, quant=DECIMAL_TWO)}")
+        if _should_render_appendix5_informative(summary):
+            lines.append("Информативни")
+            lines.append(f"- Нетен резултат (EUR): {fmt_decimal(bucket.net_result_eur, quant=DECIMAL_TWO)}")
+            lines.append(f"- Брой сделки: {bucket.rows}")
+        lines.append("")
 
     technical_lines: list[str] = []
     if summary.warnings:

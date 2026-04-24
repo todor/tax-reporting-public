@@ -4,11 +4,11 @@ This module analyzes Interactive Brokers Activity Statement CSV files and prepar
 
 Module:
 
-- `integrations.ibkr.activity_statement_analyzer`
+- user-facing CLI: `PYTHONPATH=src pyenv exec python -m report_analyzer ibkr ...`
 
 Internal IBKR module structure:
 
-- `activity_statement_analyzer.py`: public entrypoint + orchestration flow
+- `activity_statement_analyzer.py`: internal wrapper/orchestration flow
 - `sections/`: business/source processing modules
   - `sections/trades.py`: Trades processing + Trade SubTotal/Total EUR aggregate population
   - `sections/interest.py`: Interest processing + Appendix 6/9 components
@@ -37,7 +37,7 @@ Conventions:
 ## Quick Start
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
   --tax-exempt-mode listed_symbol
@@ -46,7 +46,7 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
 Optional multi-account alias:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
   --input path/to/ibkr_activity_statement_account2.csv \
   --tax-year 2025 \
   --tax-exempt-mode listed_symbol \
@@ -56,7 +56,7 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
 Closed-world venue classification example (adds regulated overrides for this run):
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
   --tax-exempt-mode execution_exchange \
@@ -67,7 +67,7 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
 Closed-world without adding extra regulated venues:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
   --tax-exempt-mode execution_exchange \
@@ -146,13 +146,20 @@ What is compared:
 
 - `Open Positions` rows with `DataDiscriminator=Summary` (summary quantity)
 - `Trades` rows with `DataDiscriminator=Order` (signed quantity from CSV, no sign transformation)
+- `Mark-to-Market Performance Summary` rows (`Prior Quantity`) when available
 
 Quantity parsing in this check is normalized for IBKR formatting:
 
 - comma thousands separators are accepted (for example `1,001`)
 - empty quantity is treated as `0`
 
-Both sides are normalized to the canonical instrument using the same Financial Instrument Information mapping logic (including symbol aliases such as `4GLD` / `4GLDd`).
+Expected end quantity per instrument is computed as:
+
+- `expected_open_qty = prior_qty_from_mtm + sum(trades_order_quantity_in_period)`
+
+where `prior_qty_from_mtm` defaults to `0` if MTM prior quantity is not available.
+
+All sides are normalized to the canonical instrument using the same Financial Instrument Information mapping logic (including symbol aliases such as `4GLD` / `4GLDd`).
 
 Manual review is triggered when:
 
@@ -175,7 +182,7 @@ Scope/limits:
 - non-EU-listed symbol -> Приложение 5
 - execution exchange is informational only
 - no per-row informational warnings are emitted for execution exchange in this mode
-- a single global note is printed in `Одитни данни`: `В режим listed_symbol execution exchange не участва в класификацията и е само информативен.`
+- a single global note is printed in `Audit Data`: `In listed_symbol mode, execution exchange does not participate in classification and is informational only.`
 - in open-world classification mode, unmapped listing venues still trigger manual review
 - in closed-world classification mode, unmapped listing venues are treated as non-EU/non-regulated
 
@@ -685,14 +692,14 @@ The declaration text includes:
 - sanity-check section (`PASS`/`FAIL` + artifact paths)
 - conditional Forex warning section (shown only when Forex rows require manual check)
 - evidence section (counts and diagnostics)
-- `Одитни данни` section with encountered venue groups:
+- `Audit Data` section with encountered venue groups:
   - EU-регулирани пазари, открити в отчета
   - EU нерегулирани пазари, открити в отчета
   - Не-EU пазари, открити в отчета
   - Неразпознати пазари, открити в отчета
   - Невалидни/нечетими стойности за пазар, открити в отчета
   - active classification mode + CLI exchange overrides used in the run
-  - in `listed_symbol` mode, `Одитни данни` contains a single global note that execution exchange is informational-only
+  - in `listed_symbol` mode, `Audit Data` contains a single global note that execution exchange is informational-only
   - venue scope is limited to in-tax-year closing `Trades` rows (Forex, non-closing rows, and Open Positions are excluded)
   - `listed_symbol` mode: only listing venues are included (execution venues are not used for routing)
   - `execution_exchange` mode: listing venues are always included; execution venues are included only for rows where listing is `EU_REGULATED` or `UNMAPPED`

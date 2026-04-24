@@ -26,11 +26,11 @@ def test_declaration_text_contains_required_sections(tmp_path: Path) -> None:
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" not in text
     assert "Приложение 5" in text
-    assert "Приложение 13" in text
+    assert "Приложение 13" not in text
     assert "РЪЧНА ПРОВЕРКА (ИЗКЛЮЧЕНИ ОТ АВТОМАТИЧНИТЕ ТАБЛИЦИ)" not in text
     assert "ВНИМАНИЕ: FOREX ОПЕРАЦИИ" not in text
     assert TECHNICAL_DETAILS_SEPARATOR in text
-    assert text.index(TECHNICAL_DETAILS_SEPARATOR) > text.index("Приложение 9")
+    assert text.index(TECHNICAL_DETAILS_SEPARATOR) > text.index("Приложение 5")
     assert text.index("Audit Data") > text.index(TECHNICAL_DETAILS_SEPARATOR)
     assert text.index("Sanity Check") > text.index("Audit Data")
 

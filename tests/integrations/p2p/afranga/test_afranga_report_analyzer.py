@@ -25,7 +25,7 @@ def test_analyze_afranga_report_end_to_end_with_real_pdf_file(tmp_path: Path) ->
     assert "- Обща сума на доходите с код 603: 84.50" in text
     assert "- Облагаем доход по чл. 35, код 606: 100.00" in text
     assert "- Удържан и/или внесен окончателен данък за доходи: 9.50" in text
-    assert "- Secondary-market mode used: appendix_6" in text
+    assert "- Използван режим за вторичен пазар: appendix_6" in text
 
 
 def test_analyze_afranga_report_fails_when_secondary_mode_appendix_5(tmp_path: Path) -> None:

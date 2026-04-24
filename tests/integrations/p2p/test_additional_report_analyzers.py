@@ -131,7 +131,7 @@ def test_report_analyzers_end_to_end(
     assert "Приложение 6" in text
     assert "Част I" in text
     assert "Част II" in text
-    assert "Част III" in text
+    assert "Част III" not in text
 
 
 @pytest.mark.parametrize("integration,analyze,_,__", CASES)

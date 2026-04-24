@@ -46,6 +46,42 @@ def test_open_position_reconciliation_quantity_mismatch_triggers_review(tmp_path
     result = _run(tmp_path, rows, mode="listed_symbol")
     assert result.summary.review_required_rows >= 1
     assert any("OPEN_POSITION_TRADE_QTY_MISMATCH" in warning for warning in result.summary.warnings)
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" in text
+    assert "Конкретни действия:" in text
+    assert "Проверете Open Positions" in text
+
+
+def test_open_position_reconciliation_uses_mtm_prior_quantity(tmp_path: Path) -> None:
+    rows = _rows_for_open_position_check(
+        open_rows=[("4GLD", "34.8884")],
+        trade_rows=[("4GLDd", "5.5539")],
+    )
+    rows.extend(
+        [
+            [
+                "Mark-to-Market Performance Summary",
+                "Header",
+                "Asset Category",
+                "Symbol",
+                "Prior Quantity",
+                "Current Quantity",
+                "Mark-to-Market P/L Total",
+            ],
+            [
+                "Mark-to-Market Performance Summary",
+                "Data",
+                "Stocks",
+                "4GLD",
+                "29.3345",
+                "34.8884",
+                "0",
+            ],
+        ]
+    )
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    assert result.summary.review_required_rows == 0
+    assert not any("OPEN_POSITION_TRADE_QTY_MISMATCH" in warning for warning in result.summary.warnings)
 
 def test_open_position_reconciliation_unmatched_open_position_symbol_triggers_review(tmp_path: Path) -> None:
     rows = _rows_for_open_position_check(

@@ -343,18 +343,36 @@ def _write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) ->
 
 
 def _write_tax_text(path: Path, *, tax_year: int, totals: AggregatedTotals) -> None:
-    lines = [
-        f"tax year: {tax_year}",
-        "",
-        "Приложение 5",
-        "Таблица 2",
-        f"- Продажна цена (EUR) - код 5082: {_fmt_decimal(totals.sale_price_eur, quant=DECIMAL_TWO)}",
-        f"  Цена на придобиване (EUR) - код 5082: {_fmt_decimal(totals.purchase_price_eur, quant=DECIMAL_TWO)}",
-        f"  Печалба (EUR) - код 5082: {_fmt_decimal(totals.profit_eur, quant=DECIMAL_TWO)}",
-        f"  Загуба (EUR) - код 5082: {_fmt_decimal(totals.loss_eur, quant=DECIMAL_TWO)}",
-        "Информативни",
-        f"- Нетен резултат (EUR): {_fmt_decimal(totals.net_result_eur, quant=DECIMAL_TWO)}",
-    ]
+    lines = [f"Данъчна година: {tax_year}"]
+    should_render_appendix = any(
+        value != ZERO
+        for value in (
+            totals.sale_price_eur,
+            totals.purchase_price_eur,
+            totals.profit_eur,
+            totals.loss_eur,
+            totals.net_result_eur,
+        )
+    )
+    if should_render_appendix:
+        lines.extend(
+            [
+                "",
+                "Приложение 5",
+                "Таблица 2",
+                f"- Продажна цена (EUR) - код 5082: {_fmt_decimal(totals.sale_price_eur, quant=DECIMAL_TWO)}",
+                f"  Цена на придобиване (EUR) - код 5082: {_fmt_decimal(totals.purchase_price_eur, quant=DECIMAL_TWO)}",
+                f"  Печалба (EUR) - код 5082: {_fmt_decimal(totals.profit_eur, quant=DECIMAL_TWO)}",
+                f"  Загуба (EUR) - код 5082: {_fmt_decimal(totals.loss_eur, quant=DECIMAL_TWO)}",
+            ]
+        )
+        if totals.net_result_eur != ZERO:
+            lines.extend(
+                [
+                    "Информативни",
+                    f"- Нетен резултат (EUR): {_fmt_decimal(totals.net_result_eur, quant=DECIMAL_TWO)}",
+                ]
+            )
     technical_lines = [
         "Audit Data",
         f"- profit_usd: {_fmt_decimal(totals.profit_usd)}",

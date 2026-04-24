@@ -104,13 +104,12 @@ def parse_lendermarket_pages(
 
     warnings: list[str] = []
     informational_messages: list[str] = []
-    if metrics.pending_payment_interest_eur != ZERO:
-        informational_messages.append(
-            "Lendermarket Pending Payment interest is excluded from Appendix 6 totals "
-            "until explicitly confirmed as taxable received income"
-        )
 
-    code_603_total = metrics.interest_eur + metrics.late_payment_fees_eur
+    code_603_total = (
+        metrics.interest_eur
+        + metrics.late_payment_fees_eur
+        + metrics.pending_payment_interest_eur
+    )
     if code_603_total < ZERO:
         raise P2PValidationError(
             f"invalid Lendermarket code_603_total: negative result ({code_603_total})"

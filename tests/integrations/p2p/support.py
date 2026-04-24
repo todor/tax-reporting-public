@@ -85,12 +85,3 @@ def write_text_pdf(path: Path, *, pages: list[list[str]]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes("".join(chunks).encode("latin-1"))
     return path
-
-
-SAMPLE_PDF_PATHS = {
-    "estateguru": Path("/Users/todor/Documents/tax/2025/tax-reports/Estateguru report.pdf"),
-    "lendermarket": Path("/Users/todor/Documents/tax/2025/tax-reports/Lendermarket-v2-Report 2025.pdf"),
-    "iuvo": Path("/Users/todor/Documents/tax/2025/tax-reports/Iuvo report.pdf"),
-    "robocash": Path("/Users/todor/Documents/tax/2025/tax-reports/Robocash report.pdf"),
-    "bondora_go_grow": Path("/Users/todor/Documents/tax/2025/tax-reports/Go & Grow report.pdf"),
-}

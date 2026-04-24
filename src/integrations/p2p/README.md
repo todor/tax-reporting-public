@@ -49,6 +49,10 @@ If `appendix_5` is requested, analyzers fail explicitly with a "not supported ye
 - `code 606`: bonuses and Appendix-6-classified non-interest add-ons.
 - Part III reports withholding tax when available in source data.
 
+Current provider-specific 603 nuance:
+
+- Lendermarket includes `Pending Payment interest` in `code 603` (together with `Interest` and `Late Payment Fees`).
+
 ## Input and output contract
 
 Input format is provider-specific (machine-generated PDFs), but all providers must produce the same normalized result and final declaration shape.
@@ -62,8 +66,10 @@ All P2P integrations should produce:
 - `Приложение 6 / Част I`
 - `Част II`
 - `Част III`
-- `Одитни данни`
-- `Бележки по обработката` (only when applicable)
+- `Информативни`
+- `Бележки по обработката` (when applicable)
+- `!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!` (when applicable)
+- `Technical Details` (English technical/audit details only)
 
 And should expose in normalized result:
 

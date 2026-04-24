@@ -1,8 +1,9 @@
 # Robocash P2P Analyzer
 
-Entry point:
+Entry point (user-facing):
 
-- `integrations.p2p.robocash.report_analyzer`
+- `PYTHONPATH=src pyenv exec python -m report_analyzer robocash ...`
+
 
 ## Overview
 
@@ -56,7 +57,7 @@ Hard fail:
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.p2p.robocash.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer robocash \
   --input "path/to/Robocash report.pdf" \
   --tax-year 2025
 ```

@@ -322,6 +322,35 @@ def test_empty_dataset_produces_zero_outputs(tmp_path: Path) -> None:
     assert summary["profit_eur"] == "0.00"
     detailed = _read_csv(result.detailed_csv_path)
     assert detailed == []
+    text = result.tax_text_path.read_text(encoding="utf-8")
+    assert "Приложение 5" not in text
+    assert "Информативни" not in text
+    assert TECHNICAL_DETAILS_SEPARATOR in text
+
+
+def test_tax_text_hides_zero_only_informative_block_when_net_result_is_zero(tmp_path: Path) -> None:
+    input_csv = tmp_path / "input.csv"
+    _write_csv(
+        input_csv,
+        [
+            _base_row(time="2025-01-01 00:00:00", operation="Fee", change="2"),
+            _base_row(time="2025-01-01 01:00:00", operation="Fee", change="-2"),
+        ],
+    )
+
+    result = analyzer.analyze_futures_pnl_report(
+        input_csv=input_csv,
+        tax_year=2025,
+        output_dir=tmp_path / "out",
+        eur_rate_provider=lambda _ts: Decimal("1"),
+    )
+
+    text = result.tax_text_path.read_text(encoding="utf-8")
+    assert "Приложение 5" in text
+    assert "Таблица 2" in text
+    assert "- Продажна цена (EUR) - код 5082: 2.00" in text
+    assert "  Цена на придобиване (EUR) - код 5082: 2.00" in text
+    assert "Информативни" not in text
 
 
 def test_cli_prints_status_and_output_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -394,7 +423,7 @@ def test_tax_text_groups_eur_usd_and_processing_sections(tmp_path: Path) -> None
     assert "  Загуба (EUR) - код 5082: 1.00" in text
     assert "Информативни" in text
     assert "- Нетен резултат (EUR): 1.00" in text
-    assert "tax year: 2025" in text
+    assert "Данъчна година: 2025" in text
     assert TECHNICAL_DETAILS_SEPARATOR in text
     assert "Audit Data" in text
     assert "- profit_usd:" in text

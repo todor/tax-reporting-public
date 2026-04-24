@@ -57,17 +57,147 @@ Run tests:
 pyenv exec pytest
 ```
 
-Run the entry point:
+Run the unified analyzer CLI:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m main list-integrations
-PYTHONPATH=src pyenv exec python -m main run --integration binance --year 2025 --input data/input.csv --output output
+PYTHONPATH=src pyenv exec python -m report_analyzer --help
+```
+
+Single analyzer mode:
+
+```bash
+PYTHONPATH=src pyenv exec python -m report_analyzer ibkr --input path/to/file.csv --tax-year 2025
+```
+
+Aggregate mode (auto-detect + aggregate declaration summary):
+
+```bash
+PYTHONPATH=src pyenv exec python -m report_analyzer \
+  --input-dir path/to/reports \
+  --tax-year 2025 \
+  --output-dir output
 ```
 
 Notes:
 
-- `python -m main list-integrations` lists available integrations.
-- `python -m main run ...` is a lightweight router that points to the dedicated analyzer CLIs below.
+- `report_analyzer` is the only user-facing analyzer CLI.
+- legacy module-level analyzer CLIs under `src/integrations/...` are kept only as internal wrappers for compatibility/tests.
+- use integration aliases (for example `ibkr`, `coinbase`, `kraken`, `finexify`, `afranga`) with `report_analyzer`; do not call `src/integrations/...` modules directly for normal usage.
+
+### Unified CLI Modes
+
+Single analyzer mode:
+
+```bash
+PYTHONPATH=src pyenv exec python -m report_analyzer <alias> \
+  --input <file> \
+  --tax-year 2025 \
+  --output-dir output/<alias>
+```
+
+Aggregate mode (auto-detect + run all + aggregate declaration summary):
+
+```bash
+PYTHONPATH=src pyenv exec python -m report_analyzer \
+  --input-dir <folder> \
+  --tax-year 2025 \
+  --output-dir output
+```
+
+Auto-detection notes:
+
+- file stem is tokenized by non-alphanumeric separators and lower-cased
+- analyzer detection rules are token-set based (case-insensitive)
+- example: `Binance_REPORT...PNL.csv` matches Binance futures detection tokens
+- if multiple files match the same analyzer alias, all are processed and accumulated in aggregate mode
+
+Aggregate filename conventions (so files auto-detect without `--analyzer-input`):
+
+- `ibkr` (`.csv`): filename contains `ibkr`, or both `interactive` and `brokers`
+- `binance_futures` (`.csv`): filename contains:
+  - `binance` + `report` + `pnl`, or
+  - `binance` + `futures`
+- `coinbase` (`.csv`): filename contains `coinbase`
+- `kraken` (`.csv`): filename contains `kraken`
+- `finexify` (`.csv`): filename contains `finexify`
+- `afranga` (`.pdf`): filename contains `afranga`
+- `estateguru` (`.pdf`): filename contains `estateguru`
+- `lendermarket` (`.pdf`): filename contains `lendermarket`
+- `iuvo` (`.pdf`): filename contains `iuvo`
+- `robocash` (`.pdf`): filename contains `robocash`
+- `bondora_go_grow` (`.pdf`): filename contains:
+  - `bondora`, or
+  - `go` + `grow`, or
+  - `go` + `and` + `grow`
+
+Practical naming examples:
+
+- `IBKR Activity Statement 2025.csv`
+- `Binance Report PnL.csv`
+- `Coinbase Report - since inception.csv`
+- `Kraken Report - since inception.csv`
+- `Finexify report 2025.csv`
+- `Afranga report.pdf`
+- `Estateguru report.pdf`
+- `Lendermarket-v2-Report 2025.pdf`
+- `Iuvo report.pdf`
+- `Robocash report.pdf`
+- `Go & Grow report.pdf`
+
+Important detection constraints:
+
+- extension must match analyzer expectations (`.csv` or `.pdf` above)
+- multiple files per analyzer are supported and are processed cumulatively in aggregate mode
+- if naming is non-standard, use `--analyzer-input alias=path` overrides
+
+Aggregate mode global options:
+
+- `--input-dir`
+- `--include-pattern` (optional glob)
+- `--analyzer-input alias=path` (repeatable override, including repeated same alias for multiple files)
+- `--tax-year`
+- `--output-dir`
+- `--cache-dir` (shared FX cache override for all analyzers that use FX services)
+- `--log-level`
+- `--clean-output`
+
+`--include-pattern` uses standard glob matching (via `fnmatch`):
+
+- `*.csv` -> only CSV files
+- `*report*.pdf` -> PDFs containing `report`
+- to match literal `[` and `]` in filenames, escape them in glob form:
+  - `*[[]tax-analyzer[]]*`
+  - example:
+    - `--include-pattern "*[[]tax-analyzer[]]*"`
+
+Group/analyzer override options:
+
+- `--p2p-secondary-market-mode`
+- `--afranga-secondary-market-mode`
+- `--estateguru-secondary-market-mode`
+- `--lendermarket-secondary-market-mode`
+- `--iuvo-secondary-market-mode`
+- `--robocash-secondary-market-mode`
+- `--bondora-go-grow-secondary-market-mode`
+- `--ibkr-tax-exempt-mode`
+- `--ibkr-eu-regulated-exchange` (repeatable and supports comma-separated values)
+- `--ibkr-closed-world`
+- `--ibkr-report-alias`
+- `--coinbase-opening-state-json`
+- `--kraken-opening-state-json`
+- `--finexify-opening-state-json`
+
+Naming rule:
+
+- single-analyzer mode uses base flags (for example `--opening-state-json`)
+- aggregate mode auto-prefixes analyzer-scoped flags with alias (for example `--coinbase-opening-state-json`)
+
+Aggregate output:
+
+- per-analyzer subfolders under `<output-dir>/<alias>/...`
+- `aggregated_tax_report_<tax_year>.txt` at `<output-dir>/`
+- aggregate TXT starts with a top status banner (`OK` / `WARNING` / `NEEDS_REVIEW` / `ERROR`)
+- output file paths inside aggregate TXT are rendered as URL-encoded `file://` links for clickability in terminals/editors that support file URIs
 
 ## BNB FX (`services.bnb_fx`)
 
@@ -192,7 +322,8 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 
 ## Current Structure
 
-- `src/main.py`: single CLI entry point
+- `src/report_analyzer.py`: unified analyzer CLI (single and aggregate modes)
+- `src/main.py`: backwards-compatible wrapper delegating to unified CLI
 - `src/config.py`: central project paths
 - `src/logging_config.py`: minimal logging setup
 - `src/integrations/`: integration packages (`crypto`, `fund`, `p2p`, `ibkr`)
@@ -209,6 +340,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/integrations/p2p/iuvo/`: Iuvo PDF parser and orchestrator
 - `src/integrations/p2p/robocash/`: Robocash PDF parser and orchestrator
 - `src/integrations/p2p/bondora_go_grow/`: Bondora Go & Grow PDF parser and orchestrator
+- `src/integrations/shared/`: analyzer registration contracts, autodetect, and aggregate reporting
 - `src/integrations/ibkr/activity_statement_analyzer.py`: IBKR analyzer facade/orchestrator
 - `src/integrations/ibkr/sections/`: IBKR business/source processing modules (`trades`, `interest`, `dividends`, `tax_withholding`, `open_positions`, `instruments`, etc.)
 - `src/integrations/ibkr/appendices/`: IBKR declaration shaping/output modules
@@ -228,6 +360,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `tests/integrations/fund/`: shared and Finexify fund analyzer tests
 - `tests/integrations/p2p/`: shared + platform-specific P2P analyzer tests
 - `tests/integrations/ibkr/`: IBKR tests (organized by `sections/` and `appendices/`)
+- `tests/integrations/shared/`: unified CLI/shared registry and discovery tests
 - `output/`: output directory kept in git via `.gitkeep`
   Default analyzer outputs are written under this repo folder (for example `output/binance/futures/`).
 
@@ -265,7 +398,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 Pure realized-cashflow analyzer (no FIFO/carryover), based on Binance Futures PnL / Transaction History CSV:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.crypto.binance.futures_pnl_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer binance_futures \
   --input path/to/binance_futures_pnl.csv \
   --tax-year 2025
 ```
@@ -273,7 +406,7 @@ PYTHONPATH=src pyenv exec python -m integrations.crypto.binance.futures_pnl_anal
 ### IBKR activity statement analyzer
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
   --tax-exempt-mode listed_symbol \
@@ -283,7 +416,7 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
 Optional venue override inputs (activates closed-world venue classification for this run):
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
   --tax-exempt-mode execution_exchange \
@@ -294,7 +427,7 @@ PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyze
 Closed-world without adding extra regulated exchanges:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.ibkr.activity_statement_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
   --tax-exempt-mode execution_exchange \
@@ -310,13 +443,13 @@ IBKR appendix credit math note:
   - open-world mode (default): unmapped venues stay review-worthy
   - closed-world mode (activated by `--eu-regulated-exchange` or `--closed-world`): built-in EU regulated + CLI overrides become the effective regulated universe for this run
   - in closed-world mode, readable normalized venues are forced to non-regulated classification unless explicitly regulated (only invalid/garbled values remain review-worthy)
-- IBKR declaration output includes `Одитни данни` with encountered venue categories and active classification mode.
+- IBKR declaration output includes `Audit Data` with encountered venue categories and active classification mode.
 - In `listed_symbol` mode, execution exchange is documented once as a global informational note (no per-row informational noise).
 
 ### Coinbase report analyzer
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
   --input "path/to/Coinbase Report - since inception.csv" \
   --tax-year 2025
 ```
@@ -324,7 +457,7 @@ PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer
 ### Finexify fund analyzer
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.fund.finexify.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer finexify \
   --input "path/to/finexify.csv" \
   --tax-year 2025
 ```
@@ -332,7 +465,7 @@ PYTHONPATH=src pyenv exec python -m integrations.fund.finexify.report_analyzer \
 ### Afranga P2P analyzer
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.p2p.afranga.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer afranga \
   --input "path/to/afranga_statement.pdf" \
   --tax-year 2025
 ```
@@ -347,7 +480,7 @@ Notes:
 Estateguru:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.p2p.estateguru.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer estateguru \
   --input "path/to/Estateguru report.pdf" \
   --tax-year 2025
 ```
@@ -355,7 +488,7 @@ PYTHONPATH=src pyenv exec python -m integrations.p2p.estateguru.report_analyzer 
 Lendermarket:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.p2p.lendermarket.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer lendermarket \
   --input "path/to/Lendermarket report.pdf" \
   --tax-year 2025
 ```
@@ -363,7 +496,7 @@ PYTHONPATH=src pyenv exec python -m integrations.p2p.lendermarket.report_analyze
 Iuvo:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.p2p.iuvo.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer iuvo \
   --input "path/to/Iuvo report.pdf" \
   --tax-year 2025
 ```
@@ -371,7 +504,7 @@ PYTHONPATH=src pyenv exec python -m integrations.p2p.iuvo.report_analyzer \
 Robocash:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.p2p.robocash.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer robocash \
   --input "path/to/Robocash report.pdf" \
   --tax-year 2025
 ```
@@ -379,15 +512,23 @@ PYTHONPATH=src pyenv exec python -m integrations.p2p.robocash.report_analyzer \
 Bondora Go & Grow:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.p2p.bondora_go_grow.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer bondora_go_grow \
   --input "path/to/Go & Grow report.pdf" \
   --tax-year 2025
 ```
 
+P2P tax-mapping quick reference:
+
+- Estateguru: `code 603 = Interest + Penalty + Indemnity`; `code 606 = positive(Bonus (Borrower)) + positive(Bonus (EG)) + positive(Secondary market profit/loss)`
+- Lendermarket: `code 603 = Interest + Late Payment Fees + Pending Payment interest`; `code 606 = Campaign rewards and bonuses` (non-negative only)
+- Iuvo: `code 603 = Interest income + Late fees + Interest income iuvoSAVE`; `code 606 = positive(Campaign rewards) + positive(secondary-market aggregate)`
+- Robocash: `code 603 = Earned interest`; `code 606 = positive(Earned income from bonuses)`
+- Bondora Go & Grow: `code 603 = Interest Accrued`; `code 606 = positive(Bonus income received on Bondora account)`
+
 Optional:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
   --input "path/to/Coinbase Report - since inception.csv" \
   --tax-year 2025 \
   --output-dir output/coinbase \
@@ -397,7 +538,7 @@ PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer
 Incremental mode (previous year state + current year operations only):
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
   --input "path/to/Coinbase Report - 2025-only.csv" \
   --tax-year 2025 \
   --opening-state-json output/coinbase/coinbase_report_since_inception_state_end_2024.json \
@@ -408,7 +549,7 @@ PYTHONPATH=src pyenv exec python -m integrations.crypto.coinbase.report_analyzer
 ### Kraken report analyzer
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.crypto.kraken.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer kraken \
   --input "path/to/kraken_ledger.csv" \
   --tax-year 2025
 ```
@@ -416,7 +557,7 @@ PYTHONPATH=src pyenv exec python -m integrations.crypto.kraken.report_analyzer \
 Incremental mode (previous year state + current year operations only):
 
 ```bash
-PYTHONPATH=src pyenv exec python -m integrations.crypto.kraken.report_analyzer \
+PYTHONPATH=src pyenv exec python -m report_analyzer kraken \
   --input "path/to/kraken_ledger_2026.csv" \
   --tax-year 2026 \
   --opening-state-json output/kraken/kraken_report_since_inception_state_end_2025.json \

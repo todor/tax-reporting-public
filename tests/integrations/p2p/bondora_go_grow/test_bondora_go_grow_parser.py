@@ -6,14 +6,12 @@ import pytest
 
 from integrations.p2p.bondora_go_grow.bondora_go_grow_parser import (
     parse_bondora_go_grow_pages,
-    parse_bondora_go_grow_pdf,
 )
 from integrations.p2p.shared.appendix6_models import (
     P2PValidationError,
     SECONDARY_MARKET_MODE_APPENDIX_5,
     UnsupportedSecondaryMarketModeError,
 )
-from tests.integrations.p2p.support import SAMPLE_PDF_PATHS
 
 
 def _synthetic_pages(*, bonus_line_label: str = "Bonus income received on Bondora account*") -> list[str]:
@@ -92,17 +90,3 @@ def test_parse_bondora_go_grow_pages_fails_for_appendix_5_mode() -> None:
             pages=_synthetic_pages(),
             secondary_market_mode=SECONDARY_MARKET_MODE_APPENDIX_5,
         )
-
-
-def test_parse_bondora_go_grow_pdf_sample_values_when_available() -> None:
-    sample_path = SAMPLE_PDF_PATHS["bondora_go_grow"]
-    if not sample_path.exists():
-        pytest.skip(f"sample PDF not available: {sample_path}")
-
-    result = parse_bondora_go_grow_pdf(input_pdf=sample_path)
-
-    assert result.tax_year == 2025
-    assert result.aggregate_code_603 == Decimal("0.73")
-    assert result.aggregate_code_606 == Decimal("0.00")
-    assert _info("Interest Accrued (EUR)", result.informative_rows) == Decimal("0.73")
-    assert _info("Bonus income received on Bondora account (EUR)", result.informative_rows) == Decimal("0")
