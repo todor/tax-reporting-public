@@ -226,12 +226,13 @@ Stdout is intentionally concise and prints only:
 - `Информативни`
 - `Таблица 2` rows:
 - `данъчна година`
-- `Продажна цена (EUR) - код 5082`
-- `Цена на придобиване (EUR) - код 5082`
-- `Печалба (EUR) - код 5082`
-- `Загуба (EUR) - код 5082`
+- `Код 5082`
+- `Продажна цена: <amount> EUR`
+- `Цена на придобиване: <amount> EUR`
+- `Печалба: <amount> EUR`
+- `Загуба: <amount> EUR`
 - `Информативни` includes:
-- `Нетен резултат (EUR)`
+- `Нетен резултат: <amount> EUR`
 - Includes USD totals and processing counters.
 
 `futures_pnl_summary_<year>.json`

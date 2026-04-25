@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from .common import Money, format_money, is_zero_money
+from .common import Money, is_zero_money, render_money_line
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,11 +64,13 @@ def render_appendix6(data: Appendix6RenderData) -> list[str]:
             lines.append(f"  ЕИК: {row.payer_eik or '-'}")
             lines.append(f"  Наименование: {row.payer_name}")
             lines.append(f"  Код: {row.code}")
-            lines.append(f"  Размер на дохода: {format_money(row.amount)}")
+            lines.append(render_money_line("  Размер на дохода", row.amount))
         for code_total in data.part1_code_totals:
             if is_zero_money(code_total.amount):
                 continue
-            lines.append(f"- Обща сума на доходите с код {code_total.code}: {format_money(code_total.amount)}")
+            lines.append(
+                render_money_line(f"- Обща сума на доходите с код {code_total.code}", code_total.amount)
+            )
 
     if has_part2:
         if lines:
@@ -77,16 +79,13 @@ def render_appendix6(data: Appendix6RenderData) -> list[str]:
         for taxable in data.part2_taxable_totals:
             if is_zero_money(taxable.amount):
                 continue
-            lines.append(f"- Облагаем доход по чл. 35, код {taxable.code}: {format_money(taxable.amount)}")
+            lines.append(render_money_line(f"- Облагаем доход по чл. 35, код {taxable.code}", taxable.amount))
 
     if has_part3:
         if lines:
             lines.append("")
         lines.append("Част III")
-        lines.append(
-            "- Удържан и/или внесен окончателен данък за доходи: "
-            f"{format_money(data.part3_withheld_tax)}"
-        )
+        lines.append(render_money_line("- Удържан и/или внесен окончателен данък за доходи", data.part3_withheld_tax))
 
     return lines
 

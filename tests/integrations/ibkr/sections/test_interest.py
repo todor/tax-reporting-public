@@ -335,6 +335,6 @@ def test_appendix_6_includes_lieu_with_interest_contributors(tmp_path: Path) -> 
     assert result.summary.appendix_6_lieu_received_eur == Decimal("5")
     assert result.summary.appendix_6_code_603_eur == Decimal("15")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert "Подател: Credit Interest (EUR): 10.00" in text
-    assert "Подател: Lieu Received (EUR): 5.00" in text
-    assert "Обща сума на доходите с код 603: 15.00" in text
+    assert "Подател: Credit Interest: 10.00 EUR" in text
+    assert "Подател: Lieu Received: 5.00 EUR" in text
+    assert "Обща сума на доходите с код 603: 15.00 EUR" in text

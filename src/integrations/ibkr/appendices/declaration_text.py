@@ -27,7 +27,7 @@ from integrations.shared.rendering.appendix9 import (
     Appendix9Part2Row,
     render_appendix9_part2,
 )
-from integrations.shared.rendering.common import Money
+from integrations.shared.rendering.common import Money, render_money_line
 
 from ..constants import (
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
@@ -272,10 +272,34 @@ def _append_appendix6_section(lines: list[str], *, summary: AnalysisSummary) -> 
         )
     ):
         lines.append("Информативни")
-        lines.append(f"- Подател: Credit Interest (EUR): {_fmt(summary.appendix_6_credit_interest_eur, quant=DECIMAL_TWO)}")
-        lines.append(f"- Подател: IBKR Managed Securities (SYEP) Interest (EUR): {_fmt(summary.appendix_6_syep_interest_eur, quant=DECIMAL_TWO)}")
-        lines.append(f"- Подател: Other taxable (Review override) (EUR): {_fmt(summary.appendix_6_other_taxable_eur, quant=DECIMAL_TWO)}")
-        lines.append(f"- Подател: Lieu Received (EUR): {_fmt(summary.appendix_6_lieu_received_eur, quant=DECIMAL_TWO)}")
+        lines.append(
+            render_money_line(
+                "- Подател: Credit Interest",
+                Money(summary.appendix_6_credit_interest_eur, "EUR"),
+                quant=DECIMAL_TWO,
+            )
+        )
+        lines.append(
+            render_money_line(
+                "- Подател: IBKR Managed Securities (SYEP) Interest",
+                Money(summary.appendix_6_syep_interest_eur, "EUR"),
+                quant=DECIMAL_TWO,
+            )
+        )
+        lines.append(
+            render_money_line(
+                "- Подател: Other taxable (Review override)",
+                Money(summary.appendix_6_other_taxable_eur, "EUR"),
+                quant=DECIMAL_TWO,
+            )
+        )
+        lines.append(
+            render_money_line(
+                "- Подател: Lieu Received",
+                Money(summary.appendix_6_lieu_received_eur, "EUR"),
+                quant=DECIMAL_TWO,
+            )
+        )
     if summary.interest_unknown_rows > 0:
         lines.append("- НУЖЕН Е ПРЕГЛЕД: открити са непознати видове лихви")
         lines.append(f"- брой непознати редове: {summary.interest_unknown_rows}")
@@ -387,11 +411,17 @@ def _append_review_section(lines: list[str], *, summary: AnalysisSummary) -> Non
     review = summary.review
     lines.append("РЪЧНА ПРОВЕРКА (ИЗКЛЮЧЕНИ ОТ АВТОМАТИЧНИТЕ ТАБЛИЦИ)")
     lines.append(f"- изключени записи: {summary.review_rows}")
-    lines.append(f"- продажна цена (EUR): {_fmt(review.sale_price_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- цена на придобиване (EUR): {_fmt(review.purchase_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- печалба (EUR): {_fmt(review.wins_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- загуба (EUR): {_fmt(review.losses_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"- нетен резултат (EUR): {_fmt(review.wins_eur - review.losses_eur, quant=DECIMAL_TWO)}")
+    lines.append(render_money_line("- продажна цена", Money(review.sale_price_eur, "EUR"), quant=DECIMAL_TWO))
+    lines.append(render_money_line("- цена на придобиване", Money(review.purchase_eur, "EUR"), quant=DECIMAL_TWO))
+    lines.append(render_money_line("- печалба", Money(review.wins_eur, "EUR"), quant=DECIMAL_TWO))
+    lines.append(render_money_line("- загуба", Money(review.losses_eur, "EUR"), quant=DECIMAL_TWO))
+    lines.append(
+        render_money_line(
+            "- нетен резултат",
+            Money(review.wins_eur - review.losses_eur, "EUR"),
+            quant=DECIMAL_TWO,
+        )
+    )
     lines.append("")
     for entry in summary.review_entries:
         lines.append(
@@ -423,7 +453,13 @@ def _append_forex_section(lines: list[str], *, summary: AnalysisSummary) -> None
     lines.append(f"- брой Forex записи (общо): {summary.forex_ignored_rows}")
     lines.append(f"- брой Forex записи с NON-TAXABLE: {summary.forex_non_taxable_ignored_rows}")
     lines.append(f"- брой Forex записи с изисквана ръчна проверка: {summary.forex_review_required_rows}")
-    lines.append(f"- общ обем (EUR): {_fmt(summary.forex_ignored_abs_proceeds_eur, quant=DECIMAL_TWO)}")
+    lines.append(
+        render_money_line(
+            "- общ обем",
+            Money(summary.forex_ignored_abs_proceeds_eur, "EUR"),
+            quant=DECIMAL_TWO,
+        )
+    )
     lines.append("")
 
 

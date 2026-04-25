@@ -11,7 +11,7 @@ from integrations.shared.rendering.appendix6 import (
     Appendix6RenderData,
     render_appendix6,
 )
-from integrations.shared.rendering.common import Money
+from integrations.shared.rendering.common import Money, format_money
 
 from .appendix6_models import P2PAppendix6Result
 
@@ -54,51 +54,58 @@ def _has_nonempty_informative_rows(result: P2PAppendix6Result) -> bool:
 _INFO_LABEL_BG: dict[str, str] = {
     "Reporting year": "Отчетна година",
     "Statement period": "Период на извлечението",
-    "Income from interest received (EUR)": "Получен доход от лихви (EUR)",
-    "Income from late interest received (EUR)": "Получен доход от просрочени лихви (EUR)",
-    "Bonuses (EUR)": "Бонуси (EUR)",
-    "Income/loss from secondary market discount/premium (EUR)": "Доход/загуба от вторичен пазар (дисконт/премия) (EUR)",
-    "Net Sum from Appendix (EUR)": "Нетна сума от приложението (EUR)",
-    "Total WHT from Appendix (EUR)": "Общо удържан данък (WHT) от приложението (EUR)",
+    "Income from interest received": "Получен доход от лихви",
+    "Income from late interest received": "Получен доход от просрочени лихви",
+    "Bonuses": "Бонуси",
+    "Income/loss from secondary market discount/premium": "Доход/загуба от вторичен пазар (дисконт/премия)",
+    "Net Sum from Appendix": "Нетна сума от приложението",
+    "Total WHT from Appendix": "Общо удържан данък (WHT) от приложението",
     "Secondary-market mode used": "Използван режим за вторичен пазар",
-    "Interest (EUR)": "Лихва (EUR)",
-    "Bonus (Borrower) (EUR)": "Бонус (Borrower) (EUR)",
-    "Penalty (EUR)": "Неустойка (EUR)",
-    "Indemnity (EUR)": "Обезщетение (EUR)",
-    "Bonus (EG) (EUR)": "Бонус (EG) (EUR)",
-    "Secondary market profit/loss (EUR)": "Печалба/загуба от вторичен пазар (EUR)",
-    "Sale fee (EUR)": "Такса продажба (EUR)",
-    "AUM fee (EUR)": "AUM такса (EUR)",
-    "Total (EUR)": "Общо (EUR)",
-    "Payments Received (EUR)": "Получени плащания (EUR)",
-    "Principal Amount (EUR)": "Главница (EUR)",
-    "Late Payment Fees (EUR)": "Такси за просрочено плащане (EUR)",
-    "Pending Payment interest (EUR)": "Лихва по чакащо плащане (EUR)",
-    "Campaign rewards and bonuses (EUR)": "Кампанийни награди и бонуси (EUR)",
-    "Interest income (EUR)": "Лихвен доход (EUR)",
-    "Late fees (EUR)": "Такси за просрочие (EUR)",
-    "Secondary market gains (EUR)": "Печалби от вторичен пазар (EUR)",
-    "Campaign rewards (EUR)": "Кампанийни награди (EUR)",
-    "Interest income iuvoSAVE (EUR)": "Лихвен доход iuvoSAVE (EUR)",
-    "Secondary market fees (EUR)": "Такси вторичен пазар (EUR)",
-    "Secondary market losses (EUR)": "Загуби от вторичен пазар (EUR)",
-    "Secondary market aggregate used for code 606 (EUR)": "Агрегиран резултат от вторичен пазар, използван за код 606 (EUR)",
-    "Early withdraw fees iuvoSAVE (EUR)": "Такси за ранно теглене iuvoSAVE (EUR)",
-    "Earned interest (EUR)": "Получена лихва (EUR)",
-    "Earned income from bonuses (EUR)": "Получен доход от бонуси (EUR)",
-    "Taxes withheld (EUR)": "Удържани данъци (EUR)",
-    "Capital invested (EUR)": "Инвестиран капитал (EUR)",
-    "Capital withdrawn (EUR)": "Изтеглен капитал (EUR)",
-    "Withdrawal fees (EUR)": "Такси за теглене (EUR)",
-    "Profit realized (EUR)": "Реализирана печалба (EUR)",
-    "Interest Accrued (EUR)": "Начислена лихва (EUR)",
-    "Net profit (EUR)": "Нетна печалба (EUR)",
-    "Bonus income received on Bondora account (EUR)": "Получен бонус доход по Bondora сметка (EUR)",
+    "Interest": "Лихва",
+    "Bonus (Borrower)": "Бонус (Borrower)",
+    "Penalty": "Неустойка",
+    "Indemnity": "Обезщетение",
+    "Bonus (EG)": "Бонус (EG)",
+    "Secondary market profit/loss": "Печалба/загуба от вторичен пазар",
+    "Sale fee": "Такса продажба",
+    "AUM fee": "AUM такса",
+    "Total": "Общо",
+    "Payments Received": "Получени плащания",
+    "Principal Amount": "Главница",
+    "Late Payment Fees": "Такси за просрочено плащане",
+    "Pending Payment interest": "Лихва по чакащо плащане",
+    "Campaign rewards and bonuses": "Кампанийни награди и бонуси",
+    "Interest income": "Лихвен доход",
+    "Late fees": "Такси за просрочие",
+    "Secondary market gains": "Печалби от вторичен пазар",
+    "Campaign rewards": "Кампанийни награди",
+    "Interest income iuvoSAVE": "Лихвен доход iuvoSAVE",
+    "Secondary market fees": "Такси вторичен пазар",
+    "Secondary market losses": "Загуби от вторичен пазар",
+    "Secondary market aggregate used for code 606": "Агрегиран резултат от вторичен пазар, използван за код 606",
+    "Early withdraw fees iuvoSAVE": "Такси за ранно теглене iuvoSAVE",
+    "Earned interest": "Получена лихва",
+    "Earned income from bonuses": "Получен доход от бонуси",
+    "Taxes withheld": "Удържани данъци",
+    "Capital invested": "Инвестиран капитал",
+    "Capital withdrawn": "Изтеглен капитал",
+    "Withdrawal fees": "Такси за теглене",
+    "Profit realized": "Реализирана печалба",
+    "Interest Accrued": "Начислена лихва",
+    "Net profit": "Нетна печалба",
+    "Bonus income received on Bondora account": "Получен бонус доход по Bondora сметка",
 }
 
 
 def _translate_info_label_bg(label: str) -> str:
     return _INFO_LABEL_BG.get(label, label)
+
+
+def _split_label_and_currency(label: str) -> tuple[str, str | None]:
+    match = re.match(r"^(?P<base>.+?)\s*\((?P<currency>[A-Z]{3})\)$", label.strip())
+    if match:
+        return match.group("base").strip(), match.group("currency")
+    return label.strip(), None
 
 
 def _translate_tax_message_bg(message: str) -> str | None:
@@ -171,8 +178,12 @@ def build_appendix6_text(*, result: P2PAppendix6Result) -> str:
         for info in result.informative_rows:
             if _is_informative_value_empty_or_zero(info.value):
                 continue
-            label = _translate_info_label_bg(info.label)
-            lines.append(f"- {label}: {_fmt_informative_value(info.value)}")
+            base_label, currency = _split_label_and_currency(info.label)
+            translated_label = _translate_info_label_bg(base_label)
+            if isinstance(info.value, Decimal) and currency is not None:
+                lines.append(f"- {translated_label}: {format_money(Money(info.value, currency))}")
+            else:
+                lines.append(f"- {translated_label}: {_fmt_informative_value(info.value)}")
 
     has_tax_notes = bool(result.warnings or result.informational_messages)
     if has_tax_notes:

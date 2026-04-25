@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .common import Money, format_money, is_zero_money
+from .common import Money, is_zero_money, render_money_line
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,17 +43,17 @@ def render_appendix5_table2(entries: list[Appendix5Table2Entry]) -> list[str]:
         if idx > 0:
             lines.append("")
         code = entry.code or "-"
-        lines.append(f"- Продажна цена (EUR) - код {code}: {format_money(entry.sale_value)}")
-        lines.append(f"  Цена на придобиване (EUR) - код {code}: {format_money(entry.acquisition_value)}")
-        lines.append(f"  Печалба (EUR) - код {code}: {format_money(entry.profit)}")
-        lines.append(f"  Загуба (EUR) - код {code}: {format_money(entry.loss)}")
+        lines.append(f"- Код {code}")
+        lines.append(render_money_line("  Продажна цена", entry.sale_value))
+        lines.append(render_money_line("  Цена на придобиване", entry.acquisition_value))
+        lines.append(render_money_line("  Печалба", entry.profit))
+        lines.append(render_money_line("  Загуба", entry.loss))
         if _should_render_informative(entry):
             lines.append("")
             lines.append("  Информативни")
-            lines.append(f"  - Нетен резултат (EUR): {format_money(entry.net_result)}")
+            lines.append(render_money_line("  - Нетен резултат", entry.net_result))
             lines.append(f"  - Брой сделки: {entry.trade_count}")
     return lines
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]
-

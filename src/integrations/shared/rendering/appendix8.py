@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .common import Money, format_money, is_zero_money
+from .common import Money, is_zero_money, render_money_line
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,12 +73,8 @@ def render_appendix8(data: Appendix8RenderData) -> list[str]:
             lines.append(f"  Брой: {row.quantity}")
             if row.acquisition_date is not None:
                 lines.append(f"  Дата и година на придобиване: {row.acquisition_date}")
-            lines.append(
-                f"  Обща цена на придобиване в съответната валута "
-                f"({row.native_currency_label or '-'}): "
-                f"{format_money(row.acquisition_native)}"
-            )
-            lines.append(f"  В EUR: {format_money(row.acquisition_eur)}")
+            lines.append(render_money_line("  Обща цена на придобиване в съответната валута", row.acquisition_native))
+            lines.append(render_money_line("  В EUR", row.acquisition_eur))
             lines.append("")
         for note in data.part1_notes:
             lines.append(note)
@@ -107,16 +103,15 @@ def render_appendix8(data: Appendix8RenderData) -> list[str]:
                 "  Код за прилагане на метод за избягване на двойното данъчно облагане: "
                 f"{row.treaty_method}"
             )
-            lines.append(f"  Брутен размер на дохода: {format_money(row.gross_income)}")
+            lines.append(render_money_line("  Брутен размер на дохода", row.gross_income))
             lines.append("  Документално доказана цена на придобиване: ")
-            lines.append(f"  Платен данък в чужбина: {format_money(row.foreign_tax)}")
-            lines.append(f"  Допустим размер на данъчния кредит: {format_money(row.allowable_credit)}")
-            lines.append(f"  Размер на признатия данъчен кредит: {format_money(row.recognized_credit)}")
-            lines.append(f"  Дължим данък, подлежащ на внасяне: {format_money(row.tax_due)}")
+            lines.append(render_money_line("  Платен данък в чужбина", row.foreign_tax))
+            lines.append(render_money_line("  Допустим размер на данъчния кредит", row.allowable_credit))
+            lines.append(render_money_line("  Размер на признатия данъчен кредит", row.recognized_credit))
+            lines.append(render_money_line("  Дължим данък, подлежащ на внасяне", row.tax_due))
             lines.append("")
 
     return lines
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]
-

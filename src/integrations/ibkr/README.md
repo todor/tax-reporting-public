@@ -705,7 +705,7 @@ The declaration text includes:
   - `execution_exchange` mode: listing venues are always included; execution venues are included only for rows where listing is `EU_REGULATED` or `UNMAPPED`
   - execution-mode discovery exception: when listing is invalid/missing but execution is readable, execution is still surfaced in audit buckets for transparency (tax routing remains review-required)
 
-`нетен резултат (EUR)` is reported as `печалба - загуба`.
+`нетен резултат: <amount> EUR` is reported as `печалба - загуба`.
 
 ## Sanity Check Gate
 

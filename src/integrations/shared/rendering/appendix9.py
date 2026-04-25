@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 
-from .common import Money, format_money, is_zero_money
+from .common import Money, is_zero_money, render_money_line
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +16,9 @@ class Appendix9Part2Row:
     allowable_credit: Money
     recognized_credit: Money
     document_ref: str
+
+
+ZERO_EUR = Money(Decimal("0"), "EUR")
 
 
 def _has_row_data(row: Appendix9Part2Row) -> bool:
@@ -39,16 +43,13 @@ def render_appendix9_part2(rows: list[Appendix9Part2Row]) -> list[str]:
     for row in reportable:
         lines.append(f"- Държава: {row.country}")
         lines.append(f"  Код вид доход: {row.code}")
-        lines.append(
-            "  Брутен размер на дохода (включително платеният данък): "
-            f"{format_money(row.gross_income)}"
-        )
-        lines.append("  Нормативно определени разходи: 0")
-        lines.append("  Задължителни осигурителни вноски: 0")
-        lines.append(f"  Годишна данъчна основа: {format_money(row.tax_base)}")
-        lines.append(f"  Платен данък в чужбина: {format_money(row.foreign_tax)}")
-        lines.append(f"  Допустим размер на данъчния кредит: {format_money(row.allowable_credit)}")
-        lines.append(f"  Размер на признатия данъчен кредит: {format_money(row.recognized_credit)}")
+        lines.append(render_money_line("  Брутен размер на дохода (включително платеният данък)", row.gross_income))
+        lines.append(render_money_line("  Нормативно определени разходи", ZERO_EUR))
+        lines.append(render_money_line("  Задължителни осигурителни вноски", ZERO_EUR))
+        lines.append(render_money_line("  Годишна данъчна основа", row.tax_base))
+        lines.append(render_money_line("  Платен данък в чужбина", row.foreign_tax))
+        lines.append(render_money_line("  Допустим размер на данъчния кредит", row.allowable_credit))
+        lines.append(render_money_line("  Размер на признатия данъчен кредит", row.recognized_credit))
         lines.append(
             "  № и дата на документа за дохода и съответния данък: "
             f"{row.document_ref or '-'}"
@@ -58,4 +59,3 @@ def render_appendix9_part2(rows: list[Appendix9Part2Row]) -> list[str]:
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]
-

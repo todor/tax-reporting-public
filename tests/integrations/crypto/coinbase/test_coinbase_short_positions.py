@@ -488,8 +488,9 @@ def test_end_to_end_short_scenario_totals_and_text(tmp_path: Path) -> None:
     assert app5.rows == 2
 
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert "- Продажна цена (EUR) - код 5082: 100.00" in text
-    assert "  Цена на придобиване (EUR) - код 5082: 102.00" in text
-    assert "  Печалба (EUR) - код 5082: 10.00" in text
-    assert "  Загуба (EUR) - код 5082: 12.00" in text
-    assert "- Нетен резултат (EUR): -2.00" in text
+    assert "- Код 5082" in text
+    assert "  Продажна цена: 100.00 EUR" in text
+    assert "  Цена на придобиване: 102.00 EUR" in text
+    assert "  Печалба: 10.00 EUR" in text
+    assert "  Загуба: 12.00 EUR" in text
+    assert "- Нетен резултат: -2.00 EUR" in text

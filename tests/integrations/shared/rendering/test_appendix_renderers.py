@@ -18,7 +18,14 @@ from integrations.shared.rendering.appendix8 import (
     render_appendix8,
 )
 from integrations.shared.rendering.appendix9 import Appendix9Part2Row, render_appendix9_part2
-from integrations.shared.rendering.common import Money
+from integrations.shared.rendering.common import Money, format_money
+
+
+def test_format_money_values() -> None:
+    assert format_money(Money(Decimal("123.456"), "EUR")) == "123.46 EUR"
+    assert format_money(Money(Decimal("-12.3"), "EUR")) == "-12.30 EUR"
+    assert format_money(Money(Decimal("0"), "EUR")) == "0.00 EUR"
+    assert format_money(Money(Decimal("15.5"), "USD")) == "15.50 USD"
 
 
 def test_render_appendix5_table2_suppresses_zero_only_entries() -> None:
@@ -64,8 +71,13 @@ def test_render_appendix5_table2_renders_multi_code_consistently() -> None:
     text = "\n".join(lines)
     assert "Приложение 5" in text
     assert "Таблица 2" in text
-    assert "- Продажна цена (EUR) - код 508: 100.00" in text
-    assert "  Цена на придобиване (EUR) - код 508: 90.00" in text
+    assert "- Код 508" in text
+    assert "  Продажна цена: 100.00 EUR" in text
+    assert "  Цена на придобиване: 90.00 EUR" in text
+    assert "  Печалба: 10.00 EUR" in text
+    assert "  Загуба: 0.00 EUR" in text
+    assert "код 508:" not in text
+    assert "(EUR)" not in text
     assert "  Информативни" in text
     assert "код 5082" not in text
 
@@ -97,11 +109,12 @@ def test_render_appendix6_renders_parts_and_suppresses_empty() -> None:
     assert "Част I" in text
     assert "Част II" in text
     assert "Част III" not in text
-    assert "- Обща сума на доходите с код 603: 12.34" in text
+    assert "- Обща сума на доходите с код 603: 12.34 EUR" in text
+    assert "  Размер на дохода: 12.34 EUR" in text
     assert "код 606" not in text
 
 
-def test_render_appendix8_uses_native_currency_in_label() -> None:
+def test_render_appendix8_uses_currency_suffix_for_native_and_eur_values() -> None:
     lines = render_appendix8(
         Appendix8RenderData(
             part1_rows=[
@@ -133,9 +146,13 @@ def test_render_appendix8_uses_native_currency_in_label() -> None:
     text = "\n".join(lines)
     assert "Приложение 8" in text
     assert "Част І, Акции" in text
-    assert "Обща цена на придобиване в съответната валута (USD): 1000.00" in text
+    assert "Обща цена на придобиване в съответната валута: 1000.00 USD" in text
+    assert "В EUR: 920.00 EUR" in text
     assert "Част III," in text
     assert "Код вид доход: 8141" in text
+    assert "Документално доказана цена на придобиване: " in text
+    assert "Брутен размер на дохода: 5.00 EUR" in text
+    assert "Дължим данък, подлежащ на внасяне: 0.25 EUR" in text
 
 
 def test_render_appendix9_part2_basic() -> None:
@@ -156,8 +173,10 @@ def test_render_appendix9_part2_basic() -> None:
     text = "\n".join(lines)
     assert "Приложение 9" in text
     assert "Част II" in text
-    assert "Брутен размер на дохода (включително платеният данък): 10.20" in text
-    assert "Размер на признатия данъчен кредит: 1.02" in text
+    assert "Брутен размер на дохода (включително платеният данък): 10.20 EUR" in text
+    assert "Нормативно определени разходи: 0.00 EUR" in text
+    assert "Размер на признатия данъчен кредит: 1.02 EUR" in text
+    assert "№ и дата на документа за дохода и съответния данък: R-185 / Activity Statement" in text
 
 
 def test_render_appendix13_part2_basic() -> None:
@@ -177,6 +196,9 @@ def test_render_appendix13_part2_basic() -> None:
     text = "\n".join(lines)
     assert "Приложение 13" in text
     assert "Част ІІ" in text
-    assert "Брутен размер на дохода (EUR) - код 5081: 9319.39" in text
-    assert "Цена на придобиване (EUR) - код 5081: 9759.21" in text
-
+    assert "- Код 5081" in text
+    assert "Брутен размер на дохода: 9319.39 EUR" in text
+    assert "Цена на придобиване: 9759.21 EUR" in text
+    assert "- печалба: 384.86 EUR" in text
+    assert "- нетен резултат: -439.82 EUR" in text
+    assert "(EUR)" not in text

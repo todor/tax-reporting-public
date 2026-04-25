@@ -342,8 +342,9 @@ def test_aggregate_mode_sums_structured_appendix_records(
 
     assert code == 0
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
-    assert "- Продажна цена (EUR) - код 5082: 25.00" in report
-    assert "  Цена на придобиване (EUR) - код 5082: 11.00" in report
+    assert "- Код 5082" in report
+    assert "  Продажна цена: 25.00 EUR" in report
+    assert "  Цена на придобиване: 11.00 EUR" in report
     assert "- Брой сделки: 3" in report
 
 
@@ -426,7 +427,7 @@ def test_aggregate_mode_processes_multiple_inputs_for_same_analyzer(
     assert len(run_capture.contexts) == 2
     assert run_capture.contexts[0].output_dir != run_capture.contexts[1].output_dir
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
-    assert "- Продажна цена (EUR) - код 5082: 3.00" in report
+    assert "  Продажна цена: 3.00 EUR" in report
     assert "- Брой сделки: 2" in report
 
 
@@ -583,7 +584,7 @@ def test_manual_review_rows_are_excluded_from_totals(
     assert code == 0
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
     assert "- global status: NEEDS_REVIEW" in report
-    assert "- Продажна цена (EUR) - код 5082: 5.00" in report
+    assert "  Продажна цена: 5.00 EUR" in report
     assert "manual row excluded" in report
 
 
@@ -618,7 +619,8 @@ def test_render_aggregated_report_snapshot() -> None:
         analyzer_errors={},
     )
     assert "Приложение 5" in rendered
-    assert "- Продажна цена (EUR) - код 5082: 11.00" in rendered
+    assert "- Код 5082" in rendered
+    assert "  Продажна цена: 11.00 EUR" in rendered
     assert "------------------------------ Technical Details ------------------------------" in rendered
     assert "- global status: OK" in rendered
     assert "declaration: file:///private/tmp/coinbase.txt" in rendered

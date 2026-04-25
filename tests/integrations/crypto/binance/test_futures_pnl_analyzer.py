@@ -348,8 +348,9 @@ def test_tax_text_hides_zero_only_informative_block_when_net_result_is_zero(tmp_
     text = result.tax_text_path.read_text(encoding="utf-8")
     assert "Приложение 5" in text
     assert "Таблица 2" in text
-    assert "- Продажна цена (EUR) - код 5082: 2.00" in text
-    assert "  Цена на придобиване (EUR) - код 5082: 2.00" in text
+    assert "- Код 5082" in text
+    assert "  Продажна цена: 2.00 EUR" in text
+    assert "  Цена на придобиване: 2.00 EUR" in text
     assert "Информативни" not in text
 
 
@@ -417,12 +418,13 @@ def test_tax_text_groups_eur_usd_and_processing_sections(tmp_path: Path) -> None
     text = result.tax_text_path.read_text(encoding="utf-8")
     assert "Приложение 5" in text
     assert "Таблица 2" in text
-    assert "- Продажна цена (EUR) - код 5082: 2.00" in text
-    assert "  Цена на придобиване (EUR) - код 5082: 1.00" in text
-    assert "  Печалба (EUR) - код 5082: 2.00" in text
-    assert "  Загуба (EUR) - код 5082: 1.00" in text
+    assert "- Код 5082" in text
+    assert "  Продажна цена: 2.00 EUR" in text
+    assert "  Цена на придобиване: 1.00 EUR" in text
+    assert "  Печалба: 2.00 EUR" in text
+    assert "  Загуба: 1.00 EUR" in text
     assert "Информативни" in text
-    assert "- Нетен резултат (EUR): 1.00" in text
+    assert "- Нетен резултат: 1.00 EUR" in text
     assert "Данъчна година: 2025" in text
     assert TECHNICAL_DETAILS_SEPARATOR in text
     assert "Audit Data" in text
