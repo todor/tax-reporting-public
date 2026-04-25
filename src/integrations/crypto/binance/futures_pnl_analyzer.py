@@ -12,6 +12,11 @@ from typing import Callable
 
 from config import OUTPUT_DIR
 from services.bnb_fx import get_exchange_rate
+from integrations.shared.rendering.appendix5 import (
+    Appendix5Table2Entry,
+    render_appendix5_table2,
+)
+from integrations.shared.rendering.common import Money
 
 logger = logging.getLogger(__name__)
 
@@ -355,24 +360,20 @@ def _write_tax_text(path: Path, *, tax_year: int, totals: AggregatedTotals) -> N
         )
     )
     if should_render_appendix:
-        lines.extend(
+        appendix_lines = render_appendix5_table2(
             [
-                "",
-                "Приложение 5",
-                "Таблица 2",
-                f"- Продажна цена (EUR) - код 5082: {_fmt_decimal(totals.sale_price_eur, quant=DECIMAL_TWO)}",
-                f"  Цена на придобиване (EUR) - код 5082: {_fmt_decimal(totals.purchase_price_eur, quant=DECIMAL_TWO)}",
-                f"  Печалба (EUR) - код 5082: {_fmt_decimal(totals.profit_eur, quant=DECIMAL_TWO)}",
-                f"  Загуба (EUR) - код 5082: {_fmt_decimal(totals.loss_eur, quant=DECIMAL_TWO)}",
+                Appendix5Table2Entry(
+                    code="5082",
+                    sale_value=Money(totals.sale_price_eur, "EUR"),
+                    acquisition_value=Money(totals.purchase_price_eur, "EUR"),
+                    profit=Money(totals.profit_eur, "EUR"),
+                    loss=Money(totals.loss_eur, "EUR"),
+                    net_result=Money(totals.net_result_eur, "EUR"),
+                    trade_count=0,
+                )
             ]
         )
-        if totals.net_result_eur != ZERO:
-            lines.extend(
-                [
-                    "Информативни",
-                    f"- Нетен резултат (EUR): {_fmt_decimal(totals.net_result_eur, quant=DECIMAL_TWO)}",
-                ]
-            )
+        lines.extend(["", *appendix_lines])
     technical_lines = [
         "Audit Data",
         f"- profit_usd: {_fmt_decimal(totals.profit_usd)}",

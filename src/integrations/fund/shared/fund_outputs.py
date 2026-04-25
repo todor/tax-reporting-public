@@ -5,6 +5,12 @@ import json
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
+from integrations.shared.rendering.appendix5 import (
+    Appendix5Table2Entry,
+    render_appendix5_table2,
+)
+from integrations.shared.rendering.common import Money
+
 from .fund_ir_models import (
     FundAnalysisRunResult,
     FundAnalysisSummary,
@@ -49,11 +55,6 @@ def _should_render_appendix5(summary: FundAnalysisSummary) -> bool:
             bucket.net_result_eur,
         )
     ) or bucket.rows > 0
-
-
-def _should_render_appendix5_informative(summary: FundAnalysisSummary) -> bool:
-    bucket = summary.appendix_5
-    return (not _is_zero_amount(bucket.net_result_eur)) or bucket.rows > 0
 
 
 def _validate_declaration_code(value: str) -> str:
@@ -128,21 +129,20 @@ def build_declaration_text(*, summary: FundAnalysisSummary, appendix_5_declarati
 
     if _should_render_appendix5(summary):
         bucket = summary.appendix_5
-        lines.append("Приложение 5")
-        lines.append("Таблица 2")
-        lines.append(
-            f"- Продажна цена (EUR) - код {declaration_code}: {fmt_decimal(bucket.sale_price_eur, quant=DECIMAL_TWO)}"
+        appendix_lines = render_appendix5_table2(
+            [
+                Appendix5Table2Entry(
+                    code=declaration_code,
+                    sale_value=Money(bucket.sale_price_eur, "EUR"),
+                    acquisition_value=Money(bucket.purchase_price_eur, "EUR"),
+                    profit=Money(bucket.wins_eur, "EUR"),
+                    loss=Money(bucket.losses_eur, "EUR"),
+                    net_result=Money(bucket.net_result_eur, "EUR"),
+                    trade_count=bucket.rows,
+                )
+            ]
         )
-        lines.append(
-            f"  Цена на придобиване (EUR) - код {declaration_code}: "
-            f"{fmt_decimal(bucket.purchase_price_eur, quant=DECIMAL_TWO)}"
-        )
-        lines.append(f"  Печалба (EUR) - код {declaration_code}: {fmt_decimal(bucket.wins_eur, quant=DECIMAL_TWO)}")
-        lines.append(f"  Загуба (EUR) - код {declaration_code}: {fmt_decimal(bucket.losses_eur, quant=DECIMAL_TWO)}")
-        if _should_render_appendix5_informative(summary):
-            lines.append("Информативни")
-            lines.append(f"- Нетен резултат (EUR): {fmt_decimal(bucket.net_result_eur, quant=DECIMAL_TWO)}")
-            lines.append(f"- Брой сделки: {bucket.rows}")
+        lines.extend(appendix_lines)
         lines.append("")
 
     technical_lines: list[str] = []

@@ -2,20 +2,36 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from pathlib import Path
+
+from integrations.shared.rendering.appendix13 import (
+    Appendix13Part2Entry,
+    render_appendix13_part2,
+)
+from integrations.shared.rendering.appendix5 import Appendix5Table2Entry, render_appendix5_table2
+from integrations.shared.rendering.appendix6 import (
+    Appendix6Part1CodeTotal,
+    Appendix6Part1CompanyRow,
+    Appendix6Part2TaxableTotal,
+    Appendix6RenderData,
+    render_appendix6,
+)
+from integrations.shared.rendering.appendix8 import (
+    Appendix8Part1Row,
+    Appendix8Part3Row,
+    Appendix8RenderData,
+    render_appendix8,
+)
+from integrations.shared.rendering.appendix9 import Appendix9Part2Row, render_appendix9_part2
+from integrations.shared.rendering.common import Money
 
 from .contracts import AnalyzerStatus, AppendixRecord, TaxAnalysisResult
 
 ZERO = Decimal("0")
-DECIMAL_TWO = Decimal("0.01")
 TECHNICAL_DETAILS_SEPARATOR = (
     "------------------------------ Technical Details ------------------------------"
 )
-
-
-def _fmt_decimal(value: Decimal) -> str:
-    return format(value.quantize(DECIMAL_TWO, rounding=ROUND_HALF_UP), "f")
 
 
 def _to_file_uri(path: Path) -> str:
@@ -349,228 +365,110 @@ def _render_diagnostics_summary(
             lines.append(f"  {entry}")
 
 
-def _render_appendix5(lines: list[str], aggregated: AggregatedAppendices) -> None:
+def _build_appendix5_lines(aggregated: AggregatedAppendices) -> list[str]:
     entries = [
-        ((table, code), bucket)
-        for (table, code), bucket in sorted(aggregated.appendix5_by_code.items())
-        if any(
-            value != ZERO
-            for value in (
-                bucket.sale_value_eur,
-                bucket.acquisition_value_eur,
-                bucket.profit_eur,
-                bucket.loss_eur,
-                bucket.net_result_eur,
-            )
+        Appendix5Table2Entry(
+            code=(code or "-"),
+            sale_value=Money(bucket.sale_value_eur, "EUR"),
+            acquisition_value=Money(bucket.acquisition_value_eur, "EUR"),
+            profit=Money(bucket.profit_eur, "EUR"),
+            loss=Money(bucket.loss_eur, "EUR"),
+            net_result=Money(bucket.net_result_eur, "EUR"),
+            trade_count=bucket.trade_count,
         )
-        or bucket.trade_count > 0
+        for (_table, code), bucket in sorted(aggregated.appendix5_by_code.items())
     ]
-    if not entries:
-        return
-    if lines:
-        lines.append("")
-    lines.append("Приложение 5")
-    lines.append("Таблица 2")
-    for idx, ((_table, code), bucket) in enumerate(entries):
-        if idx > 0:
-            lines.append("")
-        code_label = code or "-"
-        lines.append(f"- Продажна цена (EUR) - код {code_label}: {_fmt_decimal(bucket.sale_value_eur)}")
-        lines.append(f"  Цена на придобиване (EUR) - код {code_label}: {_fmt_decimal(bucket.acquisition_value_eur)}")
-        lines.append(f"  Печалба (EUR) - код {code_label}: {_fmt_decimal(bucket.profit_eur)}")
-        lines.append(f"  Загуба (EUR) - код {code_label}: {_fmt_decimal(bucket.loss_eur)}")
-        if bucket.net_result_eur != ZERO or bucket.trade_count > 0:
-            lines.append("")
-            lines.append("  Информативни")
-            lines.append(f"  - Нетен резултат (EUR): {_fmt_decimal(bucket.net_result_eur)}")
-            lines.append(f"  - Брой сделки: {bucket.trade_count}")
+    return render_appendix5_table2(entries)
 
 
-def _render_appendix13(lines: list[str], aggregated: AggregatedAppendices) -> None:
+def _build_appendix13_lines(aggregated: AggregatedAppendices) -> list[str]:
     entries = [
-        ((part, table, code), bucket)
-        for (part, table, code), bucket in sorted(aggregated.appendix13_by_code.items())
-        if any(
-            value != ZERO
-            for value in (
-                bucket.gross_income_eur,
-                bucket.acquisition_value_eur,
-                bucket.profit_eur,
-                bucket.loss_eur,
-                bucket.net_result_eur,
-            )
+        Appendix13Part2Entry(
+            code=(code or "-"),
+            gross_income=Money(bucket.gross_income_eur, "EUR"),
+            acquisition_value=Money(bucket.acquisition_value_eur, "EUR"),
+            profit=Money(bucket.profit_eur, "EUR"),
+            loss=Money(bucket.loss_eur, "EUR"),
+            net_result=Money(bucket.net_result_eur, "EUR"),
+            trade_count=bucket.trade_count,
         )
-        or bucket.trade_count > 0
+        for (_part, _table, code), bucket in sorted(aggregated.appendix13_by_code.items())
     ]
-    if not entries:
-        return
-    if lines:
-        lines.append("")
-    for idx, ((_part, _table, code), bucket) in enumerate(entries):
-        if idx > 0:
-            lines.append("")
-        code_label = code or "-"
-        lines.append("Приложение 13")
-        lines.append("Част ІІ")
-        lines.append(f"- Брутен размер на дохода (EUR) - код {code_label}: {_fmt_decimal(bucket.gross_income_eur)}")
-        lines.append(f"  Цена на придобиване (EUR) - код {code_label}: {_fmt_decimal(bucket.acquisition_value_eur)}")
-        if bucket.net_result_eur != ZERO or bucket.trade_count > 0:
-            lines.append("Информативни")
-            lines.append(f"- печалба (EUR): {_fmt_decimal(bucket.profit_eur)}")
-            lines.append(f"- загуба (EUR): {_fmt_decimal(bucket.loss_eur)}")
-            lines.append(f"- нетен резултат (EUR): {_fmt_decimal(bucket.net_result_eur)}")
-            lines.append(f"- брой сделки: {bucket.trade_count}")
+    return render_appendix13_part2(entries)
 
 
-def _render_appendix6(lines: list[str], aggregated: AggregatedAppendices) -> None:
-    company_rows = [
-        (key, amount)
-        for key, amount in sorted(aggregated.appendix6_part1_company.items())
-        if amount != ZERO
-    ]
-    total_by_code = [
-        (code, amount)
-        for code, amount in sorted(aggregated.appendix6_part1_total_by_code.items())
-        if amount != ZERO
-    ]
-    taxable_by_code = [
-        (code, amount)
-        for code, amount in sorted(aggregated.appendix6_part2_taxable_by_code.items())
-        if amount != ZERO
-    ]
-    has_withheld = aggregated.appendix6_part3_withheld_tax != ZERO
-
-    if not company_rows and not total_by_code and not taxable_by_code and not has_withheld:
-        return
-
-    if lines:
-        lines.append("")
-    lines.append("Приложение 6")
-    lines.append("Част I")
-    for idx, ((eik, payer, code), amount) in enumerate(company_rows, start=1):
-        lines.append(f"- Ред 1.{idx}")
-        lines.append(f"  ЕИК: {eik}")
-        lines.append(f"  Наименование: {payer}")
-        lines.append(f"  Код: {code}")
-        lines.append(f"  Размер на дохода: {_fmt_decimal(amount)}")
-    for code, amount in total_by_code:
-        lines.append(f"- Обща сума на доходите с код {code}: {_fmt_decimal(amount)}")
-
-    if taxable_by_code:
-        lines.append("")
-        lines.append("Част II")
-        for code, amount in taxable_by_code:
-            lines.append(f"- Облагаем доход по чл. 35, код {code}: {_fmt_decimal(amount)}")
-
-    if has_withheld:
-        lines.append("")
-        lines.append("Част III")
-        lines.append(
-            "- Удържан и/или внесен окончателен данък за доходи: "
-            f"{_fmt_decimal(aggregated.appendix6_part3_withheld_tax)}"
-        )
-
-
-def _render_appendix8(lines: list[str], aggregated: AggregatedAppendices) -> None:
-    part1_rows = [
-        ((asset_type, country, currency), bucket)
-        for (asset_type, country, currency), bucket in sorted(aggregated.appendix8_part1_by_group.items())
-        if any(
-            value != ZERO
-            for value in (
-                bucket.quantity,
-                bucket.acquisition_native,
-                bucket.acquisition_eur,
+def _build_appendix6_lines(aggregated: AggregatedAppendices) -> list[str]:
+    data = Appendix6RenderData(
+        part1_company_rows=[
+            Appendix6Part1CompanyRow(
+                payer_name=payer,
+                payer_eik=eik,
+                code=code,
+                amount=Money(amount, "EUR"),
             )
-        )
-    ]
-    part3_rows = [
-        ((payer, country, code, method), bucket)
-        for (payer, country, code, method), bucket in sorted(aggregated.appendix8_part3_by_group.items())
-        if any(
-            value != ZERO
-            for value in (
-                bucket.gross_income_eur,
-                bucket.foreign_tax_eur,
-                bucket.allowable_credit_eur,
-                bucket.recognized_credit_eur,
-                bucket.tax_due_eur,
+            for (eik, payer, code), amount in sorted(aggregated.appendix6_part1_company.items())
+            if amount != ZERO
+        ],
+        part1_code_totals=[
+            Appendix6Part1CodeTotal(code=code, amount=Money(amount, "EUR"))
+            for code, amount in sorted(aggregated.appendix6_part1_total_by_code.items())
+        ],
+        part2_taxable_totals=[
+            Appendix6Part2TaxableTotal(code=code, amount=Money(amount, "EUR"))
+            for code, amount in sorted(aggregated.appendix6_part2_taxable_by_code.items())
+        ],
+        part3_withheld_tax=Money(aggregated.appendix6_part3_withheld_tax, "EUR"),
+    )
+    return render_appendix6(data)
+
+
+def _build_appendix8_lines(aggregated: AggregatedAppendices) -> list[str]:
+    data = Appendix8RenderData(
+        part1_rows=[
+            Appendix8Part1Row(
+                asset_type=asset_type,
+                country=country,
+                quantity=format(bucket.quantity, "f"),
+                acquisition_date=None,
+                acquisition_native=Money(bucket.acquisition_native, currency or "-"),
+                acquisition_eur=Money(bucket.acquisition_eur, "EUR"),
+                native_currency_label=currency or "-",
             )
-        )
-    ]
-    if not part1_rows and not part3_rows:
-        return
-
-    if lines:
-        lines.append("")
-    lines.append("Приложение 8")
-    if part1_rows:
-        lines.append("Част І, Акции")
-        for idx, ((asset_type, country, currency), bucket) in enumerate(part1_rows, start=1):
-            lines.append(f"- ред 1.{idx}")
-            lines.append(f"  Вид: {asset_type}")
-            lines.append(f"  Държава: {country}")
-            lines.append(f"  Брой: {_fmt_decimal(bucket.quantity)}")
-            lines.append(
-                f"  Обща цена на придобиване в съответната валута ({currency}): "
-                f"{_fmt_decimal(bucket.acquisition_native)}"
+            for (asset_type, country, currency), bucket in sorted(aggregated.appendix8_part1_by_group.items())
+        ],
+        part3_rows=[
+            Appendix8Part3Row(
+                payer=payer,
+                country=country,
+                code=code,
+                treaty_method=method,
+                gross_income=Money(bucket.gross_income_eur, "EUR"),
+                foreign_tax=Money(bucket.foreign_tax_eur, "EUR"),
+                allowable_credit=Money(bucket.allowable_credit_eur, "EUR"),
+                recognized_credit=Money(bucket.recognized_credit_eur, "EUR"),
+                tax_due=Money(bucket.tax_due_eur, "EUR"),
             )
-            lines.append(f"  В EUR: {_fmt_decimal(bucket.acquisition_eur)}")
-            lines.append("")
-    if part3_rows:
-        lines.append("Част III,")
-        for idx, ((payer, country, code, method), bucket) in enumerate(part3_rows, start=1):
-            lines.append(f"- Ред 1.{idx}")
-            lines.append(f"  Наименование на лицето, изплатило дохода: {payer}")
-            lines.append(f"  Държава: {country}")
-            lines.append(f"  Код вид доход: {code}")
-            lines.append(f"  Код за прилагане на метод за избягване на двойното данъчно облагане: {method}")
-            lines.append(f"  Брутен размер на дохода: {_fmt_decimal(bucket.gross_income_eur)}")
-            lines.append("  Документално доказана цена на придобиване: ")
-            lines.append(f"  Платен данък в чужбина: {_fmt_decimal(bucket.foreign_tax_eur)}")
-            lines.append(f"  Допустим размер на данъчния кредит: {_fmt_decimal(bucket.allowable_credit_eur)}")
-            lines.append(f"  Размер на признатия данъчен кредит: {_fmt_decimal(bucket.recognized_credit_eur)}")
-            lines.append(f"  Дължим данък, подлежащ на внасяне: {_fmt_decimal(bucket.tax_due_eur)}")
-            lines.append("")
+            for (payer, country, code, method), bucket in sorted(aggregated.appendix8_part3_by_group.items())
+        ],
+    )
+    return render_appendix8(data)
 
 
-def _render_appendix9(lines: list[str], aggregated: AggregatedAppendices) -> None:
-    entries = [
-        ((country, code), bucket)
+def _build_appendix9_lines(aggregated: AggregatedAppendices) -> list[str]:
+    rows = [
+        Appendix9Part2Row(
+            country=country,
+            code=code,
+            gross_income=Money(bucket.gross_income_eur, "EUR"),
+            tax_base=Money(bucket.tax_base_eur, "EUR"),
+            foreign_tax=Money(bucket.foreign_tax_eur, "EUR"),
+            allowable_credit=Money(bucket.allowable_credit_eur, "EUR"),
+            recognized_credit=Money(bucket.recognized_credit_eur, "EUR"),
+            document_ref=", ".join(sorted(bucket.document_refs)) if bucket.document_refs else "-",
+        )
         for (country, code), bucket in sorted(aggregated.appendix9_part2_by_group.items())
-        if any(
-            value != ZERO
-            for value in (
-                bucket.gross_income_eur,
-                bucket.tax_base_eur,
-                bucket.foreign_tax_eur,
-                bucket.allowable_credit_eur,
-                bucket.recognized_credit_eur,
-            )
-        )
     ]
-    if not entries:
-        return
-    if lines:
-        lines.append("")
-    lines.extend(["Приложение 9", "Част II"])
-    for (country, code), bucket in entries:
-        lines.append(f"- Държава: {country}")
-        lines.append(f"  Код вид доход: {code}")
-        lines.append(
-            f"  Брутен размер на дохода (включително платеният данък): {_fmt_decimal(bucket.gross_income_eur)}"
-        )
-        lines.append("  Нормативно определени разходи: 0")
-        lines.append("  Задължителни осигурителни вноски: 0")
-        lines.append(f"  Годишна данъчна основа: {_fmt_decimal(bucket.tax_base_eur)}")
-        lines.append(f"  Платен данък в чужбина: {_fmt_decimal(bucket.foreign_tax_eur)}")
-        lines.append(f"  Допустим размер на данъчния кредит: {_fmt_decimal(bucket.allowable_credit_eur)}")
-        lines.append(f"  Размер на признатия данъчен кредит: {_fmt_decimal(bucket.recognized_credit_eur)}")
-        lines.append(
-            "  № и дата на документа за дохода и съответния данък: "
-            f"{', '.join(sorted(bucket.document_refs)) if bucket.document_refs else '-'}"
-        )
-        lines.append("")
+    return render_appendix9_part2(rows)
 
 
 def render_aggregated_report(
@@ -593,11 +491,18 @@ def render_aggregated_report(
     aggregated = aggregate_appendix_records(analyzer_results)
 
     lines: list[str] = [_status_banner(global_status), ""]
-    _render_appendix5(lines, aggregated)
-    _render_appendix13(lines, aggregated)
-    _render_appendix6(lines, aggregated)
-    _render_appendix8(lines, aggregated)
-    _render_appendix9(lines, aggregated)
+    for section_lines in (
+        _build_appendix5_lines(aggregated),
+        _build_appendix13_lines(aggregated),
+        _build_appendix6_lines(aggregated),
+        _build_appendix8_lines(aggregated),
+        _build_appendix9_lines(aggregated),
+    ):
+        if not section_lines:
+            continue
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.extend(section_lines)
 
     technical_lines: list[str] = [
         "Aggregated Report",

@@ -350,6 +350,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/services/bnb_fx/`: BNB CSV client + quarter cache + CLI
 - `src/services/crypto_fx/`: crypto-to-EUR layer (pair resolution + Binance hourly pricing + CLI)
 - `src/services/pdf_reader.py`: shared machine-generated PDF text extraction utility
+- `src/integrations/shared/rendering/`: canonical declaration-facing appendix renderers (`Приложение 5/6/8/9/13`) reused by both individual analyzers and aggregated output
 - `tests/test_imports.py`: import smoke tests
 - `tests/services/bnb_fx/`: BNB FX tests
 - `tests/services/crypto_fx/`: crypto FX tests

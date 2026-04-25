@@ -3,6 +3,32 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 
+from integrations.shared.rendering.appendix13 import (
+    Appendix13Part2Entry,
+    render_appendix13_part2,
+)
+from integrations.shared.rendering.appendix5 import (
+    Appendix5Table2Entry,
+    render_appendix5_table2,
+)
+from integrations.shared.rendering.appendix6 import (
+    Appendix6Part1CodeTotal,
+    Appendix6Part2TaxableTotal,
+    Appendix6RenderData,
+    render_appendix6,
+)
+from integrations.shared.rendering.appendix8 import (
+    Appendix8Part1Row,
+    Appendix8Part3Row,
+    Appendix8RenderData,
+    render_appendix8,
+)
+from integrations.shared.rendering.appendix9 import (
+    Appendix9Part2Row,
+    render_appendix9_part2,
+)
+from integrations.shared.rendering.common import Money
+
 from ..constants import (
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
     DECIMAL_TWO,
@@ -177,17 +203,20 @@ def _append_appendix5_section(lines: list[str], *, summary: AnalysisSummary) -> 
     app5 = summary.appendix_5
     if not _bucket_has_reportable_values(app5):
         return
-    lines.append("Приложение 5")
-    lines.append("Таблица 2")
-    lines.append(f"- Продажна цена (EUR) - код 508: {_fmt(app5.sale_price_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"  Цена на придобиване (EUR) - код 508: {_fmt(app5.purchase_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"  Печалба (EUR) - код 508: {_fmt(app5.wins_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"  Загуба (EUR) - код 508: {_fmt(app5.losses_eur, quant=DECIMAL_TWO)}")
-    net_result = app5.wins_eur - app5.losses_eur
-    if (not _is_zero_amount(net_result)) or app5.rows > 0:
-        lines.append("Информативни")
-        lines.append(f"- Нетен резултат (EUR): {_fmt(net_result, quant=DECIMAL_TWO)}")
-        lines.append(f"- Брой сделки: {app5.rows}")
+    appendix_lines = render_appendix5_table2(
+        [
+            Appendix5Table2Entry(
+                code="508",
+                sale_value=Money(app5.sale_price_eur, "EUR"),
+                acquisition_value=Money(app5.purchase_eur, "EUR"),
+                profit=Money(app5.wins_eur, "EUR"),
+                loss=Money(app5.losses_eur, "EUR"),
+                net_result=Money(app5.wins_eur - app5.losses_eur, "EUR"),
+                trade_count=app5.rows,
+            )
+        ]
+    )
+    lines.extend(appendix_lines)
     lines.append("")
 
 
@@ -195,26 +224,44 @@ def _append_appendix13_section(lines: list[str], *, summary: AnalysisSummary) ->
     app13 = summary.appendix_13
     if not _bucket_has_reportable_values(app13):
         return
-    lines.append("Приложение 13")
-    lines.append("Част ІІ")
-    lines.append(f"- Брутен размер на дохода (EUR) - код 5081: {_fmt(app13.sale_price_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"  Цена на придобиване (EUR) - код 5081: {_fmt(app13.purchase_eur, quant=DECIMAL_TWO)}")
-    net_result = app13.wins_eur - app13.losses_eur
-    if (not _is_zero_amount(net_result)) or app13.rows > 0:
-        lines.append("Информативни")
-        lines.append(f"- печалба (EUR): {_fmt(app13.wins_eur, quant=DECIMAL_TWO)}")
-        lines.append(f"- загуба (EUR): {_fmt(app13.losses_eur, quant=DECIMAL_TWO)}")
-        lines.append(f"- нетен резултат (EUR): {_fmt(net_result, quant=DECIMAL_TWO)}")
-        lines.append(f"- брой сделки: {app13.rows}")
+    appendix_lines = render_appendix13_part2(
+        [
+            Appendix13Part2Entry(
+                code="5081",
+                gross_income=Money(app13.sale_price_eur, "EUR"),
+                acquisition_value=Money(app13.purchase_eur, "EUR"),
+                profit=Money(app13.wins_eur, "EUR"),
+                loss=Money(app13.losses_eur, "EUR"),
+                net_result=Money(app13.wins_eur - app13.losses_eur, "EUR"),
+                trade_count=app13.rows,
+            )
+        ]
+    )
+    lines.extend(appendix_lines)
     lines.append("")
 
 
 def _append_appendix6_section(lines: list[str], *, summary: AnalysisSummary) -> None:
     if not _appendix6_has_reportable_values(summary):
         return
-    lines.append("Приложение 6")
-    lines.append("Част I")
-    lines.append(f"- Обща сума на доходите с код 603: {_fmt(summary.appendix_6_code_603_eur, quant=DECIMAL_TWO)}")
+    appendix_lines = render_appendix6(
+        Appendix6RenderData(
+            part1_code_totals=[
+                Appendix6Part1CodeTotal(
+                    code="603",
+                    amount=Money(summary.appendix_6_code_603_eur, "EUR"),
+                )
+            ],
+            part2_taxable_totals=[
+                Appendix6Part2TaxableTotal(
+                    code="603",
+                    amount=Money(summary.appendix_6_code_603_eur, "EUR"),
+                )
+            ],
+            part3_withheld_tax=Money(Decimal("0"), "EUR"),
+        )
+    )
+    lines.extend(appendix_lines)
     if any(
         not _is_zero_amount(amount)
         for amount in (
@@ -239,50 +286,46 @@ def _append_appendix6_section(lines: list[str], *, summary: AnalysisSummary) -> 
     lines.append("")
 
 
-def _append_appendix8_part1_section(lines: list[str], *, summary: AnalysisSummary) -> None:
-    if not summary.appendix_8_part1_rows:
+def _append_appendix8_sections(lines: list[str], *, summary: AnalysisSummary) -> None:
+    appendix_lines = render_appendix8(
+        Appendix8RenderData(
+            part1_rows=[
+                Appendix8Part1Row(
+                    asset_type="Акции",
+                    country=part1.country_bulgarian,
+                    quantity=_fmt(part1.quantity),
+                    acquisition_date=part1.acquisition_date.strftime("%d.%m.%Y"),
+                    acquisition_native=Money(part1.cost_basis_original, part1.cost_basis_original_currency or "-"),
+                    acquisition_eur=Money(part1.cost_basis_eur, "EUR"),
+                    native_currency_label=part1.cost_basis_original_currency or "-",
+                )
+                for part1 in summary.appendix_8_part1_rows
+            ],
+            part3_rows=[
+                Appendix8Part3Row(
+                    payer=bucket.payer_name,
+                    country=bucket.country_bulgarian,
+                    code="8141",
+                    treaty_method=bucket.method_code,
+                    gross_income=Money(bucket.gross_dividend_eur, "EUR"),
+                    foreign_tax=Money(bucket.foreign_tax_paid_eur, "EUR"),
+                    allowable_credit=Money(bucket.allowable_credit_eur, "EUR"),
+                    recognized_credit=Money(bucket.recognized_credit_eur, "EUR"),
+                    tax_due=Money(bucket.tax_due_bg_eur, "EUR"),
+                )
+                for bucket in summary.appendix_8_output_rows
+            ],
+            part1_notes=[
+                "Напомняне: Към Приложение 8, Част I следва да се приложи файл с open positions."
+            ]
+            if summary.appendix_8_part1_rows
+            else [],
+        )
+    )
+    if not appendix_lines:
         return
-    lines.append("Приложение 8")
-    lines.append("Част І, Акции")
-    for idx, part1 in enumerate(summary.appendix_8_part1_rows, start=1):
-        lines.append(f"- ред 1.{idx}")
-        lines.append(f"  Държава: {part1.country_bulgarian}")
-        lines.append(f"  Брой: {_fmt(part1.quantity)}")
-        lines.append(
-            f"  Дата и година на придобиване: {part1.acquisition_date.strftime('%d.%m.%Y')}"
-        )
-        lines.append(
-            f"  Обща цена на придобиване в съответната валута "
-            f"({part1.cost_basis_original_currency or '-'}): "
-            f"{_fmt(part1.cost_basis_original, quant=DECIMAL_TWO)}"
-        )
-        lines.append(f"  В EUR: {_fmt(part1.cost_basis_eur, quant=DECIMAL_TWO)}")
-        lines.append("")
-    lines.append("Напомняне: Към Приложение 8, Част I следва да се приложи файл с open positions.")
+    lines.extend(appendix_lines)
     lines.append("")
-
-
-def _append_appendix8_part3_section(lines: list[str], *, summary: AnalysisSummary) -> None:
-    if not summary.appendix_8_output_rows:
-        return
-    if not summary.appendix_8_part1_rows:
-        lines.append("Приложение 8")
-    lines.append("Част III,")
-    for idx, bucket in enumerate(summary.appendix_8_output_rows, start=1):
-        lines.append(f"- Ред 1.{idx}")
-        lines.append(
-            f"  Наименование на лицето, изплатило дохода: {bucket.payer_name}"
-        )
-        lines.append(f"  Държава: {bucket.country_bulgarian}")
-        lines.append("  Код вид доход: 8141")
-        lines.append(f"  Код за прилагане на метод за избягване на двойното данъчно облагане: {bucket.method_code}")
-        lines.append(f"  Брутен размер на дохода: {_fmt(bucket.gross_dividend_eur, quant=DECIMAL_TWO)}")
-        lines.append("  Документално доказана цена на придобиване: ")
-        lines.append(f"  Платен данък в чужбина: {_fmt(bucket.foreign_tax_paid_eur, quant=DECIMAL_TWO)}")
-        lines.append(f"  Допустим размер на данъчния кредит: {_fmt(bucket.allowable_credit_eur, quant=DECIMAL_TWO)}")
-        lines.append(f"  Размер на признатия данъчен кредит: {_fmt(bucket.recognized_credit_eur, quant=DECIMAL_TWO)}")
-        lines.append(f"  Дължим данък, подлежащ на внасяне: {_fmt(bucket.tax_due_bg_eur, quant=DECIMAL_TWO)}")
-        lines.append("")
 
 
 def _append_appendix9_section(
@@ -293,52 +336,45 @@ def _append_appendix9_section(
 ) -> None:
     if not _appendix9_has_reportable_values(summary):
         return
-    lines.append("Приложение 9")
-    lines.append("Част II")
+    rows: list[Appendix9Part2Row] = []
     if summary.appendix_9_country_results:
         for country_iso in sorted(summary.appendix_9_country_results):
             country_result = summary.appendix_9_country_results[country_iso]
-            lines.append(f"- Държава: {country_result.country_bulgarian}")
-            lines.append("  Код вид доход: 603")
-            lines.append(
-                f"  Брутен размер на дохода (включително платеният данък): "
-                f"{_fmt(country_result.aggregated_gross_eur, quant=DECIMAL_TWO)}"
+            rows.append(
+                Appendix9Part2Row(
+                    country=country_result.country_bulgarian,
+                    code="603",
+                    gross_income=Money(country_result.aggregated_gross_eur, "EUR"),
+                    tax_base=Money(country_result.aggregated_gross_eur, "EUR"),
+                    foreign_tax=Money(country_result.aggregated_foreign_tax_paid_eur, "EUR"),
+                    allowable_credit=Money(country_result.allowable_credit_aggregated_eur, "EUR"),
+                    recognized_credit=Money(country_result.recognized_credit_correct_eur, "EUR"),
+                    document_ref="R-185 / Activity Statement",
+                )
             )
-            lines.append("  Нормативно определени разходи: 0")
-            lines.append("  Задължителни осигурителни вноски: 0")
-            lines.append(f"  Годишна данъчна основа: {_fmt(country_result.aggregated_gross_eur, quant=DECIMAL_TWO)}")
-            lines.append(f"  Платен данък в чужбина: {_fmt(country_result.aggregated_foreign_tax_paid_eur, quant=DECIMAL_TWO)}")
-            lines.append(
-                f"  Допустим размер на данъчния кредит: "
-                f"{_fmt(country_result.allowable_credit_aggregated_eur, quant=DECIMAL_TWO)}"
+    else:
+        rows.append(
+            Appendix9Part2Row(
+                country="Ирландия",
+                code="603",
+                gross_income=Money(summary.appendix_9_credit_interest_eur, "EUR"),
+                tax_base=Money(summary.appendix_9_credit_interest_eur, "EUR"),
+                foreign_tax=Money(summary.appendix_9_withholding_paid_eur, "EUR"),
+                allowable_credit=Money(
+                    summary.appendix_9_credit_interest_eur * appendix9_allowable_credit_rate,
+                    "EUR",
+                ),
+                recognized_credit=Money(
+                    min(
+                        summary.appendix_9_withholding_paid_eur,
+                        summary.appendix_9_credit_interest_eur * appendix9_allowable_credit_rate,
+                    ),
+                    "EUR",
+                ),
+                document_ref="R-185 / Activity Statement",
             )
-            lines.append(
-                f"  Размер на признатия данъчен кредит: "
-                f"{_fmt(country_result.recognized_credit_correct_eur, quant=DECIMAL_TWO)}"
-            )
-            lines.append("  № и дата на документа за дохода и съответния данък: R-185 / Activity Statement")
-            lines.append("")
-        return
-
-    lines.append("- Държава: Ирландия")
-    lines.append("  Код вид доход: 603")
-    lines.append(
-        f"  Брутен размер на дохода (включително платеният данък): "
-        f"{_fmt(summary.appendix_9_credit_interest_eur, quant=DECIMAL_TWO)}"
-    )
-    lines.append("  Нормативно определени разходи: 0")
-    lines.append("  Задължителни осигурителни вноски: 0")
-    lines.append(f"  Годишна данъчна основа: {_fmt(summary.appendix_9_credit_interest_eur, quant=DECIMAL_TWO)}")
-    lines.append(f"  Платен данък в чужбина: {_fmt(summary.appendix_9_withholding_paid_eur, quant=DECIMAL_TWO)}")
-    lines.append(
-        f"  Допустим размер на данъчния кредит: "
-        f"{_fmt(summary.appendix_9_credit_interest_eur * appendix9_allowable_credit_rate, quant=DECIMAL_TWO)}"
-    )
-    lines.append(
-        f"  Размер на признатия данъчен кредит: "
-        f"{_fmt(min(summary.appendix_9_withholding_paid_eur, summary.appendix_9_credit_interest_eur * appendix9_allowable_credit_rate), quant=DECIMAL_TWO)}"
-    )
-    lines.append("  № и дата на документа за дохода и съответния данък: R-185 / Activity Statement")
+        )
+    lines.extend(render_appendix9_part2(rows))
     lines.append("")
 
 
@@ -486,8 +522,7 @@ def _build_declaration_text(
     _append_appendix5_section(lines, summary=summary)
     _append_appendix13_section(lines, summary=summary)
     _append_appendix6_section(lines, summary=summary)
-    _append_appendix8_part1_section(lines, summary=summary)
-    _append_appendix8_part3_section(lines, summary=summary)
+    _append_appendix8_sections(lines, summary=summary)
     _append_appendix9_section(
         lines,
         summary=summary,

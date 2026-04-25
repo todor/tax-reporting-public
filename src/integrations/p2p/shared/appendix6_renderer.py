@@ -4,6 +4,15 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 import re
 
+from integrations.shared.rendering.appendix6 import (
+    Appendix6Part1CodeTotal,
+    Appendix6Part1CompanyRow,
+    Appendix6Part2TaxableTotal,
+    Appendix6RenderData,
+    render_appendix6,
+)
+from integrations.shared.rendering.common import Money
+
 from .appendix6_models import P2PAppendix6Result
 
 DECIMAL_TWO = Decimal("0.01")
@@ -36,20 +45,6 @@ def _is_informative_value_empty_or_zero(value: Decimal | str) -> bool:
         return Decimal(text) == Decimal("0")
     except Exception:  # noqa: BLE001
         return False
-
-
-def _should_render_part1(result: P2PAppendix6Result) -> bool:
-    return bool(result.part1_rows) or (not _is_zero_decimal(result.aggregate_code_603)) or (
-        not _is_zero_decimal(result.aggregate_code_606)
-    )
-
-
-def _should_render_part2(result: P2PAppendix6Result) -> bool:
-    return (not _is_zero_decimal(result.taxable_code_603)) or (not _is_zero_decimal(result.taxable_code_606))
-
-
-def _should_render_part3(result: P2PAppendix6Result) -> bool:
-    return not _is_zero_decimal(result.withheld_tax)
 
 
 def _has_nonempty_informative_rows(result: P2PAppendix6Result) -> bool:
@@ -145,36 +140,29 @@ def _translate_tax_message_bg(message: str) -> str | None:
 def build_appendix6_text(*, result: P2PAppendix6Result) -> str:
     lines: list[str] = []
 
-    has_tax_sections = _should_render_part1(result) or _should_render_part2(result) or _should_render_part3(result)
-    if has_tax_sections:
-        lines.append("Приложение 6")
-
-    if _should_render_part1(result):
-        lines.append("Част I")
-        for idx, row in enumerate(result.part1_rows, start=1):
-            lines.append(f"- Ред 1.{idx}")
-            lines.append(f"  ЕИК: {(row.payer_eik or '-')}")
-            lines.append(f"  Наименование: {row.payer_name}")
-            lines.append(f"  Код: {row.code}")
-            lines.append(f"  Размер на дохода: {_fmt_decimal(row.amount)}")
-        lines.append(f"- Обща сума на доходите с код 603: {_fmt_decimal(result.aggregate_code_603)}")
-        lines.append(f"- Обща сума на доходите с код 606: {_fmt_decimal(result.aggregate_code_606)}")
-
-    if _should_render_part2(result):
-        if lines:
-            lines.append("")
-        lines.append("Част II")
-        lines.append(f"- Облагаем доход по чл. 35, код 603: {_fmt_decimal(result.taxable_code_603)}")
-        lines.append(f"- Облагаем доход по чл. 35, код 606: {_fmt_decimal(result.taxable_code_606)}")
-
-    if _should_render_part3(result):
-        if lines:
-            lines.append("")
-        lines.append("Част III")
-        lines.append(
-            "- Удържан и/или внесен окончателен данък за доходи: "
-            f"{_fmt_decimal(result.withheld_tax)}"
+    appendix_lines = render_appendix6(
+        Appendix6RenderData(
+            part1_company_rows=[
+                Appendix6Part1CompanyRow(
+                    payer_name=row.payer_name,
+                    payer_eik=row.payer_eik or "-",
+                    code=row.code,
+                    amount=Money(row.amount, "EUR"),
+                )
+                for row in result.part1_rows
+            ],
+            part1_code_totals=[
+                Appendix6Part1CodeTotal(code="603", amount=Money(result.aggregate_code_603, "EUR")),
+                Appendix6Part1CodeTotal(code="606", amount=Money(result.aggregate_code_606, "EUR")),
+            ],
+            part2_taxable_totals=[
+                Appendix6Part2TaxableTotal(code="603", amount=Money(result.taxable_code_603, "EUR")),
+                Appendix6Part2TaxableTotal(code="606", amount=Money(result.taxable_code_606, "EUR")),
+            ],
+            part3_withheld_tax=Money(result.withheld_tax, "EUR"),
         )
+    )
+    lines.extend(appendix_lines)
 
     if _has_nonempty_informative_rows(result):
         if lines:

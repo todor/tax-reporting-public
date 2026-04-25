@@ -23,6 +23,7 @@ This package contains cross-integration shared orchestration pieces used by the 
 - `aggregation.py`
   - declaration aggregation from structured appendix records
   - rendering of `aggregated_tax_report_<year>.txt`
+  - delegates appendix Bulgarian declaration sections to shared canonical renderers in `integrations.shared.rendering`
 
 ## Unified CLI Behavior (Shared Layer)
 
@@ -56,3 +57,4 @@ Top-level output behavior:
 - Aggregation is based on structured appendix records, never by parsing analyzer text outputs.
 - Analyzer business logic stays in integration modules; this shared layer only orchestrates and aggregates.
 - Manual-review diagnostics are surfaced in aggregate status and summary, while declaration totals come only from structured, non-review appendix records emitted by analyzers.
+- Appendix-facing declaration formatting is centralized in `integrations.shared.rendering` and reused by both individual analyzer outputs and aggregated output to avoid drift.
