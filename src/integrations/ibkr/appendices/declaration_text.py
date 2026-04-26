@@ -21,6 +21,7 @@ from integrations.shared.rendering.appendix8 import (
     Appendix8Part1Row,
     Appendix8Part3Row,
     Appendix8RenderData,
+    appendix8_part1_declarative_note_lines,
     render_appendix8,
 )
 from integrations.shared.rendering.appendix9 import (
@@ -367,17 +368,19 @@ def _append_appendix8_sections(
                 )
                 for bucket in summary.appendix_8_output_rows
             ],
-            part1_notes=[
-                "Напомняне: Към Приложение 8, Част I следва да се приложи файл с open positions."
-            ]
-            if summary.appendix_8_part1_rows
-            else [],
         ),
         money_context=money_context,
     )
     if not appendix_lines:
         return
     lines.extend(appendix_lines)
+    lines.append("")
+
+
+def _append_appendix8_part1_note(lines: list[str], *, has_part1_rows: bool) -> None:
+    if not has_part1_rows:
+        return
+    lines.extend(appendix8_part1_declarative_note_lines())
     lines.append("")
 
 
@@ -644,6 +647,7 @@ def _build_declaration_text(
         money_context=money_context,
     )
     _append_review_section(lines, summary=summary, money_context=money_context)
+    _append_appendix8_part1_note(lines, has_part1_rows=bool(summary.appendix_8_part1_rows))
     technical_lines: list[str] = []
     _append_processing_notes_section(technical_lines, summary=summary)
     _append_proof_section(technical_lines, result=result, money_context=money_context)

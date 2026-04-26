@@ -118,7 +118,7 @@ def test_open_position_reconciliation_treats_empty_quantity_as_zero(tmp_path: Pa
     assert result.summary.review_required_rows == 0
     assert not any("invalid order quantity" in warning for warning in result.summary.warnings)
 
-def test_appendix8_part1_single_country_aggregation_and_reminder(tmp_path: Path) -> None:
+def test_appendix8_part1_single_country_aggregation_and_declarative_note(tmp_path: Path) -> None:
     rows = _rows_for_appendix8_part1(
         open_rows=[
             ("AAA", "USD", "2", "100"),
@@ -148,7 +148,11 @@ def test_appendix8_part1_single_country_aggregation_and_reminder(tmp_path: Path)
     assert "Дата и година на придобиване: 31.12.2025" in text
     assert "Обща цена на придобиване в съответната валута: 300.00 USD" in text
     assert "В EUR: 270.00 EUR" in text
-    assert "Напомняне: Към Приложение 8, Част I следва да се приложи файл с open positions." in text
+    assert "Напомняне: Към Приложение 8, Част I следва да се приложи файл с open positions." not in text
+    assert "Забележка:" in text
+    assert "Данните в Приложение 8, Част I са декларативни." in text
+    assert "Не се изисква прикачване на файл към декларацията." in text
+    assert "Запазете отчети (напр. broker statements) за целите на евентуална проверка от НАП." in text
 
 
 def test_appendix8_part1_groups_same_country_by_currency(tmp_path: Path) -> None:

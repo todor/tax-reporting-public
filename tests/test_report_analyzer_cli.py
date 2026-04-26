@@ -797,3 +797,7 @@ def test_render_aggregated_report_appendix8_part1_includes_tax_year_end_acquisit
     assert "Дата и година на придобиване: 31.12.2025" in rendered
     assert "Обща цена на придобиване в съответната валута: 4329.01 EUR" in rendered
     assert "В BGN: 8466.81 BGN" in rendered
+    assert "Забележка:" in rendered
+    assert "Данните в Приложение 8, Част I са декларативни." in rendered
+    assert "Не се изисква прикачване на файл към декларацията." in rendered
+    assert "Запазете отчети (напр. broker statements) за целите на евентуална проверка от НАП." in rendered

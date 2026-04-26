@@ -589,10 +589,13 @@ FX for Part I:
 - cost basis EUR is calculated using FX on `31.12.<tax_year>`
 - output column label is `В EUR` (intentional current convention)
 
-Reminder:
+Declaration note:
 
 - declaration output includes:
-  - `Напомняне: Към Приложение 8, Част I следва да се приложи файл с open positions.`
+  - `Забележка:`
+  - `Данните в Приложение 8, Част I са декларативни.`
+  - `Не се изисква прикачване на файл към декларацията.`
+  - `Запазете отчети (напр. broker statements) за целите на евентуална проверка от НАП.`
 
 ## How To Read The Modified CSV
 

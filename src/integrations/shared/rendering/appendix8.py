@@ -36,6 +36,15 @@ class Appendix8RenderData:
     part1_notes: list[str] = field(default_factory=list)
 
 
+def appendix8_part1_declarative_note_lines() -> list[str]:
+    return [
+        "Забележка:",
+        "Данните в Приложение 8, Част I са декларативни.",
+        "Не се изисква прикачване на файл към декларацията.",
+        "Запазете отчети (напр. broker statements) за целите на евентуална проверка от НАП.",
+    ]
+
+
 def _part1_has_data(data: Appendix8RenderData) -> bool:
     return len(data.part1_rows) > 0
 

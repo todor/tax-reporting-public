@@ -21,6 +21,7 @@ from integrations.shared.rendering.appendix8 import (
     Appendix8Part1Row,
     Appendix8Part3Row,
     Appendix8RenderData,
+    appendix8_part1_declarative_note_lines,
     render_appendix8,
 )
 from integrations.shared.rendering.appendix9 import Appendix9Part2Row, render_appendix9_part2
@@ -476,6 +477,18 @@ def _build_appendix8_lines(
     return render_appendix8(data, money_context=money_context)
 
 
+def _append_appendix8_part1_note(
+    lines: list[str],
+    *,
+    aggregated: AggregatedAppendices,
+) -> None:
+    if not aggregated.appendix8_part1_by_group:
+        return
+    if lines and lines[-1] != "":
+        lines.append("")
+    lines.extend(appendix8_part1_declarative_note_lines())
+
+
 def _build_appendix9_lines(
     aggregated: AggregatedAppendices,
     *,
@@ -540,6 +553,8 @@ def render_aggregated_report(
         if lines and lines[-1] != "":
             lines.append("")
         lines.extend(section_lines)
+
+    _append_appendix8_part1_note(lines, aggregated=aggregated)
 
     technical_lines: list[str] = [
         "Aggregated Report",
