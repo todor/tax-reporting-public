@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .common import Money, is_zero_money, render_money_line
+from .common import Money, MoneyRenderContext, is_zero_money, render_money_line
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +33,11 @@ def _should_render_informative(entry: Appendix13Part2Entry) -> bool:
     return (not is_zero_money(entry.net_result)) or entry.trade_count > 0
 
 
-def render_appendix13_part2(entries: list[Appendix13Part2Entry]) -> list[str]:
+def render_appendix13_part2(
+    entries: list[Appendix13Part2Entry],
+    *,
+    money_context: MoneyRenderContext | None = None,
+) -> list[str]:
     reportable = [entry for entry in entries if _is_entry_reportable(entry)]
     if not reportable:
         return []
@@ -44,14 +48,26 @@ def render_appendix13_part2(entries: list[Appendix13Part2Entry]) -> list[str]:
             lines.append("")
         code = entry.code or "-"
         lines.append(f"- Код {code}")
-        lines.append(render_money_line("  Брутен размер на дохода", entry.gross_income))
-        lines.append(render_money_line("  Цена на придобиване", entry.acquisition_value))
+        lines.append(
+            render_money_line(
+                "  Брутен размер на дохода",
+                entry.gross_income,
+                context=money_context,
+            )
+        )
+        lines.append(
+            render_money_line(
+                "  Цена на придобиване",
+                entry.acquisition_value,
+                context=money_context,
+            )
+        )
         if _should_render_informative(entry):
             lines.append("")
             lines.append("  Информативни")
-            lines.append(render_money_line("  - печалба", entry.profit))
-            lines.append(render_money_line("  - загуба", entry.loss))
-            lines.append(render_money_line("  - нетен резултат", entry.net_result))
+            lines.append(render_money_line("  - печалба", entry.profit, context=money_context))
+            lines.append(render_money_line("  - загуба", entry.loss, context=money_context))
+            lines.append(render_money_line("  - нетен резултат", entry.net_result, context=money_context))
             lines.append(f"  - брой сделки: {entry.trade_count}")
     return lines
 

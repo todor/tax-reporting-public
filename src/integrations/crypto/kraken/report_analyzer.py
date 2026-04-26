@@ -42,6 +42,7 @@ def analyze_kraken_report(
     opening_state_json: str | Path | None = None,
     output_dir: str | Path | None = None,
     cache_dir: str | Path | None = None,
+    display_currency: str = "EUR",
     eur_unit_rate_provider: EurUnitRateProvider | None = None,
 ) -> AnalysisResult:
     _validate_tax_year(tax_year)
@@ -94,7 +95,13 @@ def analyze_kraken_report(
     )
 
     write_enriched_ir_csv(output_csv_path, rows=analysis.enriched_rows)
-    write_declaration_text(declaration_txt_path, summary=analysis.summary)
+    write_declaration_text(
+        declaration_txt_path,
+        summary=analysis.summary,
+        tax_year=tax_year,
+        display_currency=display_currency,
+        cache_dir=cache_dir,
+    )
     write_holdings_state_json(
         year_end_state_json_path,
         tax_year=tax_year,
@@ -117,6 +124,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--opening-state-json", type=Path, help="Optional prior year-end holdings state JSON")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Output directory")
     parser.add_argument("--cache-dir", type=Path, help="Optional FX cache dir override")
+    parser.add_argument(
+        "--display-currency",
+        choices=["EUR", "BGN"],
+        default="EUR",
+        help=(
+            "Controls ONLY TXT output rendering. "
+            "All calculations and aggregation are performed in EUR. "
+            "BGN rendering uses BNB FX service at tax year end."
+        ),
+    )
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -137,6 +154,7 @@ def main() -> int:
             opening_state_json=args.opening_state_json,
             output_dir=args.output_dir,
             cache_dir=args.cache_dir,
+            display_currency=args.display_currency,
         )
     except KrakenAnalyzerError as exc:
         logger.error("%s", exc)

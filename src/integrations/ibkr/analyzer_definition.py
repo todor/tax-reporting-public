@@ -122,6 +122,16 @@ def _build_options(
             aggregate_attr="ibkr_report_alias",
             default=None,
         ),
+        "display_currency": str(
+            option_value(
+                args,
+                mode=mode,
+                single_attr="display_currency",
+                group_options=group_options,
+                group_key="display_currency",
+                default="EUR",
+            )
+        ),
         "cache_dir": resolved_cache_dir(args, mode=mode, group_options=group_options),
     }
 
@@ -135,6 +145,7 @@ def _run(context: AnalyzerRunContext):
         report_alias=context.options.get("report_alias"),
         output_dir=context.output_dir,
         cache_dir=context.options.get("cache_dir"),
+        display_currency=str(context.options.get("display_currency", "EUR")),
         eu_regulated_exchanges=context.options.get("eu_regulated_exchanges"),
         closed_world=bool(context.options.get("closed_world")),
     )

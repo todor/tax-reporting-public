@@ -35,6 +35,8 @@ def analyze_robocash_report(
     tax_year: int,
     output_dir: str | Path | None = None,
     secondary_market_mode: str = SECONDARY_MARKET_MODE_APPENDIX_6,
+    display_currency: str = "EUR",
+    cache_dir: str | Path | None = None,
 ) -> P2PAnalysisRunResult:
     _validate_tax_year(tax_year)
 
@@ -62,7 +64,13 @@ def analyze_robocash_report(
         output_dir=out_dir,
         stem_fallback="robocash_report",
     )
-    write_appendix6_text(output_txt_path, result=result)
+    write_appendix6_text(
+        output_txt_path,
+        result=result,
+        tax_year=tax_year,
+        display_currency=display_currency,
+        cache_dir=cache_dir,
+    )
 
     return P2PAnalysisRunResult(
         input_path=Path(input_pdf).expanduser().resolve(),
@@ -80,6 +88,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=SECONDARY_MARKET_MODE_APPENDIX_6,
         help=SECONDARY_MARKET_MODE_HELP,
     )
+    parser.add_argument(
+        "--display-currency",
+        choices=["EUR", "BGN"],
+        default="EUR",
+        help=(
+            "Controls ONLY TXT output rendering. "
+            "All calculations and aggregation are performed in EUR. "
+            "BGN rendering uses BNB FX service at tax year end."
+        ),
+    )
+    parser.add_argument("--cache-dir", type=Path, help="Optional bnb_fx cache dir override")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Output directory")
     parser.add_argument("--log-level", default="INFO")
     return parser
@@ -100,6 +119,8 @@ def main() -> int:
             tax_year=args.tax_year,
             output_dir=args.output_dir,
             secondary_market_mode=args.secondary_market_mode,
+            display_currency=args.display_currency,
+            cache_dir=args.cache_dir,
         )
     except RobocashAnalyzerError as exc:
         logger.error("%s", exc)

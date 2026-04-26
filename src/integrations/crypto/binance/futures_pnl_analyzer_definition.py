@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from integrations.shared.cli_helpers import CliMode, resolved_cache_dir
+from integrations.shared.cli_helpers import CliMode, option_value, resolved_cache_dir
 from integrations.shared.contracts import AnalyzerDefinition, AnalyzerRunContext
 from integrations.shared.result_builders import build_binance_futures_result
 
@@ -20,7 +20,19 @@ def _build_options(
     mode: CliMode,
     group_options: dict[str, object],
 ) -> dict[str, object]:
-    return {"cache_dir": resolved_cache_dir(args, mode=mode, group_options=group_options)}
+    return {
+        "cache_dir": resolved_cache_dir(args, mode=mode, group_options=group_options),
+        "display_currency": str(
+            option_value(
+                args,
+                mode=mode,
+                single_attr="display_currency",
+                group_options=group_options,
+                group_key="display_currency",
+                default="EUR",
+            )
+        ),
+    }
 
 
 def _run(context: AnalyzerRunContext):
@@ -29,6 +41,7 @@ def _run(context: AnalyzerRunContext):
         tax_year=context.tax_year,
         output_dir=context.output_dir,
         cache_dir=context.options.get("cache_dir"),
+        display_currency=str(context.options.get("display_currency", "EUR")),
     )
     return build_binance_futures_result(
         analyzer_alias="binance_futures",

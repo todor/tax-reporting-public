@@ -15,11 +15,11 @@ class RateNotFoundError(BnbFxError):
 
 
 class FetchError(BnbFxError):
-    """Raised when downloading CSV data from BNB fails."""
+    """Raised when downloading FX data from BNB fails."""
 
 
 class ParseError(BnbFxError):
-    """Raised when CSV payload parsing fails."""
+    """Raised when payload parsing fails."""
 
 
 class CacheError(BnbFxError):
@@ -68,7 +68,7 @@ class QuarterKey:
 class FxRate:
     """A single published BNB FX quote for a symbol and date.
 
-    `rate` preserves the quoted CSV value for `nominal` units of the foreign currency.
+    `rate` preserves the quoted BNB value for `nominal` units of the foreign currency.
     Use `rate_per_unit` for normalized "base currency per 1 foreign unit" values.
     """
 

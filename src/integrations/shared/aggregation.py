@@ -25,6 +25,10 @@ from integrations.shared.rendering.appendix8 import (
 )
 from integrations.shared.rendering.appendix9 import Appendix9Part2Row, render_appendix9_part2
 from integrations.shared.rendering.common import Money
+from integrations.shared.rendering.display_currency import (
+    build_money_render_context,
+    display_currency_technical_lines,
+)
 
 from .contracts import AnalyzerStatus, AppendixRecord, TaxAnalysisResult
 
@@ -365,7 +369,11 @@ def _render_diagnostics_summary(
             lines.append(f"  {entry}")
 
 
-def _build_appendix5_lines(aggregated: AggregatedAppendices) -> list[str]:
+def _build_appendix5_lines(
+    aggregated: AggregatedAppendices,
+    *,
+    money_context,
+) -> list[str]:
     entries = [
         Appendix5Table2Entry(
             code=(code or "-"),
@@ -378,10 +386,14 @@ def _build_appendix5_lines(aggregated: AggregatedAppendices) -> list[str]:
         )
         for (_table, code), bucket in sorted(aggregated.appendix5_by_code.items())
     ]
-    return render_appendix5_table2(entries)
+    return render_appendix5_table2(entries, money_context=money_context)
 
 
-def _build_appendix13_lines(aggregated: AggregatedAppendices) -> list[str]:
+def _build_appendix13_lines(
+    aggregated: AggregatedAppendices,
+    *,
+    money_context,
+) -> list[str]:
     entries = [
         Appendix13Part2Entry(
             code=(code or "-"),
@@ -394,10 +406,14 @@ def _build_appendix13_lines(aggregated: AggregatedAppendices) -> list[str]:
         )
         for (_part, _table, code), bucket in sorted(aggregated.appendix13_by_code.items())
     ]
-    return render_appendix13_part2(entries)
+    return render_appendix13_part2(entries, money_context=money_context)
 
 
-def _build_appendix6_lines(aggregated: AggregatedAppendices) -> list[str]:
+def _build_appendix6_lines(
+    aggregated: AggregatedAppendices,
+    *,
+    money_context,
+) -> list[str]:
     data = Appendix6RenderData(
         part1_company_rows=[
             Appendix6Part1CompanyRow(
@@ -419,17 +435,23 @@ def _build_appendix6_lines(aggregated: AggregatedAppendices) -> list[str]:
         ],
         part3_withheld_tax=Money(aggregated.appendix6_part3_withheld_tax, "EUR"),
     )
-    return render_appendix6(data)
+    return render_appendix6(data, money_context=money_context)
 
 
-def _build_appendix8_lines(aggregated: AggregatedAppendices) -> list[str]:
+def _build_appendix8_lines(
+    aggregated: AggregatedAppendices,
+    *,
+    tax_year: int,
+    money_context,
+) -> list[str]:
+    acquisition_date = f"31.12.{tax_year}"
     data = Appendix8RenderData(
         part1_rows=[
             Appendix8Part1Row(
                 asset_type=asset_type,
                 country=country,
                 quantity=format(bucket.quantity, "f"),
-                acquisition_date=None,
+                acquisition_date=acquisition_date,
                 acquisition_native=Money(bucket.acquisition_native, currency or "-"),
                 acquisition_eur=Money(bucket.acquisition_eur, "EUR"),
                 native_currency_label=currency or "-",
@@ -451,10 +473,14 @@ def _build_appendix8_lines(aggregated: AggregatedAppendices) -> list[str]:
             for (payer, country, code, method), bucket in sorted(aggregated.appendix8_part3_by_group.items())
         ],
     )
-    return render_appendix8(data)
+    return render_appendix8(data, money_context=money_context)
 
 
-def _build_appendix9_lines(aggregated: AggregatedAppendices) -> list[str]:
+def _build_appendix9_lines(
+    aggregated: AggregatedAppendices,
+    *,
+    money_context,
+) -> list[str]:
     rows = [
         Appendix9Part2Row(
             country=country,
@@ -468,7 +494,7 @@ def _build_appendix9_lines(aggregated: AggregatedAppendices) -> list[str]:
         )
         for (country, code), bucket in sorted(aggregated.appendix9_part2_by_group.items())
     ]
-    return render_appendix9_part2(rows)
+    return render_appendix9_part2(rows, money_context=money_context)
 
 
 def render_aggregated_report(
@@ -478,7 +504,14 @@ def render_aggregated_report(
     ignored_inputs: list[tuple[Path, str]],
     analyzer_results: list[TaxAnalysisResult],
     analyzer_errors: dict[str, list[str]],
+    display_currency: str = "EUR",
+    cache_dir: str | Path | None = None,
 ) -> str:
+    money_context = build_money_render_context(
+        tax_year=tax_year,
+        display_currency=display_currency,
+        cache_dir=cache_dir,
+    )
     statuses: dict[str, AnalyzerStatus] = {}
     for result in analyzer_results:
         previous = statuses.get(result.analyzer_alias, "OK")
@@ -492,11 +525,15 @@ def render_aggregated_report(
 
     lines: list[str] = [_status_banner(global_status), ""]
     for section_lines in (
-        _build_appendix5_lines(aggregated),
-        _build_appendix13_lines(aggregated),
-        _build_appendix6_lines(aggregated),
-        _build_appendix8_lines(aggregated),
-        _build_appendix9_lines(aggregated),
+        _build_appendix5_lines(aggregated, money_context=money_context),
+        _build_appendix13_lines(aggregated, money_context=money_context),
+        _build_appendix6_lines(aggregated, money_context=money_context),
+        _build_appendix8_lines(
+            aggregated,
+            tax_year=tax_year,
+            money_context=money_context,
+        ),
+        _build_appendix9_lines(aggregated, money_context=money_context),
     ):
         if not section_lines:
             continue
@@ -509,6 +546,7 @@ def render_aggregated_report(
         f"- tax year: {tax_year}",
         f"- global status: {global_status}",
     ]
+    technical_lines.extend(f"- {line}" for line in display_currency_technical_lines(money_context))
     _render_detected_inputs(technical_lines, detected_inputs)
     _render_ignored_inputs(technical_lines, ignored_inputs)
     _render_per_analyzer_status(

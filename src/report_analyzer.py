@@ -15,6 +15,7 @@ from integrations.shared.autodetect import (
 )
 from integrations.shared.contracts import AnalyzerRunContext, AnalyzerStatus, TaxAnalysisResult
 from integrations.shared.registry import AnalyzerRegistryError, discover_analyzer_registry
+from integrations.shared.rendering.display_currency import DisplayCurrencyError
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tax-year", type=int, help="Tax year")
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, help="Output directory")
     parser.add_argument("--cache-dir", type=Path, help="Optional shared FX cache dir override")
+    parser.add_argument(
+        "--display-currency",
+        choices=["EUR", "BGN"],
+        default="EUR",
+        help=(
+            "Controls ONLY TXT output rendering. "
+            "All calculations and aggregation are performed in EUR. "
+            "BGN rendering uses BNB FX service at tax year end."
+        ),
+    )
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--clean-output", action="store_true", help="Delete output-dir before processing")
 
@@ -129,6 +140,16 @@ def build_parser() -> argparse.ArgumentParser:
         )
         alias_parser.add_argument("--log-level", default="INFO")
         alias_parser.add_argument("--cache-dir", type=Path, help="Optional shared FX cache dir override")
+        alias_parser.add_argument(
+            "--display-currency",
+            choices=["EUR", "BGN"],
+            default="EUR",
+            help=(
+                "Controls ONLY TXT output rendering. "
+                "All calculations and aggregation are performed in EUR. "
+                "BGN rendering uses BNB FX service at tax year end."
+            ),
+        )
         alias_parser.add_argument("--clean-output", action="store_true", help="Delete output-dir before processing")
         definition.add_arguments(alias_parser, "single")
 
@@ -146,6 +167,8 @@ def _run_single_mode(args: argparse.Namespace) -> int:
         clean_output=bool(args.clean_output),
     )
     options = definition.build_options(args, "single", {})
+    options["display_currency"] = str(args.display_currency)
+    options["cache_dir"] = str(args.cache_dir) if args.cache_dir is not None else options.get("cache_dir")
     context = AnalyzerRunContext(
         input_path=args.input.expanduser().resolve(),
         tax_year=args.tax_year,
@@ -226,6 +249,7 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
     group_options = {
         "p2p_secondary_market_mode": args.p2p_secondary_market_mode,
         "cache_dir": str(args.cache_dir) if args.cache_dir is not None else None,
+        "display_currency": str(args.display_currency),
     }
 
     analyzer_results: list[TaxAnalysisResult] = []
@@ -239,6 +263,8 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
         alias_output_dir = (output_dir / alias).resolve()
         alias_output_dir.mkdir(parents=True, exist_ok=True)
         options = definition.build_options(args, "aggregate", group_options)
+        options["display_currency"] = str(args.display_currency)
+        options["cache_dir"] = str(args.cache_dir) if args.cache_dir is not None else options.get("cache_dir")
         if len(input_paths) == 1:
             run_targets = [(0, input_paths[0], alias_output_dir)]
         else:
@@ -271,6 +297,8 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
         ignored_inputs=[(item.path, item.reason) for item in ignored_items],
         analyzer_results=analyzer_results,
         analyzer_errors=analyzer_errors,
+        display_currency=str(args.display_currency),
+        cache_dir=args.cache_dir,
     )
     aggregated_report_path = output_dir / f"aggregated_tax_report_{args.tax_year}.txt"
     aggregated_report_path.write_text(aggregated_report_text, encoding="utf-8")
@@ -288,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "single_analyzer_alias", None):
             return _run_single_mode(args)
         return _run_aggregate_mode(args)
-    except (AnalyzerRegistryError, InputDetectionError) as exc:
+    except (AnalyzerRegistryError, InputDetectionError, DisplayCurrencyError) as exc:
         logger.error("%s", exc)
         print("STATUS: ERROR")
         return 2

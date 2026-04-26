@@ -27,7 +27,8 @@ from integrations.shared.rendering.appendix9 import (
     Appendix9Part2Row,
     render_appendix9_part2,
 )
-from integrations.shared.rendering.common import Money, render_money_line
+from integrations.shared.rendering.common import Money, MoneyRenderContext, render_money_line
+from integrations.shared.rendering.display_currency import display_currency_technical_lines
 
 from ..constants import (
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
@@ -199,7 +200,12 @@ def _append_sanity_section(lines: list[str], *, summary: AnalysisSummary) -> Non
     lines.append("")
 
 
-def _append_appendix5_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+def _append_appendix5_section(
+    lines: list[str],
+    *,
+    summary: AnalysisSummary,
+    money_context: MoneyRenderContext | None = None,
+) -> None:
     app5 = summary.appendix_5
     if not _bucket_has_reportable_values(app5):
         return
@@ -214,13 +220,19 @@ def _append_appendix5_section(lines: list[str], *, summary: AnalysisSummary) -> 
                 net_result=Money(app5.wins_eur - app5.losses_eur, "EUR"),
                 trade_count=app5.rows,
             )
-        ]
+        ],
+        money_context=money_context,
     )
     lines.extend(appendix_lines)
     lines.append("")
 
 
-def _append_appendix13_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+def _append_appendix13_section(
+    lines: list[str],
+    *,
+    summary: AnalysisSummary,
+    money_context: MoneyRenderContext | None = None,
+) -> None:
     app13 = summary.appendix_13
     if not _bucket_has_reportable_values(app13):
         return
@@ -235,13 +247,19 @@ def _append_appendix13_section(lines: list[str], *, summary: AnalysisSummary) ->
                 net_result=Money(app13.wins_eur - app13.losses_eur, "EUR"),
                 trade_count=app13.rows,
             )
-        ]
+        ],
+        money_context=money_context,
     )
     lines.extend(appendix_lines)
     lines.append("")
 
 
-def _append_appendix6_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+def _append_appendix6_section(
+    lines: list[str],
+    *,
+    summary: AnalysisSummary,
+    money_context: MoneyRenderContext | None = None,
+) -> None:
     if not _appendix6_has_reportable_values(summary):
         return
     appendix_lines = render_appendix6(
@@ -259,7 +277,8 @@ def _append_appendix6_section(lines: list[str], *, summary: AnalysisSummary) -> 
                 )
             ],
             part3_withheld_tax=Money(Decimal("0"), "EUR"),
-        )
+        ),
+        money_context=money_context,
     )
     lines.extend(appendix_lines)
     if any(
@@ -277,6 +296,7 @@ def _append_appendix6_section(lines: list[str], *, summary: AnalysisSummary) -> 
                 "- Подател: Credit Interest",
                 Money(summary.appendix_6_credit_interest_eur, "EUR"),
                 quant=DECIMAL_TWO,
+                context=money_context,
             )
         )
         lines.append(
@@ -284,6 +304,7 @@ def _append_appendix6_section(lines: list[str], *, summary: AnalysisSummary) -> 
                 "- Подател: IBKR Managed Securities (SYEP) Interest",
                 Money(summary.appendix_6_syep_interest_eur, "EUR"),
                 quant=DECIMAL_TWO,
+                context=money_context,
             )
         )
         lines.append(
@@ -291,6 +312,7 @@ def _append_appendix6_section(lines: list[str], *, summary: AnalysisSummary) -> 
                 "- Подател: Other taxable (Review override)",
                 Money(summary.appendix_6_other_taxable_eur, "EUR"),
                 quant=DECIMAL_TWO,
+                context=money_context,
             )
         )
         lines.append(
@@ -298,6 +320,7 @@ def _append_appendix6_section(lines: list[str], *, summary: AnalysisSummary) -> 
                 "- Подател: Lieu Received",
                 Money(summary.appendix_6_lieu_received_eur, "EUR"),
                 quant=DECIMAL_TWO,
+                context=money_context,
             )
         )
     if summary.interest_unknown_rows > 0:
@@ -310,7 +333,12 @@ def _append_appendix6_section(lines: list[str], *, summary: AnalysisSummary) -> 
     lines.append("")
 
 
-def _append_appendix8_sections(lines: list[str], *, summary: AnalysisSummary) -> None:
+def _append_appendix8_sections(
+    lines: list[str],
+    *,
+    summary: AnalysisSummary,
+    money_context: MoneyRenderContext | None = None,
+) -> None:
     appendix_lines = render_appendix8(
         Appendix8RenderData(
             part1_rows=[
@@ -344,7 +372,8 @@ def _append_appendix8_sections(lines: list[str], *, summary: AnalysisSummary) ->
             ]
             if summary.appendix_8_part1_rows
             else [],
-        )
+        ),
+        money_context=money_context,
     )
     if not appendix_lines:
         return
@@ -357,6 +386,7 @@ def _append_appendix9_section(
     *,
     summary: AnalysisSummary,
     appendix9_allowable_credit_rate: Decimal,
+    money_context: MoneyRenderContext | None = None,
 ) -> None:
     if not _appendix9_has_reportable_values(summary):
         return
@@ -398,11 +428,16 @@ def _append_appendix9_section(
                 document_ref="R-185 / Activity Statement",
             )
         )
-    lines.extend(render_appendix9_part2(rows))
+    lines.extend(render_appendix9_part2(rows, money_context=money_context))
     lines.append("")
 
 
-def _append_review_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+def _append_review_section(
+    lines: list[str],
+    *,
+    summary: AnalysisSummary,
+    money_context: MoneyRenderContext | None = None,
+) -> None:
     if summary.tax_exempt_mode != TAX_MODE_EXECUTION_EXCHANGE:
         return
     if summary.review_rows <= 0:
@@ -411,15 +446,44 @@ def _append_review_section(lines: list[str], *, summary: AnalysisSummary) -> Non
     review = summary.review
     lines.append("РЪЧНА ПРОВЕРКА (ИЗКЛЮЧЕНИ ОТ АВТОМАТИЧНИТЕ ТАБЛИЦИ)")
     lines.append(f"- изключени записи: {summary.review_rows}")
-    lines.append(render_money_line("- продажна цена", Money(review.sale_price_eur, "EUR"), quant=DECIMAL_TWO))
-    lines.append(render_money_line("- цена на придобиване", Money(review.purchase_eur, "EUR"), quant=DECIMAL_TWO))
-    lines.append(render_money_line("- печалба", Money(review.wins_eur, "EUR"), quant=DECIMAL_TWO))
-    lines.append(render_money_line("- загуба", Money(review.losses_eur, "EUR"), quant=DECIMAL_TWO))
+    lines.append(
+        render_money_line(
+            "- продажна цена",
+            Money(review.sale_price_eur, "EUR"),
+            quant=DECIMAL_TWO,
+            context=money_context,
+        )
+    )
+    lines.append(
+        render_money_line(
+            "- цена на придобиване",
+            Money(review.purchase_eur, "EUR"),
+            quant=DECIMAL_TWO,
+            context=money_context,
+        )
+    )
+    lines.append(
+        render_money_line(
+            "- печалба",
+            Money(review.wins_eur, "EUR"),
+            quant=DECIMAL_TWO,
+            context=money_context,
+        )
+    )
+    lines.append(
+        render_money_line(
+            "- загуба",
+            Money(review.losses_eur, "EUR"),
+            quant=DECIMAL_TWO,
+            context=money_context,
+        )
+    )
     lines.append(
         render_money_line(
             "- нетен резултат",
             Money(review.wins_eur - review.losses_eur, "EUR"),
             quant=DECIMAL_TWO,
+            context=money_context,
         )
     )
     lines.append("")
@@ -441,7 +505,12 @@ def _append_review_section(lines: list[str], *, summary: AnalysisSummary) -> Non
     lines.append("")
 
 
-def _append_forex_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+def _append_forex_section(
+    lines: list[str],
+    *,
+    summary: AnalysisSummary,
+    money_context: MoneyRenderContext | None = None,
+) -> None:
     if summary.forex_review_required_rows <= 0:
         return
 
@@ -458,6 +527,7 @@ def _append_forex_section(lines: list[str], *, summary: AnalysisSummary) -> None
             "- общ обем",
             Money(summary.forex_ignored_abs_proceeds_eur, "EUR"),
             quant=DECIMAL_TWO,
+            context=money_context,
         )
     )
     lines.append("")
@@ -471,7 +541,12 @@ def _append_processing_notes_section(lines: list[str], *, summary: AnalysisSumma
         lines.append("")
 
 
-def _append_proof_section(lines: list[str], *, result: AnalysisResult) -> None:
+def _append_proof_section(
+    lines: list[str],
+    *,
+    result: AnalysisResult,
+    money_context: MoneyRenderContext | None = None,
+) -> None:
     summary = result.summary
     def _fmt_set(values: set[str]) -> str:
         cleaned = sorted(value for value in values if value.strip() != "")
@@ -543,6 +618,8 @@ def _append_proof_section(lines: list[str], *, result: AnalysisResult) -> None:
     )
     if summary.tax_credit_debug_report_path:
         lines.append(f"- tax credit debug report: {summary.tax_credit_debug_report_path}")
+    if money_context is not None:
+        lines.extend(f"- {line}" for line in display_currency_technical_lines(money_context))
     lines.append("")
 
 
@@ -550,24 +627,26 @@ def _build_declaration_text(
     result: AnalysisResult,
     *,
     appendix9_allowable_credit_rate: Decimal = APPENDIX_9_ALLOWABLE_CREDIT_RATE,
+    money_context: MoneyRenderContext | None = None,
 ) -> str:
     summary = result.summary
     lines: list[str] = []
     _append_manual_check_section(lines, summary=summary)
-    _append_forex_section(lines, summary=summary)
-    _append_appendix5_section(lines, summary=summary)
-    _append_appendix13_section(lines, summary=summary)
-    _append_appendix6_section(lines, summary=summary)
-    _append_appendix8_sections(lines, summary=summary)
+    _append_forex_section(lines, summary=summary, money_context=money_context)
+    _append_appendix5_section(lines, summary=summary, money_context=money_context)
+    _append_appendix13_section(lines, summary=summary, money_context=money_context)
+    _append_appendix6_section(lines, summary=summary, money_context=money_context)
+    _append_appendix8_sections(lines, summary=summary, money_context=money_context)
     _append_appendix9_section(
         lines,
         summary=summary,
         appendix9_allowable_credit_rate=appendix9_allowable_credit_rate,
+        money_context=money_context,
     )
-    _append_review_section(lines, summary=summary)
+    _append_review_section(lines, summary=summary, money_context=money_context)
     technical_lines: list[str] = []
     _append_processing_notes_section(technical_lines, summary=summary)
-    _append_proof_section(technical_lines, result=result)
+    _append_proof_section(technical_lines, result=result, money_context=money_context)
     _append_sanity_section(technical_lines, summary=summary)
     if technical_lines:
         lines.append(TECHNICAL_DETAILS_SEPARATOR)

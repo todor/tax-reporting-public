@@ -10,6 +10,10 @@ from integrations.shared.rendering.appendix5 import (
     render_appendix5_table2,
 )
 from integrations.shared.rendering.common import Money
+from integrations.shared.rendering.display_currency import (
+    build_money_render_context,
+    display_currency_technical_lines,
+)
 
 from .fund_ir_models import (
     FundAnalysisRunResult,
@@ -117,7 +121,19 @@ def write_enriched_ir_csv(path: Path, *, rows: list[FundEnrichedRow]) -> None:
         writer.writerows(payload)
 
 
-def build_declaration_text(*, summary: FundAnalysisSummary, appendix_5_declaration_code: str) -> str:
+def build_declaration_text(
+    *,
+    summary: FundAnalysisSummary,
+    appendix_5_declaration_code: str,
+    tax_year: int,
+    display_currency: str = "EUR",
+    cache_dir: str | Path | None = None,
+) -> str:
+    money_context = build_money_render_context(
+        tax_year=tax_year,
+        display_currency=display_currency,
+        cache_dir=cache_dir,
+    )
     declaration_code = _validate_declaration_code(appendix_5_declaration_code)
     lines: list[str] = []
 
@@ -140,7 +156,8 @@ def build_declaration_text(*, summary: FundAnalysisSummary, appendix_5_declarati
                     net_result=Money(bucket.net_result_eur, "EUR"),
                     trade_count=bucket.rows,
                 )
-            ]
+            ],
+            money_context=money_context,
         )
         lines.extend(appendix_lines)
         lines.append("")
@@ -155,6 +172,7 @@ def build_declaration_text(*, summary: FundAnalysisSummary, appendix_5_declarati
     technical_lines.append("Audit Data")
     technical_lines.append(f"- processed rows: {summary.processed_rows}")
     technical_lines.append(f"- ignored rows: {summary.ignored_rows}")
+    technical_lines.extend(f"- {line}" for line in display_currency_technical_lines(money_context))
 
     if technical_lines:
         lines.append(TECHNICAL_DETAILS_SEPARATOR)
@@ -163,12 +181,23 @@ def build_declaration_text(*, summary: FundAnalysisSummary, appendix_5_declarati
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_declaration_text(path: Path, *, summary: FundAnalysisSummary, appendix_5_declaration_code: str) -> None:
+def write_declaration_text(
+    path: Path,
+    *,
+    summary: FundAnalysisSummary,
+    appendix_5_declaration_code: str,
+    tax_year: int,
+    display_currency: str = "EUR",
+    cache_dir: str | Path | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         build_declaration_text(
             summary=summary,
             appendix_5_declaration_code=appendix_5_declaration_code,
+            tax_year=tax_year,
+            display_currency=display_currency,
+            cache_dir=cache_dir,
         ),
         encoding="utf-8",
     )

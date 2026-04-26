@@ -16,7 +16,11 @@ from integrations.shared.rendering.appendix5 import (
     Appendix5Table2Entry,
     render_appendix5_table2,
 )
-from integrations.shared.rendering.common import Money
+from integrations.shared.rendering.common import Money, MoneyRenderContext
+from integrations.shared.rendering.display_currency import (
+    build_money_render_context,
+    display_currency_technical_lines,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -347,7 +351,13 @@ def _write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) ->
             writer.writerow(row)
 
 
-def _write_tax_text(path: Path, *, tax_year: int, totals: AggregatedTotals) -> None:
+def _write_tax_text(
+    path: Path,
+    *,
+    tax_year: int,
+    totals: AggregatedTotals,
+    money_context: MoneyRenderContext | None = None,
+) -> None:
     lines = [f"Данъчна година: {tax_year}"]
     should_render_appendix = any(
         value != ZERO
@@ -371,7 +381,8 @@ def _write_tax_text(path: Path, *, tax_year: int, totals: AggregatedTotals) -> N
                     net_result=Money(totals.net_result_eur, "EUR"),
                     trade_count=0,
                 )
-            ]
+            ],
+            money_context=money_context,
         )
         lines.extend(["", *appendix_lines])
     technical_lines = [
@@ -384,6 +395,8 @@ def _write_tax_text(path: Path, *, tax_year: int, totals: AggregatedTotals) -> N
         f"- processed_rows: {totals.processed_rows}",
         f"- ignored_rows: {totals.ignored_rows}",
     ]
+    if money_context is not None:
+        technical_lines.extend(f"- {line}" for line in display_currency_technical_lines(money_context))
     if technical_lines:
         lines.extend(["", TECHNICAL_DETAILS_SEPARATOR, ""])
         lines.extend(technical_lines)
@@ -415,6 +428,7 @@ def analyze_futures_pnl_report(
     tax_year: int,
     output_dir: str | Path | None = None,
     cache_dir: str | Path | None = None,
+    display_currency: str = "EUR",
     eur_rate_provider: EurRateProvider | None = None,
 ) -> AnalysisResult:
     """Analyze Binance Futures PnL cashflows for a given tax year.
@@ -462,7 +476,13 @@ def analyze_futures_pnl_report(
     summary_json_path = out_dir / f"futures_pnl_summary_{tax_year}.json"
 
     _write_csv(detailed_path, DETAILED_COLUMNS, detailed_rows)
-    _write_tax_text(tax_text_path, tax_year=tax_year, totals=totals)
+    money_context = build_money_render_context(
+        tax_year=tax_year,
+        display_currency=display_currency,
+        cache_dir=cache_dir,
+    )
+
+    _write_tax_text(tax_text_path, tax_year=tax_year, totals=totals, money_context=money_context)
     _write_summary_json(summary_json_path, tax_year=tax_year, totals=totals)
 
     return AnalysisResult(
@@ -481,6 +501,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tax-year", type=int, required=True, help="Tax year to process")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Output directory")
     parser.add_argument("--cache-dir", type=Path, help="Optional bnb_fx cache dir override")
+    parser.add_argument(
+        "--display-currency",
+        choices=["EUR", "BGN"],
+        default="EUR",
+        help=(
+            "Controls ONLY TXT output rendering. "
+            "All calculations and aggregation are performed in EUR. "
+            "BGN rendering uses BNB FX service at tax year end."
+        ),
+    )
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -500,6 +530,7 @@ def main() -> int:
             tax_year=args.tax_year,
             output_dir=args.output_dir,
             cache_dir=args.cache_dir,
+            display_currency=args.display_currency,
         )
     except FuturesPnlAnalyzerError as exc:
         logger.error("%s", exc)

@@ -158,6 +158,7 @@ Aggregate mode global options:
 - `--tax-year`
 - `--output-dir`
 - `--cache-dir` (shared FX cache override for all analyzers that use FX services)
+- `--display-currency {EUR,BGN}` (TXT rendering only; calculations stay in EUR; BGN uses BNB FX at `YYYY-12-31`)
 - `--log-level`
 - `--clean-output`
 
@@ -192,6 +193,14 @@ Naming rule:
 - single-analyzer mode uses base flags (for example `--opening-state-json`)
 - aggregate mode auto-prefixes analyzer-scoped flags with alias (for example `--coinbase-opening-state-json`)
 
+Display currency rule (all analyzers, single + aggregate):
+
+- default is `EUR`
+- `--display-currency BGN` converts declaration-facing TXT monetary values from EUR to BGN
+- conversion is rendering-only (no calculation/aggregation changes)
+- conversion uses `services.bnb_fx` on `31 Dec` of the selected tax year
+- technical metadata for this conversion is shown under `Technical Details`
+
 Aggregate output:
 
 - per-analyzer subfolders under `<output-dir>/<alias>/...`
@@ -203,6 +212,7 @@ Aggregate output:
 
 What you can do:
 
+- Use BNB XML export only (CSV is no longer supported).
 - Get a historical FX quote by symbol and date.
 - Auto-fetch and cache the whole quarter on cache miss.
 - Preload cache for any date period.
@@ -347,7 +357,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 - `src/integrations/ibkr/constants.py`: IBKR domain constants and country maps
 - `src/integrations/ibkr/models.py`: IBKR typed models/errors/result structures
 - `src/integrations/ibkr/shared.py`: shared IBKR parsing/matching/conversion helpers
-- `src/services/bnb_fx/`: BNB CSV client + quarter cache + CLI
+- `src/services/bnb_fx/`: BNB XML client + quarter cache + CLI
 - `src/services/crypto_fx/`: crypto-to-EUR layer (pair resolution + Binance hourly pricing + CLI)
 - `src/services/pdf_reader.py`: shared machine-generated PDF text extraction utility
 - `src/integrations/shared/rendering/`: canonical declaration-facing appendix renderers (`Приложение 5/6/8/9/13`) reused by both individual analyzers and aggregated output

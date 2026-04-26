@@ -12,6 +12,10 @@ from integrations.shared.rendering.appendix6 import (
     render_appendix6,
 )
 from integrations.shared.rendering.common import Money, format_money
+from integrations.shared.rendering.display_currency import (
+    build_money_render_context,
+    display_currency_technical_lines,
+)
 
 from .appendix6_models import P2PAppendix6Result
 
@@ -144,7 +148,18 @@ def _translate_tax_message_bg(message: str) -> str | None:
     return None
 
 
-def build_appendix6_text(*, result: P2PAppendix6Result) -> str:
+def build_appendix6_text(
+    *,
+    result: P2PAppendix6Result,
+    tax_year: int,
+    display_currency: str = "EUR",
+    cache_dir: str | Path | None = None,
+) -> str:
+    money_context = build_money_render_context(
+        tax_year=tax_year,
+        display_currency=display_currency,
+        cache_dir=cache_dir,
+    )
     lines: list[str] = []
 
     appendix_lines = render_appendix6(
@@ -167,7 +182,8 @@ def build_appendix6_text(*, result: P2PAppendix6Result) -> str:
                 Appendix6Part2TaxableTotal(code="606", amount=Money(result.taxable_code_606, "EUR")),
             ],
             part3_withheld_tax=Money(result.withheld_tax, "EUR"),
-        )
+        ),
+        money_context=money_context,
     )
     lines.extend(appendix_lines)
 
@@ -181,7 +197,9 @@ def build_appendix6_text(*, result: P2PAppendix6Result) -> str:
             base_label, currency = _split_label_and_currency(info.label)
             translated_label = _translate_info_label_bg(base_label)
             if isinstance(info.value, Decimal) and currency is not None:
-                lines.append(f"- {translated_label}: {format_money(Money(info.value, currency))}")
+                lines.append(
+                    f"- {translated_label}: {format_money(Money(info.value, currency), context=money_context)}"
+                )
             else:
                 lines.append(f"- {translated_label}: {_fmt_informative_value(info.value)}")
 
@@ -239,6 +257,7 @@ def build_appendix6_text(*, result: P2PAppendix6Result) -> str:
     technical_lines.append(f"- part1_rows: {len(result.part1_rows)}")
     technical_lines.append(f"- warnings_count: {len(result.warnings)}")
     technical_lines.append(f"- informational_messages_count: {len(result.informational_messages)}")
+    technical_lines.extend(f"- {line}" for line in display_currency_technical_lines(money_context))
 
     if technical_lines:
         if lines:
@@ -250,9 +269,24 @@ def build_appendix6_text(*, result: P2PAppendix6Result) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_appendix6_text(path: Path, *, result: P2PAppendix6Result) -> None:
+def write_appendix6_text(
+    path: Path,
+    *,
+    result: P2PAppendix6Result,
+    tax_year: int,
+    display_currency: str = "EUR",
+    cache_dir: str | Path | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build_appendix6_text(result=result), encoding="utf-8")
+    path.write_text(
+        build_appendix6_text(
+            result=result,
+            tax_year=tax_year,
+            display_currency=display_currency,
+            cache_dir=cache_dir,
+        ),
+        encoding="utf-8",
+    )
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

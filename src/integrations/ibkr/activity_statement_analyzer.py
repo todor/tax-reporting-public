@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from integrations.shared.rendering.display_currency import build_money_render_context
+
 from .appendices.aggregations import (
     _aggregate_appendix8_company_rows_by_country_and_method,
     _build_appendix8_country_debug,
@@ -341,6 +343,7 @@ def analyze_ibkr_activity_statement(
     report_alias: str | None = None,
     output_dir: str | Path | None = None,
     cache_dir: str | Path | None = None,
+    display_currency: str = "EUR",
     eu_regulated_exchanges: list[str] | None = None,
     closed_world: bool = False,
     fx_rate_provider: FxRateProvider | None = None,
@@ -494,11 +497,17 @@ def analyze_ibkr_activity_statement(
         report_alias=normalized_alias,
         summary=summary,
     )
+    money_context = build_money_render_context(
+        tax_year=tax_year,
+        display_currency=display_currency,
+        cache_dir=cache_dir,
+    )
 
     declaration_txt_path.write_text(
         _build_declaration_text(
             result,
             appendix9_allowable_credit_rate=APPENDIX_9_ALLOWABLE_CREDIT_RATE,
+            money_context=money_context,
         ),
         encoding="utf-8",
     )
@@ -564,6 +573,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional report alias to include in output filenames (for multiple accounts)",
     )
     parser.add_argument("--cache-dir", type=Path, help="Optional bnb_fx cache dir override")
+    parser.add_argument(
+        "--display-currency",
+        choices=["EUR", "BGN"],
+        default="EUR",
+        help=(
+            "Controls ONLY TXT output rendering. "
+            "All calculations and aggregation are performed in EUR. "
+            "BGN rendering uses BNB FX service at tax year end."
+        ),
+    )
     parser.add_argument("--log-level", default="INFO")
     return parser
 
@@ -586,6 +605,7 @@ def main() -> int:
             report_alias=args.report_alias,
             output_dir=args.output_dir,
             cache_dir=args.cache_dir,
+            display_currency=args.display_currency,
             eu_regulated_exchanges=args.eu_regulated_exchange,
             closed_world=args.closed_world,
         )

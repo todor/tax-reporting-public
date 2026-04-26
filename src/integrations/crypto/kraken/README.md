@@ -143,6 +143,7 @@ CLI options:
 - `--opening-state-json` (optional prior state)
 - `--output-dir` (optional, default `output/kraken`)
 - `--cache-dir` (optional FX cache override)
+- `--display-currency {EUR,BGN}` (optional, TXT rendering only; calculations stay in EUR)
 - `--log-level` (optional, default `INFO`)
 
 CLI stdout policy:

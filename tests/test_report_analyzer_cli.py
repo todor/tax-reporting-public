@@ -120,6 +120,38 @@ def test_single_analyzer_mode_runs_selected_analyzer(
     assert "STATUS: SUCCESS" in stdout
     assert len(run_capture.contexts) == 1
     assert run_capture.contexts[0].input_path == input_file.resolve()
+    assert run_capture.contexts[0].options["display_currency"] == "EUR"
+
+
+def test_single_analyzer_mode_passes_display_currency_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    fake = _make_fake_definition(alias="ibkr", group="broker", tmp_path=tmp_path, run_capture=run_capture)
+    registry = _make_registry(fake)
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: registry)
+
+    input_file = tmp_path / "ibkr.csv"
+    input_file.write_text("x\n", encoding="utf-8")
+
+    code = report_analyzer.main(
+        [
+            "ibkr",
+            "--input",
+            str(input_file),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--display-currency",
+            "BGN",
+        ]
+    )
+
+    assert code == 0
+    assert len(run_capture.contexts) == 1
+    assert run_capture.contexts[0].options["display_currency"] == "BGN"
 
 
 def test_auto_detection_uses_alias_tokens_and_include_pattern(tmp_path: Path) -> None:
@@ -656,3 +688,112 @@ def test_render_aggregated_report_suppresses_zero_only_appendix_sections() -> No
     assert "Приложение 6" not in rendered
     assert "Приложение 8" not in rendered
     assert "Приложение 9" not in rendered
+
+
+def test_cli_rejects_invalid_display_currency(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    fake = _make_fake_definition(alias="ibkr", group="broker", tmp_path=tmp_path, run_capture=run_capture)
+    registry = _make_registry(fake)
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: registry)
+
+    input_file = tmp_path / "ibkr.csv"
+    input_file.write_text("x\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit):
+        report_analyzer.main(
+            [
+                "ibkr",
+                "--input",
+                str(input_file),
+                "--tax-year",
+                "2025",
+                "--display-currency",
+                "USD",
+            ]
+        )
+
+
+def test_render_aggregated_report_converts_to_bgn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "integrations.shared.rendering.display_currency.convert_amount",
+        lambda amount, source_symbol, target_symbol, on_date, cache_dir=None: Decimal("1.95583"),
+    )
+    result = TaxAnalysisResult(
+        analyzer_alias="coinbase",
+        input_path=Path("/tmp/coinbase.csv"),
+        tax_year=2025,
+        output_paths={"declaration_txt": Path("/tmp/coinbase.txt")},
+        appendices=[
+            AppendixRecord(
+                appendix="5",
+                table="2",
+                code="5082",
+                values={
+                    "sale_value_eur": Decimal("100"),
+                    "acquisition_value_eur": Decimal("90"),
+                    "profit_eur": Decimal("10"),
+                    "loss_eur": Decimal("0"),
+                    "trade_count": 1,
+                    "net_result_eur": Decimal("10"),
+                },
+            )
+        ],
+        diagnostics=[],
+    )
+    rendered = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={"coinbase": [Path("/tmp/coinbase.csv")]},
+        ignored_inputs=[],
+        analyzer_results=[result],
+        analyzer_errors={},
+        display_currency="BGN",
+    )
+    assert "Продажна цена: 195.58 BGN" in rendered
+    assert "Цена на придобиване: 176.02 BGN" in rendered
+    assert "- Display currency: BGN" in rendered
+
+
+def test_render_aggregated_report_appendix8_part1_includes_tax_year_end_acquisition_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "integrations.shared.rendering.display_currency.convert_amount",
+        lambda amount, source_symbol, target_symbol, on_date, cache_dir=None: Decimal("1.95583"),
+    )
+    result = TaxAnalysisResult(
+        analyzer_alias="ibkr",
+        input_path=Path("/tmp/ibkr.csv"),
+        tax_year=2025,
+        output_paths={"declaration_txt": Path("/tmp/ibkr.txt")},
+        appendices=[
+            AppendixRecord(
+                appendix="8",
+                part="I",
+                values={
+                    "asset_type": "Акции",
+                    "country": "Германия",
+                    "currency": "EUR",
+                    "quantity": Decimal("49.2652"),
+                    "acquisition_native": Decimal("4329.01"),
+                    "acquisition_eur": Decimal("4329.01"),
+                },
+            )
+        ],
+        diagnostics=[],
+    )
+    rendered = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={"ibkr": [Path("/tmp/ibkr.csv")]},
+        ignored_inputs=[],
+        analyzer_results=[result],
+        analyzer_errors={},
+        display_currency="BGN",
+    )
+    assert "Дата и година на придобиване: 31.12.2025" in rendered
+    assert "Обща цена на придобиване в съответната валута: 4329.01 EUR" in rendered
+    assert "В BGN: 8466.81 BGN" in rendered

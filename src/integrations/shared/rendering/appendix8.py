@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .common import Money, is_zero_money, render_money_line
+from .common import Money, MoneyRenderContext, is_zero_money, render_money_line
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +56,11 @@ def _part3_has_data(data: Appendix8RenderData) -> bool:
     )
 
 
-def render_appendix8(data: Appendix8RenderData) -> list[str]:
+def render_appendix8(
+    data: Appendix8RenderData,
+    *,
+    money_context: MoneyRenderContext | None = None,
+) -> list[str]:
     has_part1 = _part1_has_data(data)
     has_part3 = _part3_has_data(data)
     if not has_part1 and not has_part3:
@@ -73,8 +77,24 @@ def render_appendix8(data: Appendix8RenderData) -> list[str]:
             lines.append(f"  Брой: {row.quantity}")
             if row.acquisition_date is not None:
                 lines.append(f"  Дата и година на придобиване: {row.acquisition_date}")
-            lines.append(render_money_line("  Обща цена на придобиване в съответната валута", row.acquisition_native))
-            lines.append(render_money_line("  В EUR", row.acquisition_eur))
+            lines.append(
+                render_money_line(
+                    "  Обща цена на придобиване в съответната валута",
+                    row.acquisition_native,
+                )
+            )
+            converted_label = (
+                "  В BGN"
+                if money_context is not None and money_context.display_currency == "BGN"
+                else "  В EUR"
+            )
+            lines.append(
+                render_money_line(
+                    converted_label,
+                    row.acquisition_eur,
+                    context=money_context,
+                )
+            )
             lines.append("")
         for note in data.part1_notes:
             lines.append(note)
@@ -103,12 +123,42 @@ def render_appendix8(data: Appendix8RenderData) -> list[str]:
                 "  Код за прилагане на метод за избягване на двойното данъчно облагане: "
                 f"{row.treaty_method}"
             )
-            lines.append(render_money_line("  Брутен размер на дохода", row.gross_income))
+            lines.append(
+                render_money_line(
+                    "  Брутен размер на дохода",
+                    row.gross_income,
+                    context=money_context,
+                )
+            )
             lines.append("  Документално доказана цена на придобиване: ")
-            lines.append(render_money_line("  Платен данък в чужбина", row.foreign_tax))
-            lines.append(render_money_line("  Допустим размер на данъчния кредит", row.allowable_credit))
-            lines.append(render_money_line("  Размер на признатия данъчен кредит", row.recognized_credit))
-            lines.append(render_money_line("  Дължим данък, подлежащ на внасяне", row.tax_due))
+            lines.append(
+                render_money_line(
+                    "  Платен данък в чужбина",
+                    row.foreign_tax,
+                    context=money_context,
+                )
+            )
+            lines.append(
+                render_money_line(
+                    "  Допустим размер на данъчния кредит",
+                    row.allowable_credit,
+                    context=money_context,
+                )
+            )
+            lines.append(
+                render_money_line(
+                    "  Размер на признатия данъчен кредит",
+                    row.recognized_credit,
+                    context=money_context,
+                )
+            )
+            lines.append(
+                render_money_line(
+                    "  Дължим данък, подлежащ на внасяне",
+                    row.tax_due,
+                    context=money_context,
+                )
+            )
             lines.append("")
 
     return lines

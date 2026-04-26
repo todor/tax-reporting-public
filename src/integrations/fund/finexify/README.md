@@ -131,6 +131,7 @@ Options:
 - `--opening-state-json` (optional)
 - `--output-dir` (optional, default `output/finexify`)
 - `--cache-dir` (optional FX cache override)
+- `--display-currency {EUR,BGN}` (optional, TXT rendering only; calculations stay in EUR)
 - `--log-level` (optional)
 
 CLI stdout policy:

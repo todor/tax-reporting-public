@@ -85,6 +85,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
 - `--report-alias`: optional alias added in output filenames
 - `--output-dir`: optional output root (default `output/ibkr/activity_statement`)
 - `--cache-dir`: optional `bnb_fx` cache override
+- `--display-currency {EUR,BGN}`: optional TXT rendering currency (calculation currency remains EUR)
 - `--log-level`: logging level (default `INFO`)
 
 ## Scope

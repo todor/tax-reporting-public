@@ -184,6 +184,7 @@ CLI options:
 - `--tax-year` (required)
 - `--output-dir` (optional, default `output/binance/futures`)
 - `--cache-dir` (optional BNB FX cache override)
+- `--display-currency {EUR,BGN}` (optional, TXT rendering only; calculations stay in EUR)
 - `--log-level` (optional, default `INFO`)
 
 Optional:

@@ -33,6 +33,16 @@ def _build_options(
             single_attr="opening_state_json",
             aggregate_attr="kraken_opening_state_json",
         ),
+        "display_currency": str(
+            option_value(
+                args,
+                mode=mode,
+                single_attr="display_currency",
+                group_options=group_options,
+                group_key="display_currency",
+                default="EUR",
+            )
+        ),
         "cache_dir": resolved_cache_dir(args, mode=mode, group_options=group_options),
     }
 
@@ -44,6 +54,7 @@ def _run(context: AnalyzerRunContext):
         opening_state_json=context.options.get("opening_state_json"),
         output_dir=context.output_dir,
         cache_dir=context.options.get("cache_dir"),
+        display_currency=str(context.options.get("display_currency", "EUR")),
     )
     return build_crypto_result(
         analyzer_alias="kraken",

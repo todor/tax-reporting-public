@@ -31,6 +31,13 @@ CLI stdout policy for P2P analyzers:
 - `STATUS: ERROR` on failure
 - declaration output path
 
+Display currency for TXT output:
+
+- all P2P analyzers support `--display-currency {EUR,BGN}` through `report_analyzer`
+- default is `EUR`
+- `BGN` affects only declaration-facing TXT money rendering; calculations remain in EUR
+- conversion uses `services.bnb_fx` at tax-year end (`YYYY-12-31`)
+
 Shared PDF extraction utility:
 
 - `services.pdf_reader` (machine-generated text PDFs only, no OCR)

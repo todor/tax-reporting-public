@@ -1,7 +1,7 @@
 """BNB historical FX rates with aggressive quarter-based disk caching.
 
 Source:
-- Bulgarian National Bank (BNB) exchange-rate CSV endpoint.
+- Bulgarian National Bank (BNB) exchange-rate XML endpoint.
 
 Strategy:
 - Cache one normalized JSON file per calendar quarter.
@@ -18,12 +18,13 @@ Example:
 
 from .cache import default_cache_dir
 from .client import (
-    BnbCsvClient,
+    BnbFxClient,
     build_cache,
     build_cache_for_symbols_and_years,
+    convert_amount,
+    get_conversion_rate,
     get_exchange_rate,
-    parse_bnb_csv,
-    parse_bnb_payload,
+    parse_bnb_xml,
 )
 from .models import (
     BnbFxError,
@@ -38,7 +39,7 @@ from .models import (
 )
 
 __all__ = [
-    "BnbCsvClient",
+    "BnbFxClient",
     "BnbFxError",
     "CacheBuildResult",
     "CacheError",
@@ -50,8 +51,9 @@ __all__ = [
     "RateNotFoundError",
     "build_cache",
     "build_cache_for_symbols_and_years",
+    "convert_amount",
     "default_cache_dir",
+    "get_conversion_rate",
     "get_exchange_rate",
-    "parse_bnb_csv",
-    "parse_bnb_payload",
+    "parse_bnb_xml",
 ]

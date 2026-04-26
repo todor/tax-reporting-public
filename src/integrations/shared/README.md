@@ -37,6 +37,7 @@ Aggregate mode:
 - auto-detects files by alias token rules and extension
 - supports repeated `--analyzer-input alias=path` overrides
 - supports multi-file-per-alias execution and accumulation
+- supports `--display-currency {EUR,BGN}` for TXT rendering only
 
 ## Aggregate TXT Output Contract
 
@@ -51,6 +52,7 @@ Top-level output behavior:
 - aggregated appendix totals from structured records (not text parsing)
 - output paths rendered as URL-encoded `file://` URIs for clickable local navigation in supported tools
 - manual-review rows are excluded from declaration totals but reflected in status/diagnostic sections
+- when `--display-currency BGN` is used, declaration-facing monetary lines are rendered in BGN using `bnb_fx` at tax-year end; technical FX metadata is shown under `Technical Details`
 
 ## Design Notes
 

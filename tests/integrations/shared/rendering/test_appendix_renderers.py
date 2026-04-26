@@ -18,7 +18,7 @@ from integrations.shared.rendering.appendix8 import (
     render_appendix8,
 )
 from integrations.shared.rendering.appendix9 import Appendix9Part2Row, render_appendix9_part2
-from integrations.shared.rendering.common import Money, format_money
+from integrations.shared.rendering.common import Money, MoneyRenderContext, format_money
 
 
 def test_format_money_values() -> None:
@@ -202,3 +202,57 @@ def test_render_appendix13_part2_basic() -> None:
     assert "- печалба: 384.86 EUR" in text
     assert "- нетен резултат: -439.82 EUR" in text
     assert "(EUR)" not in text
+
+
+def test_render_appendix5_table2_renders_bgn_when_money_context_is_bgn() -> None:
+    bgn_context = MoneyRenderContext(
+        display_currency="BGN",
+        convert_eur_to_display=lambda amount: amount * Decimal("1.95583"),
+    )
+    lines = render_appendix5_table2(
+        [
+            Appendix5Table2Entry(
+                code="508",
+                sale_value=Money(Decimal("100"), "EUR"),
+                acquisition_value=Money(Decimal("90"), "EUR"),
+                profit=Money(Decimal("10"), "EUR"),
+                loss=Money(Decimal("0"), "EUR"),
+                net_result=Money(Decimal("10"), "EUR"),
+                trade_count=1,
+            )
+        ],
+        money_context=bgn_context,
+    )
+    text = "\n".join(lines)
+    assert "Продажна цена: 195.58 BGN" in text
+    assert "Цена на придобиване: 176.02 BGN" in text
+    assert "Печалба: 19.56 BGN" in text
+    assert "Нетен резултат: 19.56 BGN" in text
+
+
+def test_render_appendix8_bgn_mode_keeps_native_and_converts_eur_equivalent() -> None:
+    bgn_context = MoneyRenderContext(
+        display_currency="BGN",
+        convert_eur_to_display=lambda amount: amount * Decimal("1.95583"),
+    )
+    lines = render_appendix8(
+        Appendix8RenderData(
+            part1_rows=[
+                Appendix8Part1Row(
+                    asset_type="Акции",
+                    country="Германия",
+                    quantity="5",
+                    acquisition_date="31.12.2025",
+                    acquisition_native=Money(Decimal("1000"), "USD"),
+                    acquisition_eur=Money(Decimal("920"), "EUR"),
+                    native_currency_label="USD",
+                )
+            ],
+            part3_rows=[],
+        ),
+        money_context=bgn_context,
+    )
+    text = "\n".join(lines)
+    assert "Обща цена на придобиване в съответната валута: 1000.00 USD" in text
+    assert "В BGN: 1799.36 BGN" in text
+    assert "В EUR:" not in text

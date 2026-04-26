@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import csv
-import io
 import logging
-import re
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable
@@ -27,14 +24,12 @@ from .models import (
 from .utils import (
     detect_base_currency,
     is_bgn_period,
-    normalize_header,
     normalize_symbol,
     parse_date,
     parse_decimal,
     quarter_for_date,
     quarter_keys_for_period,
     quarter_keys_for_years,
-    sniff_delimiter,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +40,7 @@ BNB_FX_ENDPOINT = (
 )
 EUR_FIXED_RATE_BGN = Decimal("1.95583")
 EUR_SYMBOL = "EUR"
+BGN_SYMBOL = "BGN"
 LOOKBACK_QUARTERS = 12
 _FALLBACK_LOGGED: set[tuple[str, date, date]] = set()
 _FALLBACK_LOGGED_LOCK = Lock()
@@ -128,274 +124,8 @@ def _decode_response_payload(response: requests.Response) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-def _header_matches(value: str, *tokens: str) -> bool:
-    return any(token in value for token in tokens)
-
-
 def _is_na(value: str) -> bool:
     return value.strip().lower() in {"", "n/a", "na", "-"}
-
-
-def _looks_like_symbol(value: str) -> bool:
-    return bool(re.fullmatch(r"[A-Za-z]{3}", value.strip()))
-
-
-def _find_header_index(rows: list[list[str]]) -> int:
-    for idx, row in enumerate(rows):
-        normalized = [normalize_header(col) for col in row]
-        has_date = any(_header_matches(col, "date", "дата", "period", "период") for col in normalized)
-        has_rate = any(
-            _header_matches(col, "rate", "курс", "euro", "евро", "bgn", "лев", "лв")
-            for col in normalized
-        )
-        has_symbol = any(_header_matches(col, "code", "код", "currency", "валута") for col in normalized)
-        if has_date and has_rate and has_symbol:
-            return idx
-
-    raise ParseError("could not locate CSV header row")
-
-
-def _find_column(headers: list[str], *tokens: str) -> int | None:
-    for idx, header in enumerate(headers):
-        if _header_matches(header, *tokens):
-            return idx
-    return None
-
-
-def _choose_rate_column(headers: list[str], base_currency: str) -> int:
-    candidates: list[tuple[int, int]] = []
-
-    for idx, header in enumerate(headers):
-        if not _header_matches(header, "rate", "курс", "euro", "евро", "bgn", "лев", "лв"):
-            continue
-
-        score = 0
-        if base_currency == "BGN" and _header_matches(header, "bgn", "лев", "лв"):
-            score += 3
-        if base_currency == "EUR" and _header_matches(header, "eur", "euro", "евро"):
-            score += 3
-        if _header_matches(header, "for one unit", "за единица", "per unit"):
-            score += 2
-        if _header_matches(
-            header,
-            "for one euro",
-            "for 1 euro",
-            "за едно евро",
-            "за 1 евро",
-            "за 1 bgn",
-            "for 1 bgn",
-            "per 1 bgn",
-            "per 1 eur",
-            "reverse",
-        ):
-            score -= 2
-        if base_currency == "BGN" and _header_matches(header, "за 1 bgn", "for 1 bgn", "per 1 bgn", "reverse"):
-            score -= 3
-        if base_currency == "EUR" and _header_matches(
-            header,
-            "за 1 евро",
-            "за 1 eur",
-            "for 1 euro",
-            "for 1 eur",
-            "foreign currency for one euro",
-            "foreign currency for 1 euro",
-            "валута за 1 евро",
-        ):
-            score -= 4
-        if _header_matches(header, "rate", "курс"):
-            score += 1
-
-        candidates.append((score, idx))
-
-    if not candidates:
-        raise ParseError("could not detect rate column")
-
-    _, column_idx = max(candidates, key=lambda item: (item[0], item[1]))
-    return column_idx
-
-
-def parse_bnb_csv(
-    csv_text: str,
-    *,
-    quarter: QuarterKey,
-    symbols: Iterable[str] | None = None,
-) -> QuarterCacheData:
-    """Parse a BNB CSV payload into normalized quarter cache data."""
-    stripped = csv_text.lstrip("\ufeff").strip()
-    if not stripped:
-        raise ParseError("empty CSV payload")
-
-    def read_rows(delimiter: str) -> list[list[str]]:
-        reader = csv.reader(io.StringIO(stripped), delimiter=delimiter)
-        return [row for row in reader if any(col.strip() for col in row)]
-
-    delimiter = sniff_delimiter("\n".join(stripped.splitlines()[:5]))
-    rows = read_rows(delimiter)
-    if not rows:
-        raise ParseError("CSV payload has no rows")
-
-    header_index = _find_header_index(rows)
-    if len(rows[header_index]) == 1:
-        for fallback_delimiter in (",", ";", "\t"):
-            retry_rows = read_rows(fallback_delimiter)
-            try:
-                retry_header_index = _find_header_index(retry_rows)
-            except ParseError:
-                continue
-            if len(retry_rows[retry_header_index]) > 1:
-                rows = retry_rows
-                header_index = retry_header_index
-                break
-
-    header_row = rows[header_index]
-    normalized_headers = [normalize_header(col) for col in header_row]
-    preamble = [" ".join(row).strip() for row in rows[: header_index + 1]]
-    base_currency = detect_base_currency(preamble + header_row)
-
-    date_col = _find_column(normalized_headers, "date", "дата", "period", "период")
-    symbol_col = _find_column(normalized_headers, "code", "код")
-    if symbol_col is None:
-        symbol_col = _find_column(normalized_headers, "currency", "валута")
-    nominal_col = _find_column(normalized_headers, "nominal", "unit", "units", "единиц", "ratio")
-    if nominal_col is None:
-        for idx, header in enumerate(normalized_headers):
-            if header == "за" or header == "for":
-                nominal_col = idx
-                break
-    rate_col = _choose_rate_column(normalized_headers, base_currency)
-
-    if date_col is None or symbol_col is None:
-        raise ParseError("missing required date/code columns")
-
-    wanted_symbols = {normalize_symbol(symbol) for symbol in symbols} if symbols else None
-
-    parsed_rates: list[FxRate] = []
-    is_period_export = (
-        date_col == 0 and bool(normalized_headers) and _header_matches(normalized_headers[0], "period", "период")
-    )
-
-    for row in rows[header_index + 1 :]:
-        padded = row + [""] * (len(header_row) - len(row))
-        raw_map = {header_row[idx].strip(): padded[idx].strip() for idx in range(len(header_row))}
-
-        date_text = padded[date_col].strip()
-        if not date_text:
-            continue
-
-        row_date = parse_date(date_text, field_name="row date")
-        if row_date < quarter.start_date or row_date > quarter.end_date:
-            continue
-
-        if is_period_export:
-            cells = [cell.strip() for cell in row]
-            rest = cells[1:]
-            while rest and rest[-1] == "":
-                rest.pop()
-
-            idx = 0
-            while idx < len(rest):
-                if not _looks_like_symbol(rest[idx]):
-                    idx += 1
-                    continue
-
-                symbol = normalize_symbol(rest[idx])
-                if base_currency == "BGN":
-                    if idx + 2 >= len(rest):
-                        break
-                    nominal_text = rest[idx + 1]
-                    rate_text = rest[idx + 2]
-                    step = 4 if idx + 3 < len(rest) else 3
-                else:
-                    if idx + 2 >= len(rest):
-                        break
-                    nominal_text = "1"
-                    rate_text = rest[idx + 2]
-                    step = 3
-
-                if wanted_symbols is not None and symbol not in wanted_symbols:
-                    idx += step
-                    continue
-
-                if _is_na(rate_text):
-                    raise ParseError(
-                        f"symbol {symbol} does not have rates on BNB for {row_date.isoformat()}"
-                    )
-
-                nominal_value = Decimal("1")
-                if not _is_na(nominal_text):
-                    nominal_value = parse_decimal(nominal_text, field_name="nominal")
-
-                quoted_rate = parse_decimal(rate_text, field_name="rate")
-                parsed_rates.append(
-                    FxRate(
-                        symbol=symbol,
-                        date=row_date,
-                        rate=quoted_rate,
-                        nominal=nominal_value,
-                        base_currency=base_currency,
-                        raw_row=raw_map,
-                    )
-                )
-                idx += step
-
-            continue
-
-        symbol_text = padded[symbol_col].strip()
-        if not symbol_text:
-            continue
-
-        symbol = normalize_symbol(symbol_text)
-        if wanted_symbols is not None and symbol not in wanted_symbols:
-            continue
-
-        rate_text = padded[rate_col].strip()
-        if _is_na(rate_text):
-            raise ParseError(f"symbol {symbol} does not have rates on BNB for {row_date.isoformat()}")
-
-        nominal_value = Decimal("1")
-        if nominal_col is not None and padded[nominal_col].strip():
-            nominal_text = padded[nominal_col].strip()
-            if not _is_na(nominal_text):
-                nominal_value = parse_decimal(nominal_text, field_name="nominal")
-
-        quoted_rate = parse_decimal(rate_text, field_name="rate")
-        parsed_rates.append(
-            FxRate(
-                symbol=symbol,
-                date=row_date,
-                rate=quoted_rate,
-                nominal=nominal_value,
-                base_currency=base_currency,
-                raw_row=raw_map,
-            )
-        )
-
-    for item in parsed_rates:
-        if is_bgn_period(item.date) and base_currency != "BGN":
-            raise ParseError(
-                f"base currency mismatch for {item.date.isoformat()}: expected BGN, got {base_currency}"
-            )
-        if (not is_bgn_period(item.date)) and base_currency != "EUR":
-            raise ParseError(
-                f"base currency mismatch for {item.date.isoformat()}: expected EUR, got {base_currency}"
-            )
-
-    if not parsed_rates:
-        raise ParseError("no valid FX rows parsed from CSV payload")
-
-    logger.info(
-        "Parsed BNB quarter %s (%s): %s rows, %s symbols",
-        quarter.label,
-        base_currency,
-        len(parsed_rates),
-        len({item.symbol for item in parsed_rates}),
-    )
-
-    return QuarterCacheData(
-        quarter=quarter,
-        base_currency=base_currency,
-        rates=parsed_rates,
-    )
 
 
 def parse_bnb_xml(
@@ -420,29 +150,57 @@ def parse_bnb_xml(
 
     wanted_symbols = {normalize_symbol(symbol) for symbol in symbols} if symbols else None
 
+    row_maps = [{child.tag: (child.text or "").strip() for child in row} for row in rows]
     header_fragments: list[str] = []
-    parsed_rates: list[FxRate] = []
+    for row_map in row_maps:
+        if row_map.get("GOLD", "").strip() == "0":
+            header_fragments.extend(value for value in row_map.values() if value)
 
-    for row in rows:
-        row_map = {child.tag: (child.text or "").strip() for child in row}
-        header_fragments.extend(value for value in row_map.values() if value)
+    if not header_fragments:
+        for row_map in row_maps:
+            title = row_map.get("TITLE", "").strip()
+            if title:
+                header_fragments.append(title)
+
+    base_currency = detect_base_currency(header_fragments)
+    quote_field = "REVERSERATE" if base_currency == "EUR" else "RATE"
+
+    parsed_rates: list[FxRate] = []
+    for row_map in row_maps:
+        gold_marker = row_map.get("GOLD", "").strip()
+        if gold_marker == "0":
+            continue
+        if gold_marker not in {"", "1"}:
+            continue
 
         date_text = row_map.get("CURR_DATE", "")
         symbol_text = row_map.get("CODE", "")
-        rate_text = row_map.get("RATE", "")
-
         if not date_text or not symbol_text:
             continue
-        if rate_text.lower() in {"n/a", "na", "-"}:
+
+        try:
+            row_date = parse_date(date_text, field_name="row date")
+        except ValueError:
+            # Skip descriptive/header rows that are not real data entries.
             continue
 
-        row_date = parse_date(date_text, field_name="row date")
         if row_date < quarter.start_date or row_date > quarter.end_date:
             continue
 
-        symbol = normalize_symbol(symbol_text)
+        try:
+            symbol = normalize_symbol(symbol_text)
+        except ValueError:
+            continue
         if wanted_symbols is not None and symbol not in wanted_symbols:
             continue
+
+        rate_text = row_map.get(quote_field, "").strip()
+        if base_currency == "EUR" and not rate_text:
+            # Fallback for older XML exports where REVERSERATE is missing.
+            rate_text = row_map.get("RATE", "").strip()
+
+        if _is_na(rate_text):
+            raise ParseError(f"symbol {symbol} does not have rates on BNB for {row_date.isoformat()}")
 
         nominal_text = row_map.get("RATIO", "")
         nominal_value = Decimal("1")
@@ -456,7 +214,7 @@ def parse_bnb_xml(
                 date=row_date,
                 rate=quoted_rate,
                 nominal=nominal_value,
-                base_currency="",
+                base_currency=base_currency,
                 raw_row=row_map,
             )
         )
@@ -464,7 +222,6 @@ def parse_bnb_xml(
     if not parsed_rates:
         raise ParseError("no valid FX rows parsed from XML payload")
 
-    base_currency = detect_base_currency(header_fragments)
     for item in parsed_rates:
         if is_bgn_period(item.date) and base_currency != "BGN":
             raise ParseError(
@@ -474,8 +231,6 @@ def parse_bnb_xml(
             raise ParseError(
                 f"base currency mismatch for {item.date.isoformat()}: expected EUR, got {base_currency}"
             )
-        item.base_currency = base_currency
-
     logger.info(
         "Parsed BNB quarter %s (%s): %s rows, %s symbols",
         quarter.label,
@@ -491,27 +246,8 @@ def parse_bnb_xml(
     )
 
 
-def parse_bnb_payload(
-    payload: str,
-    *,
-    quarter: QuarterKey,
-    symbols: Iterable[str] | None = None,
-) -> QuarterCacheData:
-    stripped = payload.lstrip("\ufeff").lstrip("ï»¿").strip()
-    if not stripped:
-        raise ParseError("empty BNB payload")
-
-    probe = stripped[:400].lower()
-    if "<?xml" in probe or "<rowset" in probe:
-        logger.debug("Detected XML payload format")
-        return parse_bnb_xml(stripped, quarter=quarter, symbols=symbols)
-
-    logger.debug("Detected CSV payload format")
-    return parse_bnb_csv(stripped, quarter=quarter, symbols=symbols)
-
-
-class BnbCsvClient:
-    """Small HTTP client for quarter-sized BNB FX downloads (CSV/XML export formats)."""
+class BnbFxClient:
+    """Small HTTP client for quarter-sized BNB FX downloads (XML export format)."""
 
     def __init__(
         self,
@@ -533,28 +269,28 @@ class BnbCsvClient:
         start_date: date,
         end_date: date,
         symbols: Iterable[str] | None = None,
-    ) -> dict[str, str]:
-        params: dict[str, str] = {
-            "search": "true",
-            "group1": "second",
-            "periodStartDays": f"{start_date.day:02d}",
-            "periodStartMonths": f"{start_date.month:02d}",
-            "periodStartYear": str(start_date.year),
-            "periodEndDays": f"{end_date.day:02d}",
-            "periodEndMonths": f"{end_date.month:02d}",
-            "periodEndYear": str(end_date.year),
-            "downloadOper": "true",
-            "showChart": "false",
-            "showChartButton": "true",
-            "type": "CSV",
-            "lang": "EN",
-        }
+    ) -> list[tuple[str, str]]:
+        params: list[tuple[str, str]] = [
+            ("search", "true"),
+            ("group1", "second"),
+            ("periodStartDays", f"{start_date.day:02d}"),
+            ("periodStartMonths", f"{start_date.month:02d}"),
+            ("periodStartYear", str(start_date.year)),
+            ("periodEndDays", f"{end_date.day:02d}"),
+            ("periodEndMonths", f"{end_date.month:02d}"),
+            ("periodEndYear", str(end_date.year)),
+            ("downloadOper", "true"),
+            ("showChart", "false"),
+            ("showChartButton", "true"),
+            ("type", "XML"),
+            ("lang", "EN"),
+        ]
         normalized = sorted({normalize_symbol(symbol) for symbol in symbols}) if symbols else []
-        if normalized:
-            params["valutes"] = ",".join(normalized)
+        for symbol in normalized:
+            params.append(("valutes", symbol))
         return params
 
-    def fetch_csv(self, *, start_date: date, end_date: date, symbols: Iterable[str] | None = None) -> str:
+    def fetch_xml(self, *, start_date: date, end_date: date, symbols: Iterable[str] | None = None) -> str:
         params = self.build_query_params(start_date, end_date, symbols)
         last_error: Exception | None = None
 
@@ -564,7 +300,7 @@ class BnbCsvClient:
                     self.endpoint,
                     params=params,
                     timeout=self.timeout_seconds,
-                    headers={"Accept": "text/csv, text/plain, */*"},
+                    headers={"Accept": "application/xml, text/xml, text/plain, */*"},
                 )
 
                 if response.status_code >= 500 and attempt < self.max_retries:
@@ -600,16 +336,15 @@ class BnbCsvClient:
         *,
         symbols: Iterable[str] | None = None,
     ) -> QuarterCacheData:
-        payload = self.fetch_csv(start_date=quarter.start_date, end_date=quarter.end_date, symbols=symbols)
-        return parse_bnb_payload(payload, quarter=quarter, symbols=symbols)
-
+        payload = self.fetch_xml(start_date=quarter.start_date, end_date=quarter.end_date, symbols=symbols)
+        return parse_bnb_xml(payload, quarter=quarter, symbols=symbols)
 
 def _fetch_and_cache_quarter(
     quarter: QuarterKey,
     *,
     cache_dir: str | Path | None,
     symbols: Iterable[str] | None,
-    client: BnbCsvClient,
+    client: BnbFxClient,
 ) -> QuarterCacheData:
     logger.info("Fetching quarter %s", quarter.label)
     data = client.fetch_quarter(quarter, symbols=symbols)
@@ -628,7 +363,7 @@ def _load_or_fetch_quarter_for_symbol(
     quarter: QuarterKey,
     symbol: str,
     cache_dir: str | Path | None,
-    client: BnbCsvClient,
+    client: BnbFxClient,
 ) -> QuarterCacheData:
     cache_key = (_cache_dir_key(cache_dir), quarter)
     with _MEMORY_QUARTER_CACHE_LOCK:
@@ -737,8 +472,25 @@ def get_exchange_rate(
         _put_rate_cache_in_memory(rate_cache_key, rate)
         return rate
 
+    if normalized_symbol == BGN_SYMBOL:
+        rate = FxRate(
+            symbol=BGN_SYMBOL,
+            date=target_date,
+            rate=Decimal("1") / EUR_FIXED_RATE_BGN,
+            nominal=Decimal("1"),
+            base_currency="EUR",
+            source="BNB",
+            raw_row={
+                "note": "Fixed conversion for BGN using EUR/BGN peg",
+                "source_base_currency": "BGN",
+                "fixed_eur_bgn_rate": str(EUR_FIXED_RATE_BGN),
+            },
+        )
+        _put_rate_cache_in_memory(rate_cache_key, rate)
+        return rate
+
     quarter = quarter_for_date(target_date)
-    client = BnbCsvClient()
+    client = BnbFxClient()
     current_quarter = quarter
 
     for lookback_index in range(LOOKBACK_QUARTERS):
@@ -766,21 +518,50 @@ def get_exchange_rate(
     )
 
 
+def get_conversion_rate(
+    source_symbol: str,
+    target_symbol: str,
+    on_date: date | str,
+    cache_dir: str | Path | None = None,
+) -> Decimal:
+    source = normalize_symbol(source_symbol)
+    target = normalize_symbol(target_symbol)
+    if source == target:
+        return Decimal("1")
+
+    source_to_eur = get_exchange_rate(source, on_date, cache_dir=cache_dir).rate
+    target_to_eur = get_exchange_rate(target, on_date, cache_dir=cache_dir).rate
+    if target_to_eur <= Decimal("0"):
+        raise ParseError(f"invalid target EUR quote for {target} on {parse_date(on_date).isoformat()}")
+    return source_to_eur / target_to_eur
+
+
+def convert_amount(
+    amount: Decimal,
+    source_symbol: str,
+    target_symbol: str,
+    on_date: date | str,
+    cache_dir: str | Path | None = None,
+) -> Decimal:
+    rate = get_conversion_rate(source_symbol, target_symbol, on_date, cache_dir=cache_dir)
+    return amount * rate
+
+
 def _build_cache_for_quarters(
     *,
     quarters: list[QuarterKey],
     symbols: list[str],
     cache_dir: str | Path | None,
 ) -> CacheBuildResult:
-    client = BnbCsvClient()
+    client = BnbFxClient()
     result = CacheBuildResult()
 
     normalized_symbols = [normalize_symbol(symbol) for symbol in symbols]
-    symbols_to_fetch = [symbol for symbol in normalized_symbols if symbol != EUR_SYMBOL]
+    symbols_to_fetch = [symbol for symbol in normalized_symbols if symbol not in {EUR_SYMBOL, BGN_SYMBOL}]
 
     if not symbols_to_fetch:
         result.skipped_quarters.extend(quarters)
-        logger.info("Only EUR requested; no BNB fetch needed because EUR/BGN is fixed")
+        logger.info("Only EUR/BGN requested; no BNB fetch needed because EUR/BGN is fixed")
         return result
 
     for quarter in quarters:

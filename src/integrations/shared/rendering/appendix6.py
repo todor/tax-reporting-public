@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from .common import Money, is_zero_money, render_money_line
+from .common import Money, MoneyRenderContext, is_zero_money, render_money_line
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +48,11 @@ def _part3_has_data(data: Appendix6RenderData) -> bool:
     return not is_zero_money(data.part3_withheld_tax)
 
 
-def render_appendix6(data: Appendix6RenderData) -> list[str]:
+def render_appendix6(
+    data: Appendix6RenderData,
+    *,
+    money_context: MoneyRenderContext | None = None,
+) -> list[str]:
     has_part1 = _part1_has_data(data)
     has_part2 = _part2_has_data(data)
     has_part3 = _part3_has_data(data)
@@ -64,12 +68,16 @@ def render_appendix6(data: Appendix6RenderData) -> list[str]:
             lines.append(f"  ЕИК: {row.payer_eik or '-'}")
             lines.append(f"  Наименование: {row.payer_name}")
             lines.append(f"  Код: {row.code}")
-            lines.append(render_money_line("  Размер на дохода", row.amount))
+            lines.append(render_money_line("  Размер на дохода", row.amount, context=money_context))
         for code_total in data.part1_code_totals:
             if is_zero_money(code_total.amount):
                 continue
             lines.append(
-                render_money_line(f"- Обща сума на доходите с код {code_total.code}", code_total.amount)
+                render_money_line(
+                    f"- Обща сума на доходите с код {code_total.code}",
+                    code_total.amount,
+                    context=money_context,
+                )
             )
 
     if has_part2:
@@ -79,13 +87,25 @@ def render_appendix6(data: Appendix6RenderData) -> list[str]:
         for taxable in data.part2_taxable_totals:
             if is_zero_money(taxable.amount):
                 continue
-            lines.append(render_money_line(f"- Облагаем доход по чл. 35, код {taxable.code}", taxable.amount))
+            lines.append(
+                render_money_line(
+                    f"- Облагаем доход по чл. 35, код {taxable.code}",
+                    taxable.amount,
+                    context=money_context,
+                )
+            )
 
     if has_part3:
         if lines:
             lines.append("")
         lines.append("Част III")
-        lines.append(render_money_line("- Удържан и/или внесен окончателен данък за доходи", data.part3_withheld_tax))
+        lines.append(
+            render_money_line(
+                "- Удържан и/или внесен окончателен данък за доходи",
+                data.part3_withheld_tax,
+                context=money_context,
+            )
+        )
 
     return lines
 

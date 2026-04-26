@@ -1,7 +1,4 @@
 from __future__ import annotations
-
-import csv
-import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -71,14 +68,6 @@ def parse_decimal(value: str, *, field_name: str = "rate") -> Decimal:
         raise ParseError(f"invalid decimal value for {field_name}: {value!r}") from exc
 
 
-def sniff_delimiter(sample: str) -> str:
-    try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=";,\t,")
-        return dialect.delimiter
-    except csv.Error:
-        return ";"
-
-
 def detect_base_currency(header_fragments: list[str]) -> str:
     text = " ".join(fragment.lower() for fragment in header_fragments)
 
@@ -110,7 +99,3 @@ def is_bgn_period(value: date) -> bool:
 
 def quarter_spans_currency_boundary(quarter: QuarterKey) -> bool:
     return quarter.start_date <= _DATE_BOUNDARY < quarter.end_date
-
-
-def normalize_header(value: str) -> str:
-    return re.sub(r"\s+", " ", value.strip().lower())

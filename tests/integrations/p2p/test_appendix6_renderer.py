@@ -31,16 +31,16 @@ def test_appendix6_renderer_renders_expected_sections() -> None:
         ],
     )
 
-    text = build_appendix6_text(result=result)
+    text = build_appendix6_text(result=result, tax_year=2025)
 
     assert "Приложение 6" in text
     assert "Част I" in text
     assert "- Ред 1.1" in text
     assert "  ЕИК: 202557159" in text
     assert "  Наименование: Стик Кредит АД" in text
-    assert "- Обща сума на доходите с код 603: 23.76" in text
-    assert "- Облагаем доход по чл. 35, код 603: 150.42" in text
-    assert "- Удържан и/или внесен окончателен данък за доходи: 12.67" in text
+    assert "- Обща сума на доходите с код 603: 23.76 EUR" in text
+    assert "- Облагаем доход по чл. 35, код 603: 150.42 EUR" in text
+    assert "- Удържан и/или внесен окончателен данък за доходи: 12.67 EUR" in text
     assert "Информативни" in text
     assert "- Използван режим за вторичен пазар: appendix_6" in text
     assert TECHNICAL_DETAILS_SEPARATOR in text
@@ -62,7 +62,7 @@ def test_appendix6_renderer_separates_manual_check_and_informational_messages() 
         informational_messages=["secondary market <= 0, omitted from code 606"],
     )
 
-    text = build_appendix6_text(result=result)
+    text = build_appendix6_text(result=result, tax_year=2025)
     assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" in text
     assert "- Има причина за ръчна проверка (1); вижте \"Technical Details\" -> \"Processing Notes\"." in text
     assert "Бележки по обработката" in text
@@ -90,7 +90,7 @@ def test_appendix6_renderer_suppresses_zero_only_tax_sections_and_informative_bl
         warnings=["unmapped parser detail"],
     )
 
-    text = build_appendix6_text(result=result)
+    text = build_appendix6_text(result=result, tax_year=2025)
     assert "Приложение 6" not in text
     assert "Част I" not in text
     assert "Част II" not in text

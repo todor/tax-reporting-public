@@ -10,6 +10,10 @@ from integrations.shared.rendering.appendix5 import (
     render_appendix5_table2,
 )
 from integrations.shared.rendering.common import Money
+from integrations.shared.rendering.display_currency import (
+    build_money_render_context,
+    display_currency_technical_lines,
+)
 
 from .crypto_ir_models import (
     GenericCryptoAnalyzerError,
@@ -111,7 +115,18 @@ def write_enriched_ir_csv(path: Path, *, rows: list[IrEnrichedRow]) -> None:
         writer.writerows(payload)
 
 
-def build_declaration_text(*, summary: IrAnalysisSummary) -> str:
+def build_declaration_text(
+    *,
+    summary: IrAnalysisSummary,
+    tax_year: int,
+    display_currency: str = "EUR",
+    cache_dir: str | Path | None = None,
+) -> str:
+    money_context = build_money_render_context(
+        tax_year=tax_year,
+        display_currency=display_currency,
+        cache_dir=cache_dir,
+    )
     lines: list[str] = []
 
     if summary.manual_check_required:
@@ -133,7 +148,8 @@ def build_declaration_text(*, summary: IrAnalysisSummary) -> str:
                     net_result=Money(bucket.net_result_eur, "EUR"),
                     trade_count=bucket.rows,
                 )
-            ]
+            ],
+            money_context=money_context,
         )
         lines.extend(appendix_lines)
         lines.append("")
@@ -151,6 +167,7 @@ def build_declaration_text(*, summary: IrAnalysisSummary) -> str:
         f"- manual check overrides (Review Status non-empty): {summary.manual_check_overrides_rows}"
     )
     technical_lines.append(f"- ignored fiat Deposit/Withdraw rows: {summary.ignored_fiat_deposit_withdraw_rows}")
+    technical_lines.extend(f"- {line}" for line in display_currency_technical_lines(money_context))
 
     if technical_lines:
         lines.append(TECHNICAL_DETAILS_SEPARATOR)
@@ -159,9 +176,24 @@ def build_declaration_text(*, summary: IrAnalysisSummary) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_declaration_text(path: Path, *, summary: IrAnalysisSummary) -> None:
+def write_declaration_text(
+    path: Path,
+    *,
+    summary: IrAnalysisSummary,
+    tax_year: int,
+    display_currency: str = "EUR",
+    cache_dir: str | Path | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build_declaration_text(summary=summary), encoding="utf-8")
+    path.write_text(
+        build_declaration_text(
+            summary=summary,
+            tax_year=tax_year,
+            display_currency=display_currency,
+            cache_dir=cache_dir,
+        ),
+        encoding="utf-8",
+    )
 
 
 def build_ir_run_cli_summary_lines(
