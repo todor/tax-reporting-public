@@ -35,6 +35,28 @@ def _validate_tax_year(tax_year: int) -> None:
         raise KrakenAnalyzerError(f"invalid tax year: {tax_year}")
 
 
+def _require_valid_opening_state_year(
+    *,
+    tax_year: int,
+    opening_year_end: int | None,
+    opening_state_path: Path,
+) -> int:
+    if opening_year_end is None:
+        raise KrakenAnalyzerError(
+            "invalid opening state metadata: missing state_tax_year_end "
+            f"(tax_year={tax_year}, state_tax_year_end=<missing>, state={opening_state_path}). "
+            "Expected a closing state for any year strictly less than tax_year. "
+            "Fix: pass a valid *_state_end_<year>.json where <year> < tax_year."
+        )
+    if opening_year_end >= tax_year:
+        raise KrakenAnalyzerError(
+            "invalid opening state year: state_tax_year_end must be strictly less than tax_year "
+            f"(tax_year={tax_year}, state_tax_year_end={opening_year_end}, state={opening_state_path}). "
+            "Fix: pass a closing state from an earlier year, or run without --opening-state-json."
+        )
+    return opening_year_end
+
+
 def analyze_kraken_report(
     *,
     input_csv: str | Path,
@@ -67,20 +89,22 @@ def analyze_kraken_report(
         ir_summary.preamble_rows_ignored = loaded.preamble_rows_ignored
 
         opening_holdings: dict[str, tuple[Decimal, Decimal]] | None = None
+        opening_year_end: int | None = None
         if opening_state_json is not None:
             opening_state_path = Path(opening_state_json).expanduser().resolve()
             opening_year_end, opening_holdings = load_holdings_state_json(opening_state_path)
-            if opening_year_end is not None and opening_year_end >= tax_year:
-                ir_summary.warnings.append(
-                    "opening state year is not before requested tax year "
-                    f"(state_tax_year_end={opening_year_end}, tax_year={tax_year})"
-                )
+            opening_year_end = _require_valid_opening_state_year(
+                tax_year=tax_year,
+                opening_year_end=opening_year_end,
+                opening_state_path=opening_state_path,
+            )
 
         analysis = analyze_ir_rows(
             ir_rows=mapping.ir_rows,
             tax_year=tax_year,
             summary=ir_summary,
             opening_holdings=opening_holdings,
+            opening_state_year_end=opening_year_end,
         )
     except Exception as exc:  # noqa: BLE001
         if isinstance(exc, KrakenAnalyzerError):
@@ -107,6 +131,17 @@ def analyze_kraken_report(
         tax_year=tax_year,
         holdings_by_asset=analysis.year_end_holdings_by_asset,
     )
+    logger.info(
+        "kraken state-window summary: tax_year=%s opening_state_year_end=%s "
+        "loaded_rows=%s applied_rows=%s tax_year_rows=%s ignored_le_state_year=%s ignored_gt_tax_year=%s",
+        tax_year,
+        analysis.summary.opening_state_year_end,
+        analysis.summary.processed_rows,
+        analysis.summary.rows_applied_to_ledger,
+        analysis.summary.rows_included_in_tax_year,
+        analysis.summary.rows_ignored_before_or_equal_opening_state_year,
+        analysis.summary.rows_ignored_after_tax_year,
+    )
 
     return AnalysisResult(
         input_csv_path=loaded.input_path,
@@ -121,7 +156,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="kraken-report-analyzer")
     parser.add_argument("--input", type=Path, required=True, help="Kraken ledger CSV")
     parser.add_argument("--tax-year", type=int, required=True, help="Tax year")
-    parser.add_argument("--opening-state-json", type=Path, help="Optional prior year-end holdings state JSON")
+    parser.add_argument(
+        "--opening-state-json",
+        type=Path,
+        help=(
+            "Optional opening holdings state JSON. For --tax-year YYYY, state_tax_year_end in the state file "
+            "must be < YYYY."
+        ),
+    )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Output directory")
     parser.add_argument("--cache-dir", type=Path, help="Optional FX cache dir override")
     parser.add_argument(

@@ -17,7 +17,7 @@ def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
         analyzer_alias="kraken",
         single_flag="opening-state-json",
         type=str,
-        help="Optional opening state JSON path for kraken analyzer",
+        help="Optional opening holdings state JSON; for --tax-year YYYY state_tax_year_end must be < YYYY",
     )
 
 

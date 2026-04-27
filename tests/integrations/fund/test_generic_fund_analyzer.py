@@ -214,3 +214,51 @@ def test_sale_price_uses_withdraw_timestamp_rate() -> None:
     bucket = result.summary.appendix_5
     assert bucket.sale_price_eur == Decimal("2500")
     assert bucket.purchase_price_eur == Decimal("2500")
+
+
+def test_opening_state_year_filters_rows_for_ledger_and_declaration() -> None:
+    rows = [
+        _row(timestamp="2021-01-01T00:00:00", tx_type="deposit", currency="USDC", amount="50", row_number=1, sort_index=0),
+        _row(timestamp="2022-01-01T00:00:00", tx_type="deposit", currency="USDC", amount="10", row_number=2, sort_index=1),
+        _row(timestamp="2023-01-01T00:00:00", tx_type="deposit", currency="USDC", amount="20", row_number=3, sort_index=2),
+        _row(timestamp="2024-01-01T00:00:00", tx_type="profit", currency="USDC", amount="30", row_number=4, sort_index=3),
+        _row(timestamp="2025-01-01T00:00:00", tx_type="withdraw", currency="USDC", amount="75", row_number=5, sort_index=4),
+        _row(timestamp="2026-01-01T00:00:00", tx_type="deposit", currency="USDC", amount="5", row_number=6, sort_index=5),
+    ]
+
+    opening = {
+        "USDC": FundCurrencyState(
+            currency="USDC",
+            currency_type="crypto",
+            native_deposit_balance=Decimal("100"),
+            eur_deposit_balance=Decimal("100"),
+            native_profit_balance=Decimal("0"),
+        )
+    }
+
+    summary = FundAnalysisSummary(processed_rows=len(rows))
+    result = analyze_fund_ir_rows(
+        ir_rows=rows,
+        tax_year=2025,
+        summary=summary,
+        eur_unit_rate_provider=StaticRateProvider({"USDC": Decimal("1")}),
+        opening_state_by_currency=opening,
+        opening_state_year_end=2022,
+    )
+
+    assert result.summary.rows_ignored_before_or_equal_opening_state_year == 2
+    assert result.summary.rows_ignored_after_tax_year == 1
+    assert result.summary.rows_applied_to_ledger == 3
+    assert result.summary.rows_included_in_tax_year == 1
+
+    bucket = result.summary.appendix_5
+    assert bucket.sale_price_eur == Decimal("75")
+    assert bucket.purchase_price_eur == Decimal("60")
+    assert bucket.wins_eur == Decimal("15")
+    assert bucket.losses_eur == Decimal("0")
+    assert bucket.rows == 1
+
+    state = result.summary.state_by_currency["USDC"]
+    assert state.native_deposit_balance == Decimal("60")
+    assert state.eur_deposit_balance == Decimal("60")
+    assert state.native_profit_balance == Decimal("15")

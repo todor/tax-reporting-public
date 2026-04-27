@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from integrations.crypto.coinbase import report_analyzer as analyzer
 from tests.integrations.crypto.coinbase import support as h
 
 
@@ -652,3 +653,198 @@ def test_year_end_state_json_uses_requested_tax_year_cutoff(tmp_path: Path) -> N
     assert payload["state_tax_year_end"] == 2025
     assert payload["holdings_by_asset"]["BTC"]["quantity"] == "2"
     assert payload["holdings_by_asset"]["BTC"]["total_cost_eur"] == "300"
+
+
+def test_opening_state_year_validation_rules(tmp_path: Path) -> None:
+    row_2025 = [
+        h.row(
+            timestamp="2025-01-01 00:00:00 UTC",
+            tx_type="Buy",
+            asset="BTC",
+            qty="1",
+            subtotal="€100",
+            total="€100",
+        )
+    ]
+
+    valid_state = tmp_path / "state_valid_2024.json"
+    valid_state.write_text(
+        json.dumps({"state_tax_year_end": 2024, "holdings_by_asset": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _ = h.run(
+        tmp_path,
+        tax_year=2025,
+        rows=row_2025,
+        opening_state_json=valid_state,
+        rates={"EUR": Decimal("1")},
+        file_name="valid.csv",
+    )
+
+    older_valid_state = tmp_path / "state_valid_2022.json"
+    older_valid_state.write_text(
+        json.dumps({"state_tax_year_end": 2022, "holdings_by_asset": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _ = h.run(
+        tmp_path,
+        tax_year=2025,
+        rows=row_2025,
+        opening_state_json=older_valid_state,
+        rates={"EUR": Decimal("1")},
+        file_name="older_valid.csv",
+    )
+
+    same_year_state = tmp_path / "state_invalid_2025.json"
+    same_year_state.write_text(
+        json.dumps({"state_tax_year_end": 2025, "holdings_by_asset": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(analyzer.CoinbaseAnalyzerError, match="must be strictly less than tax_year"):
+        _ = h.run(
+            tmp_path,
+            tax_year=2025,
+            rows=row_2025,
+            opening_state_json=same_year_state,
+            rates={"EUR": Decimal("1")},
+            file_name="same_year.csv",
+        )
+
+    future_state = tmp_path / "state_invalid_2026.json"
+    future_state.write_text(
+        json.dumps({"state_tax_year_end": 2026, "holdings_by_asset": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(analyzer.CoinbaseAnalyzerError, match="must be strictly less than tax_year"):
+        _ = h.run(
+            tmp_path,
+            tax_year=2025,
+            rows=row_2025,
+            opening_state_json=future_state,
+            rates={"EUR": Decimal("1")},
+            file_name="future.csv",
+        )
+
+    missing_year_state = tmp_path / "state_missing_year.json"
+    missing_year_state.write_text(
+        json.dumps({"holdings_by_asset": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(analyzer.CoinbaseAnalyzerError, match="missing state_tax_year_end"):
+        _ = h.run(
+            tmp_path,
+            tax_year=2025,
+            rows=row_2025,
+            opening_state_json=missing_year_state,
+            rates={"EUR": Decimal("1")},
+            file_name="missing_year.csv",
+        )
+
+    invalid_year_state = tmp_path / "state_invalid_year_type.json"
+    invalid_year_state.write_text(
+        json.dumps({"state_tax_year_end": "abc", "holdings_by_asset": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(analyzer.CoinbaseAnalyzerError, match="invalid state_tax_year_end"):
+        _ = h.run(
+            tmp_path,
+            tax_year=2025,
+            rows=row_2025,
+            opening_state_json=invalid_year_state,
+            rates={"EUR": Decimal("1")},
+            file_name="invalid_year.csv",
+        )
+
+
+def test_opening_state_filters_pre_state_and_future_rows(tmp_path: Path) -> None:
+    opening_state = tmp_path / "state_2022.json"
+    opening_state.write_text(
+        json.dumps(
+            {
+                "state_tax_year_end": 2022,
+                "holdings_by_asset": {
+                    "BTC": {
+                        "quantity": "1",
+                        "total_cost_eur": "100",
+                        "average_price_eur": "100",
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = h.run(
+        tmp_path,
+        tax_year=2025,
+        opening_state_json=opening_state,
+        rows=[
+            h.row(
+                timestamp="2021-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="BTC",
+                qty="1",
+                subtotal="€50",
+                total="€50",
+            ),
+            h.row(
+                timestamp="2022-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="BTC",
+                qty="1",
+                subtotal="€60",
+                total="€60",
+            ),
+            h.row(
+                timestamp="2023-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="BTC",
+                qty="1",
+                subtotal="€200",
+                total="€200",
+            ),
+            h.row(
+                timestamp="2024-01-01 00:00:00 UTC",
+                tx_type="Sell",
+                asset="BTC",
+                qty="0.5",
+                subtotal="€150",
+                total="€150",
+            ),
+            h.row(
+                timestamp="2025-01-01 00:00:00 UTC",
+                tx_type="Sell",
+                asset="BTC",
+                qty="1",
+                subtotal="€300",
+                total="€300",
+            ),
+            h.row(
+                timestamp="2026-01-01 00:00:00 UTC",
+                tx_type="Buy",
+                asset="BTC",
+                qty="1",
+                subtotal="€400",
+                total="€400",
+            ),
+        ],
+        rates={"EUR": Decimal("1")},
+        file_name="since_inception.csv",
+    )
+
+    app5 = result.summary.appendix_5
+    assert app5.sale_price_eur == Decimal("300")
+    assert app5.purchase_price_eur == Decimal("150")
+    assert app5.wins_eur == Decimal("150")
+    assert app5.losses_eur == Decimal("0")
+    assert app5.rows == 1
+
+    holding = result.summary.holdings_by_asset["BTC"]
+    assert holding.quantity == Decimal("0.5")
+    assert holding.total_cost_eur == Decimal("75")
+
+    assert result.summary.rows_ignored_before_or_equal_opening_state_year == 2
+    assert result.summary.rows_ignored_after_tax_year == 1
+    assert result.summary.rows_applied_to_ledger == 3
+    assert result.summary.rows_included_in_tax_year == 1

@@ -116,6 +116,17 @@ PYTHONPATH=src pyenv exec python -m report_analyzer finexify \
   --opening-state-json output/finexify/<state_end_2025>.json
 ```
 
+State contract:
+
+- opening state must contain valid `state_tax_year_end`
+- for `--tax-year YYYY`, state year must be strictly `< YYYY` (otherwise run fails fast)
+- with opening state, analyzer applies ledger/state math only for rows where:
+- `state_tax_year_end < row.timestamp.year <= tax_year`
+- rows `<= state_tax_year_end` are ignored (already represented in state)
+- rows `> tax_year` are ignored (future years)
+- declaration totals still include only `row.timestamp.year == tax_year`
+- without opening state, analyzer processes full input history and still declares only tax-year rows
+
 ## CLI
 
 ```bash
@@ -128,7 +139,7 @@ Options:
 
 - `--input` (required)
 - `--tax-year` (required)
-- `--opening-state-json` (optional)
+- `--opening-state-json` (optional; for `--tax-year YYYY`, `state_tax_year_end` must be `< YYYY`)
 - `--output-dir` (optional, default `output/finexify`)
 - `--cache-dir` (optional FX cache override)
 - `--display-currency {EUR,BGN}` (optional, TXT rendering only; calculations stay in EUR)

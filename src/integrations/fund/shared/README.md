@@ -122,3 +122,20 @@ CLI status contract for fund integrations:
 - `STATUS: SUCCESS` (no manual-check issues)
 - `STATUS: MANUAL CHECK REQUIRED` (warning-level issues exist)
 - `STATUS: ERROR` (run failed)
+
+## Opening-State Year Window Contract
+
+When opening state is provided:
+
+- opening state must include valid `state_tax_year_end`
+- for requested `tax_year`, state year must be strictly `< tax_year` (otherwise analyzer fails fast)
+- ledger/state math is applied only for rows where:
+- `state_tax_year_end < row.timestamp.year <= tax_year`
+- rows with `row.timestamp.year <= state_tax_year_end` are ignored
+- rows with `row.timestamp.year > tax_year` are ignored
+- declaration totals still include only rows in requested `tax_year`
+
+When opening state is not provided:
+
+- analyzer processes full input history to build basis/state path
+- declaration totals still include only rows in requested `tax_year`

@@ -67,6 +67,18 @@ All fund integrations use shared output writers and produce:
 
 Only withdrawal rows contribute to Appendix 5 taxable totals.
 
+## Opening-state contract
+
+When `--opening-state-json` is provided:
+
+- state must contain valid `state_tax_year_end`
+- for requested `tax_year`, state year must be strictly `< tax_year`
+- ledger/state math applies only for rows where `state_tax_year_end < row.year <= tax_year`
+- rows `<= state_tax_year_end` and rows `> tax_year` are ignored for ledger/state
+- declaration totals still include only `row.year == tax_year`
+
+Without opening state, integrations process full input history and still include only tax-year rows in declaration totals.
+
 ## Manual checks and warnings
 
 - Unknown provider row types are surfaced as warnings and excluded.

@@ -17,7 +17,7 @@ def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
         analyzer_alias="finexify",
         single_flag="opening-state-json",
         type=str,
-        help="Optional opening state JSON path for finexify analyzer",
+        help="Optional opening state JSON; for --tax-year YYYY state_tax_year_end must be < YYYY",
     )
 
 

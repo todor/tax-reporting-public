@@ -111,6 +111,7 @@ def analyze_fund_ir_rows(
     summary: FundAnalysisSummary,
     eur_unit_rate_provider: FundEurUnitRateProvider,
     opening_state_by_currency: dict[str, FundCurrencyState] | None = None,
+    opening_state_year_end: int | None = None,
 ) -> FundAnalysisResult:
     if tax_year < 2009 or tax_year > 2100:
         raise GenericFundAnalyzerError(f"invalid tax year: {tax_year}")
@@ -120,6 +121,7 @@ def analyze_fund_ir_rows(
 
     state_by_currency: dict[str, FundCurrencyState] = {}
     gross_deposit_eur_by_currency: dict[str, Decimal] = {}
+    summary.opening_state_year_end = opening_state_year_end
     if opening_state_by_currency:
         for currency, state in opening_state_by_currency.items():
             state_by_currency[currency] = replace(state)
@@ -141,15 +143,32 @@ def analyze_fund_ir_rows(
     year_end_state_by_currency: dict[str, FundCurrencyState] = {}
 
     for original_index, row in sorted_rows:
-        include_in_appendix = row.timestamp.year == tax_year
+        row_year = row.timestamp.year
         enriched = enriched_by_index[original_index]
         ctx = _context(row)
 
-        if not year_end_snapshot_captured and row.timestamp.year > tax_year:
+        if opening_state_year_end is not None:
+            if row_year <= opening_state_year_end:
+                summary.rows_ignored_before_or_equal_opening_state_year += 1
+                continue
+            if row_year > tax_year:
+                if not year_end_snapshot_captured:
+                    year_end_state_by_currency = {
+                        currency: replace(state) for currency, state in state_by_currency.items()
+                    }
+                    year_end_snapshot_captured = True
+                summary.rows_ignored_after_tax_year += 1
+                continue
+        elif not year_end_snapshot_captured and row_year > tax_year:
             year_end_state_by_currency = {
                 currency: replace(state) for currency, state in state_by_currency.items()
             }
             year_end_snapshot_captured = True
+
+        summary.rows_applied_to_ledger += 1
+        include_in_appendix = row_year == tax_year
+        if include_in_appendix:
+            summary.rows_included_in_tax_year += 1
 
         state = _currency_state(
             state_by_currency,

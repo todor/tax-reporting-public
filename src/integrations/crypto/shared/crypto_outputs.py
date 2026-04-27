@@ -162,7 +162,19 @@ def build_declaration_text(
         technical_lines.append("")
 
     technical_lines.append("Audit Data")
+    technical_lines.append(f"- tax year: {tax_year}")
+    technical_lines.append(
+        "- opening state year end: "
+        f"{summary.opening_state_year_end if summary.opening_state_year_end is not None else '-'}"
+    )
     technical_lines.append(f"- processed rows: {summary.processed_rows}")
+    technical_lines.append(f"- rows applied to ledger/state: {summary.rows_applied_to_ledger}")
+    technical_lines.append(f"- rows included in declaration (tax year): {summary.rows_included_in_tax_year}")
+    technical_lines.append(
+        "- rows ignored (<= opening state year): "
+        f"{summary.rows_ignored_before_or_equal_opening_state_year}"
+    )
+    technical_lines.append(f"- rows ignored (> tax year): {summary.rows_ignored_after_tax_year}")
     technical_lines.append(
         f"- manual check overrides (Review Status non-empty): {summary.manual_check_overrides_rows}"
     )
@@ -241,7 +253,14 @@ def load_holdings_state_json(path: Path) -> tuple[int | None, dict[str, tuple[De
         raise GenericCryptoAnalyzerError(f"invalid opening state JSON: {path}") from exc
 
     year_end_raw = payload.get("state_tax_year_end")
-    year_end = int(year_end_raw) if year_end_raw is not None else None
+    year_end: int | None = None
+    if year_end_raw is not None:
+        try:
+            year_end = int(str(year_end_raw))
+        except Exception as exc:  # noqa: BLE001
+            raise GenericCryptoAnalyzerError(
+                f"opening state JSON has invalid state_tax_year_end={year_end_raw!r}: {path}"
+            ) from exc
 
     holdings_payload = payload.get("holdings_by_asset")
     if not isinstance(holdings_payload, dict):

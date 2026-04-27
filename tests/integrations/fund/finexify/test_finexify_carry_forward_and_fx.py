@@ -4,6 +4,9 @@ import json
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
+from integrations.fund.finexify import report_analyzer as analyzer
 from tests.integrations.fund.finexify import support as h
 
 TECHNICAL_DETAILS_SEPARATOR = "------------------------------ Technical Details ------------------------------"
@@ -108,3 +111,150 @@ def test_year_end_state_json_keeps_native_and_eur_balances(tmp_path: Path) -> No
     assert Decimal(usdc["native_deposit_balance"]) == Decimal("50")
     assert Decimal(usdc["native_profit_balance"]) == Decimal("15")
     assert Decimal(usdc["eur_deposit_balance"]) == Decimal("50")
+
+
+def test_opening_state_year_validation_rules(tmp_path: Path) -> None:
+    rows = [h.row(tx_type="Deposit", currency="USDC", amount="100", date="2025-01-01")]
+
+    valid_state = tmp_path / "state_valid_2024.json"
+    valid_state.write_text(
+        json.dumps({"state_tax_year_end": 2024, "state_by_currency": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _ = h.run(
+        tmp_path,
+        tax_year=2025,
+        rows=rows,
+        opening_state_json=valid_state,
+        rates={"USDC": Decimal("1")},
+        file_name="valid.csv",
+    )
+
+    older_valid_state = tmp_path / "state_valid_2022.json"
+    older_valid_state.write_text(
+        json.dumps({"state_tax_year_end": 2022, "state_by_currency": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _ = h.run(
+        tmp_path,
+        tax_year=2025,
+        rows=rows,
+        opening_state_json=older_valid_state,
+        rates={"USDC": Decimal("1")},
+        file_name="older_valid.csv",
+    )
+
+    same_year_state = tmp_path / "state_invalid_2025.json"
+    same_year_state.write_text(
+        json.dumps({"state_tax_year_end": 2025, "state_by_currency": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(analyzer.FinexifyAnalyzerError, match="must be strictly less than tax_year"):
+        _ = h.run(
+            tmp_path,
+            tax_year=2025,
+            rows=rows,
+            opening_state_json=same_year_state,
+            rates={"USDC": Decimal("1")},
+            file_name="same_year.csv",
+        )
+
+    future_state = tmp_path / "state_invalid_2026.json"
+    future_state.write_text(
+        json.dumps({"state_tax_year_end": 2026, "state_by_currency": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(analyzer.FinexifyAnalyzerError, match="must be strictly less than tax_year"):
+        _ = h.run(
+            tmp_path,
+            tax_year=2025,
+            rows=rows,
+            opening_state_json=future_state,
+            rates={"USDC": Decimal("1")},
+            file_name="future.csv",
+        )
+
+    missing_year_state = tmp_path / "state_missing_year.json"
+    missing_year_state.write_text(
+        json.dumps({"state_by_currency": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(analyzer.FinexifyAnalyzerError, match="missing state_tax_year_end"):
+        _ = h.run(
+            tmp_path,
+            tax_year=2025,
+            rows=rows,
+            opening_state_json=missing_year_state,
+            rates={"USDC": Decimal("1")},
+            file_name="missing_year.csv",
+        )
+
+    invalid_year_state = tmp_path / "state_invalid_year_type.json"
+    invalid_year_state.write_text(
+        json.dumps({"state_tax_year_end": "abc", "state_by_currency": {}}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(analyzer.FinexifyAnalyzerError, match="invalid state_tax_year_end"):
+        _ = h.run(
+            tmp_path,
+            tax_year=2025,
+            rows=rows,
+            opening_state_json=invalid_year_state,
+            rates={"USDC": Decimal("1")},
+            file_name="invalid_year.csv",
+        )
+
+
+def test_opening_state_filters_pre_state_and_future_rows(tmp_path: Path) -> None:
+    opening_state = tmp_path / "state_2022.json"
+    opening_state.write_text(
+        json.dumps(
+            {
+                "state_tax_year_end": 2022,
+                "state_by_currency": {
+                    "USDC": {
+                        "currency_type": "crypto",
+                        "native_deposit_balance": "100",
+                        "eur_deposit_balance": "100",
+                        "native_profit_balance": "0",
+                        "native_total_balance": "100",
+                    }
+                },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    result = h.run(
+        tmp_path,
+        tax_year=2025,
+        opening_state_json=opening_state,
+        rows=[
+            h.row(tx_type="Deposit", currency="USDC", amount="50", date="2021-01-01"),
+            h.row(tx_type="Deposit", currency="USDC", amount="10", date="2022-01-01"),
+            h.row(tx_type="Deposit", currency="USDC", amount="20", date="2023-01-01"),
+            h.row(tx_type="Balance", currency="USDC", amount="150", date="2024-01-01"),
+            h.row(tx_type="Withdraw", currency="USDC", amount="75", date="2025-01-01"),
+            h.row(tx_type="Deposit", currency="USDC", amount="5", date="2026-01-01"),
+        ],
+        rates={"USDC": Decimal("1")},
+        file_name="since_inception.csv",
+    )
+
+    app5 = result.summary.appendix_5
+    assert app5.sale_price_eur == Decimal("75")
+    assert app5.purchase_price_eur == Decimal("60")
+    assert app5.wins_eur == Decimal("15")
+    assert app5.losses_eur == Decimal("0")
+    assert app5.rows == 1
+
+    state = result.summary.state_by_currency["USDC"]
+    assert state.native_deposit_balance == Decimal("60")
+    assert state.eur_deposit_balance == Decimal("60")
+    assert state.native_profit_balance == Decimal("15")
+
+    assert result.summary.rows_ignored_before_or_equal_opening_state_year == 2
+    assert result.summary.rows_ignored_after_tax_year == 1
+    assert result.summary.rows_applied_to_ledger == 3
+    assert result.summary.rows_included_in_tax_year == 1

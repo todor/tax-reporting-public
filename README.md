@@ -546,7 +546,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
   --cache-dir ~/.cache/tax_reporting
 ```
 
-Incremental mode (previous year state + current year operations only):
+Opening-state mode (recommended after first filing year):
 
 ```bash
 PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
@@ -557,6 +557,14 @@ PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
   --cache-dir ~/.cache/tax_reporting
 ```
 
+Opening-state contract:
+
+- for `--tax-year YYYY`, `state_tax_year_end` in `--opening-state-json` must be `< YYYY`
+- with opening state, analyzer applies ledger/state math only for rows where:
+- `state_tax_year_end < row.timestamp.year <= tax_year`
+- rows `<= state_tax_year_end` and rows `> tax_year` are ignored for ledger/state
+- declaration totals still include only `row.timestamp.year == tax_year`
+
 ### Kraken report analyzer
 
 ```bash
@@ -565,7 +573,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer kraken \
   --tax-year 2025
 ```
 
-Incremental mode (previous year state + current year operations only):
+Opening-state mode (recommended after first filing year):
 
 ```bash
 PYTHONPATH=src pyenv exec python -m report_analyzer kraken \

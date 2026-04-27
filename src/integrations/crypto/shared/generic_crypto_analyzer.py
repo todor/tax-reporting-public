@@ -69,6 +69,7 @@ def analyze_ir_rows(
     tax_year: int,
     summary: IrAnalysisSummary,
     opening_holdings: dict[str, tuple[Decimal, Decimal]] | None = None,
+    opening_state_year_end: int | None = None,
 ) -> IrAnalysisResult:
     if tax_year < 2009 or tax_year > 2100:
         raise GenericCryptoAnalyzerError(f"invalid tax year: {tax_year}")
@@ -80,6 +81,7 @@ def analyze_ir_rows(
     if opening_holdings:
         for asset, (quantity, total_cost_eur) in opening_holdings.items():
             ledger.seed(asset, quantity=quantity, total_cost_eur=total_cost_eur, context="opening state")
+    summary.opening_state_year_end = opening_state_year_end
 
     enriched_by_index: dict[int, IrEnrichedRow] = {
         idx: IrEnrichedRow(ir_row=row) for idx, row in enumerate(ir_rows)
@@ -101,15 +103,33 @@ def analyze_ir_rows(
 
     for original_index, row in sorted_rows:
         ctx = _context(row)
-        include_in_appendix = row.timestamp.year == tax_year
+        row_year = row.timestamp.year
         enriched = enriched_by_index[original_index]
 
-        if not year_end_snapshot_captured and row.timestamp.year > tax_year:
+        if opening_state_year_end is not None:
+            if row_year <= opening_state_year_end:
+                summary.rows_ignored_before_or_equal_opening_state_year += 1
+                continue
+            if row_year > tax_year:
+                if not year_end_snapshot_captured:
+                    holdings_before_row = ledger.snapshot()
+                    year_end_holdings_by_asset = {
+                        key: (item.quantity, item.total_cost_eur) for key, item in holdings_before_row.items()
+                    }
+                    year_end_snapshot_captured = True
+                summary.rows_ignored_after_tax_year += 1
+                continue
+        elif not year_end_snapshot_captured and row_year > tax_year:
             holdings_before_row = ledger.snapshot()
             year_end_holdings_by_asset = {
                 key: (item.quantity, item.total_cost_eur) for key, item in holdings_before_row.items()
             }
             year_end_snapshot_captured = True
+
+        summary.rows_applied_to_ledger += 1
+        include_in_appendix = row_year == tax_year
+        if include_in_appendix:
+            summary.rows_included_in_tax_year += 1
 
         tx = row.transaction_type
 

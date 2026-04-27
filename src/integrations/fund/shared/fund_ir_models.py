@@ -123,6 +123,11 @@ class FundAnalysisSummary:
     processed_rows: int = 0
     preamble_rows_ignored: int = 0
     ignored_rows: int = 0
+    opening_state_year_end: int | None = None
+    rows_applied_to_ledger: int = 0
+    rows_included_in_tax_year: int = 0
+    rows_ignored_before_or_equal_opening_state_year: int = 0
+    rows_ignored_after_tax_year: int = 0
     unsupported_transaction_rows: int = 0
     warnings: list[str] = field(default_factory=list)
     unknown_transaction_types: set[str] = field(default_factory=set)

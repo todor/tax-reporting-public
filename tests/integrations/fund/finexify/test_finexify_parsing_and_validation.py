@@ -85,6 +85,7 @@ def test_same_day_date_only_and_timestamp_rows_keep_original_order(tmp_path: Pat
         load_and_map_finexify_csv_to_ir(
             input_csv=str(input_csv),
             summary=summary,
+            tax_year=2025,
         )
 
 
@@ -103,6 +104,7 @@ def test_descending_input_is_reversed_to_ascending(tmp_path: Path) -> None:
     mapping = load_and_map_finexify_csv_to_ir(
         input_csv=str(input_csv),
         summary=summary,
+        tax_year=2025,
     )
 
     assert [row.transaction_type for row in mapping.ir_rows] == ["deposit", "profit", "withdraw"]

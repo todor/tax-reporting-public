@@ -140,7 +140,7 @@ CLI options:
 
 - `--input` (required)
 - `--tax-year` (required)
-- `--opening-state-json` (optional prior state)
+- `--opening-state-json` (optional opening state; for `--tax-year YYYY`, `state_tax_year_end` must be `< YYYY`)
 - `--output-dir` (optional, default `output/kraken`)
 - `--cache-dir` (optional FX cache override)
 - `--display-currency {EUR,BGN}` (optional, TXT rendering only; calculations stay in EUR)
@@ -160,3 +160,21 @@ PYTHONPATH=src pyenv exec python -m report_analyzer kraken \
   --tax-year 2026 \
   --opening-state-json output/kraken/<previous_run_state_end_2025>.json
 ```
+
+## State/Input Contract
+
+Mode A: with `--opening-state-json` (recommended after first filing year)
+
+- opening state must contain valid `state_tax_year_end`
+- for `--tax-year YYYY`, state year must be strictly `< YYYY` (otherwise run fails fast)
+- input CSV may contain multiple years (including since-inception exports)
+- analyzer applies ledger/state math only for rows where:
+- `state_tax_year_end < row.timestamp.year <= tax_year`
+- rows with `row.timestamp.year <= state_tax_year_end` are ignored (already represented in state)
+- rows with `row.timestamp.year > tax_year` are ignored (future years)
+- declaration totals still include only `row.timestamp.year == tax_year`
+
+Mode B: without `--opening-state-json`
+
+- analyzer processes full input history to build basis/state path
+- declaration totals still include only `row.timestamp.year == tax_year`

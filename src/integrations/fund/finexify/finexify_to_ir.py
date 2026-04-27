@@ -224,7 +224,9 @@ def load_and_map_finexify_csv_to_ir(
     *,
     input_csv: str,
     summary: FundAnalysisSummary,
+    tax_year: int,
     opening_state_by_currency: dict[str, FundCurrencyState] | None = None,
+    opening_state_year_end: int | None = None,
 ) -> FinexifyIrMappingResult:
     loaded = load_finexify_csv(input_csv)
     schema = loaded.schema
@@ -287,6 +289,15 @@ def load_and_map_finexify_csv_to_ir(
 
     ir_rows: list[FundIrRow] = []
     for sort_index, row in enumerate(parsed_rows):
+        row_year = row.timestamp.year
+        if opening_state_year_end is not None:
+            if row_year <= opening_state_year_end:
+                summary.rows_ignored_before_or_equal_opening_state_year += 1
+                continue
+            if row_year > tax_year:
+                summary.rows_ignored_after_tax_year += 1
+                continue
+
         state = _currency_state(native_state, currency=row.currency)
 
         if row.tx_type == "DEPOSIT":
