@@ -144,6 +144,11 @@ To keep behavior consistent across providers:
 - Silent exclude (no warning/manual-check):
 - none by default
 
+- Receive-like status handling:
+- `CARRY_OVER_BASIS`: use provided `Cost Basis (EUR)` as acquisition basis
+- `GIFT`: force `Cost Basis (EUR)=0`
+- `NON-TAXABLE`: inventory movement at market EUR value, no taxable PnL
+
 - Non-taxable receive-like rows (`Review Status=NON-TAXABLE`):
 - are mapped as non-taxable inventory movements (affect holdings/state)
 - do not create taxable PnL

@@ -127,12 +127,12 @@ Realization is only on closing legs:
 
 - accepts `Review Status`:
 - `CARRY_OVER_BASIS`
-- `RESET_BASIS_FROM_PRIOR_TAX_EVENT`
+- `GIFT` (forces `Cost Basis (EUR)=0`)
 - `NON-TAXABLE` (non-taxable inventory movement)
 - requires `Cost Basis (EUR)` as explicit basis for basis-carrying statuses
 - if `Review Status` is `NON-TAXABLE`:
-- row is mapped as non-taxable receive movement (affects holdings/state, no taxable PnL)
-- `Cost Basis (EUR)` is not required and no warning/manual-check is emitted
+- row is mapped as non-taxable receive movement with market EUR value at receive timestamp
+- `Cost Basis (EUR)` is not expected and is ignored
 - if `Review Status` / `Cost Basis (EUR)` is missing or invalid (for basis-carrying statuses):
 - warning + manual-check required, and row is excluded from tax calculations
 - can close existing short quantity:

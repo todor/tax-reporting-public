@@ -90,6 +90,8 @@ def normalize_review_status(raw: str) -> str:
     normalized = re.sub(r"\s+", "-", normalized)
     if normalized == "NONTAXABLE":
         return REVIEW_STATUS_NON_TAXABLE
+    if normalized == "RESET-BASIS-FROM-PRIOR-TAX-EVENT":
+        return "CARRY-OVER-BASIS"
     return normalized
 
 

@@ -56,6 +56,8 @@ def normalize_review_status(raw: str) -> str:
     normalized = re.sub(r"\s+", "-", normalized)
     if normalized == "NONTAXABLE":
         return "NON-TAXABLE"
+    if normalized == "RESET-BASIS-FROM-PRIOR-TAX-EVENT":
+        return "CARRY-OVER-BASIS"
     return normalized
 
 
@@ -151,4 +153,3 @@ def load_kraken_csv(path: str | Path) -> LoadedKrakenCsv:
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]
-

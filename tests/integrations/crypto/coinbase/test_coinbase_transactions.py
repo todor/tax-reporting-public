@@ -308,7 +308,7 @@ def test_receive_with_carry_over_basis_adds_holdings(tmp_path: Path) -> None:
     assert holding.total_cost_eur == Decimal("1200")
 
 
-def test_receive_with_reset_basis_from_prior_tax_event_adds_holdings(tmp_path: Path) -> None:
+def test_receive_with_reset_basis_from_prior_tax_event_maps_to_carry_over_basis(tmp_path: Path) -> None:
     result = h.run(
         tmp_path,
         rows=[
@@ -327,6 +327,29 @@ def test_receive_with_reset_basis_from_prior_tax_event_adds_holdings(tmp_path: P
     holding = result.summary.holdings_by_asset["ETH"]
     assert holding.quantity == Decimal("0.3")
     assert holding.total_cost_eur == Decimal("1500")
+    out_rows = h.read_csv(result.output_csv_path)
+    assert out_rows[0]["Review Status"] == "CARRY-OVER-BASIS"
+
+
+def test_receive_gift_sets_zero_basis(tmp_path: Path) -> None:
+    result = h.run(
+        tmp_path,
+        rows=[
+            h.row(
+                timestamp="2025-01-10 00:00:00 UTC",
+                tx_type="Receive",
+                asset="ETH",
+                qty="0.3",
+                review_status="GIFT",
+                purchase_price="1500",
+            )
+        ],
+        rates={"EUR": Decimal("1")},
+    )
+
+    holding = result.summary.holdings_by_asset["ETH"]
+    assert holding.quantity == Decimal("0.3")
+    assert holding.total_cost_eur == Decimal("0")
 
 
 def test_receive_can_realize_pnl_when_reducing_short(tmp_path: Path) -> None:
@@ -390,12 +413,12 @@ def test_receive_non_taxable_closes_short_without_taxable_pnl(tmp_path: Path) ->
                 asset="BTC",
                 qty="1",
                 subtotal="",
-                total="€100",
+                total="",
                 review_status="NON-TAXABLE",
                 cost_basis_eur="",
             ),
         ],
-        rates={"EUR": Decimal("1")},
+        rates={"EUR": Decimal("1"), "BTC": Decimal("100")},
     )
 
     app5 = result.summary.appendix_5

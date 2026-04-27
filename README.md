@@ -587,7 +587,10 @@ Coinbase analyzer highlights:
 - `Convert` is lowered to two IR legs with shared operation id: source `Sell` + target `Buy` (target can close an existing short)
 - Coinbase statements value rule is enforced: `Total = Subtotal + Fees`; use `Total` for economic value, except Convert source uses `Subtotal`
 - Coinbase transaction semantics are applied directly: `Deposit/Withdraw` as fiat movements, `Send/Receive` as crypto movements
-- `Receive` can close an existing short before opening/adding long (using provided `Cost Basis (EUR)` basis)
+- `Receive` can close an existing short before opening/adding long:
+- `CARRY_OVER_BASIS` uses provided `Cost Basis (EUR)`
+- `GIFT` forces zero basis
+- `NON-TAXABLE` uses market EUR value at receive timestamp (no basis expected)
 - `Send` rows do not accumulate in Appendix 5 totals
 - `Send` is validated only against existing long holdings in this analyzer version
 - EUR conversion via existing `bnb_fx` and `crypto_fx`
@@ -610,7 +613,7 @@ Kraken analyzer highlights:
 - Kraken ledger rows are mapped to shared IR; accounting/PnL logic is fully in `integrations.crypto.shared`.
 - multi-row operations are grouped by `refid` and lowered to IR rows with shared `Operation ID`.
 - `spend+receive` pairs map to one IR `Buy`; `trade/tradespot` pairs map to IR `Sell` + `Buy`.
-- receive-like crypto deposits support `Review Status` workflows (`CARRY_OVER_BASIS`, `RESET_BASIS_FROM_PRIOR_TAX_EVENT`, `NON-TAXABLE`).
+- receive-like crypto deposits support `Review Status` workflows (`CARRY_OVER_BASIS`, `GIFT`, `NON-TAXABLE`).
 - `NON-TAXABLE` receive-like rows are included as non-taxable inventory movement (affect holdings/state, no taxable PnL).
 - output contract matches Coinbase:
 - enriched IR CSV (`*_modified.csv`)

@@ -74,7 +74,7 @@ def render_appendix9_part2(
         )
         lines.append(
             "  № и дата на документа за дохода и съответния данък: "
-            f"{row.document_ref or '-'}"
+            f"{row.document_ref}"
         )
         lines.append("")
     return lines

@@ -801,3 +801,38 @@ def test_render_aggregated_report_appendix8_part1_includes_tax_year_end_acquisit
     assert "Данните в Приложение 8, Част I са декларативни." in rendered
     assert "Не се изисква прикачване на файл към декларацията." in rendered
     assert "Запазете отчети (напр. broker statements) за целите на евентуална проверка от НАП." in rendered
+
+
+def test_render_aggregated_report_appendix9_keeps_document_ref_empty_when_missing() -> None:
+    result = TaxAnalysisResult(
+        analyzer_alias="ibkr",
+        input_path=Path("/tmp/ibkr.csv"),
+        tax_year=2025,
+        output_paths={"declaration_txt": Path("/tmp/ibkr.txt")},
+        appendices=[
+            AppendixRecord(
+                appendix="9",
+                part="II",
+                code="603",
+                values={
+                    "country": "Ирландия",
+                    "gross_income_eur": Decimal("10.20"),
+                    "tax_base_eur": Decimal("10.20"),
+                    "foreign_tax_eur": Decimal("2.05"),
+                    "allowable_credit_eur": Decimal("1.02"),
+                    "recognized_credit_eur": Decimal("1.02"),
+                    "document_ref": "",
+                },
+            )
+        ],
+        diagnostics=[],
+    )
+    rendered = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={"ibkr": [Path("/tmp/ibkr.csv")]},
+        ignored_inputs=[],
+        analyzer_results=[result],
+        analyzer_errors={},
+    )
+    assert "№ и дата на документа за дохода и съответния данък: " in rendered
+    assert "№ и дата на документа за дохода и съответния данък: -" not in rendered

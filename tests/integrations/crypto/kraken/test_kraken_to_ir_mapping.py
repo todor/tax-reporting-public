@@ -148,7 +148,37 @@ def test_standalone_receive_maps_to_manual_deposit_with_net_quantity(tmp_path: P
     assert rows[0].transaction_type == "Deposit"
     assert rows[0].source_transaction_type == "Receive"
     assert rows[0].quantity == Decimal("1.4")
+    assert rows[0].review_status == "CARRY-OVER-BASIS"
     assert rows[0].cost_basis_eur == Decimal("1000")
+
+
+def test_standalone_receive_gift_sets_zero_basis(tmp_path: Path) -> None:
+    _, rows = _map_rows(
+        tmp_path,
+        rows=[
+            h.row(
+                txid="t1",
+                refid="",
+                time="2025-01-03 00:00:00",
+                tx_type="receive",
+                subtype="",
+                aclass="currency",
+                subclass="crypto",
+                asset="ETH",
+                wallet="spot",
+                amount="1.5",
+                fee="0.1",
+                review_status="GIFT",
+                cost_basis_eur="1000",
+            )
+        ],
+    )
+    assert len(rows) == 1
+    assert rows[0].transaction_type == "Deposit"
+    assert rows[0].source_transaction_type == "Receive"
+    assert rows[0].quantity == Decimal("1.4")
+    assert rows[0].review_status == "GIFT"
+    assert rows[0].cost_basis_eur == Decimal("0")
 
 
 def test_standalone_receive_missing_basis_is_warning_and_manual_check(tmp_path: Path) -> None:

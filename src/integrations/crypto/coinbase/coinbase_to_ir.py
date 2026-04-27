@@ -111,6 +111,41 @@ def _derive_fee(*, subtotal_eur: Decimal | None, total_eur: Decimal | None, fee_
     return None
 
 
+def _market_value_eur_for_deposit(
+    *,
+    quantity: Decimal,
+    asset: str,
+    timestamp: datetime,
+    row_number: int,
+    total_eur: Decimal | None,
+    subtotal_eur: Decimal | None,
+    eur_unit_rate_provider: EurUnitRateProvider,
+) -> Decimal:
+    if total_eur is not None:
+        return abs(total_eur)
+    if subtotal_eur is not None:
+        return abs(subtotal_eur)
+    try:
+        rate = eur_unit_rate_provider(asset, timestamp)
+    except (BnbFxError, CryptoFxError, CoinbaseAnalyzerError) as exc:
+        raise FxConversionError(
+            f"row {row_number}: FX conversion failed for non-taxable receive market value "
+            f"(asset={asset}, timestamp={timestamp.isoformat()})"
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise FxConversionError(
+            f"row {row_number}: FX conversion failed for non-taxable receive market value "
+            f"(asset={asset}, timestamp={timestamp.isoformat()})"
+        ) from exc
+
+    if rate <= ZERO:
+        raise FxConversionError(
+            f"row {row_number}: invalid EUR rate for non-taxable receive market value "
+            f"(asset={asset}, rate={rate})"
+        )
+    return abs(quantity) * rate
+
+
 def _add_unsupported_row(
     *,
     summary: IrAnalysisSummary,
@@ -327,20 +362,15 @@ def load_and_map_coinbase_csv_to_ir(
                 continue
             normalized_review_status = review_status.replace("-", "_").upper()
             if normalized_review_status == "NON_TAXABLE":
-                cost_basis_eur: Decimal | None = None
-                cost_basis_raw = raw.get(schema.cost_basis_eur, "") if schema.cost_basis_eur is not None else ""
-                if cost_basis_raw.strip() != "":
-                    try:
-                        parsed_basis = parse_prefixed_amount(
-                            cost_basis_raw,
-                            row_number=row_number,
-                            field_name="Cost Basis (EUR)",
-                        )
-                    except CoinbaseAnalyzerError:
-                        parsed_basis = None
-                    else:
-                        if parsed_basis >= ZERO:
-                            cost_basis_eur = parsed_basis
+                market_value_eur = _market_value_eur_for_deposit(
+                    quantity=quantity,
+                    asset=asset,
+                    timestamp=timestamp,
+                    row_number=row_number,
+                    total_eur=total_eur,
+                    subtotal_eur=subtotal_eur,
+                    eur_unit_rate_provider=eur_unit_rate_provider,
+                )
                 ir_rows.append(
                     CryptoIrRow(
                         timestamp=timestamp,
@@ -349,9 +379,9 @@ def load_and_map_coinbase_csv_to_ir(
                         asset=asset,
                         asset_type="crypto",
                         quantity=quantity,
-                        proceeds_eur=abs(total_eur) if total_eur is not None else None,
+                        proceeds_eur=market_value_eur,
                         fee_eur=fee_eur,
-                        cost_basis_eur=cost_basis_eur,
+                        cost_basis_eur=None,
                         review_status=review_status,
                         source_exchange="coinbase",
                         source_row_number=row_number,
@@ -369,6 +399,27 @@ def load_and_map_coinbase_csv_to_ir(
                         f"row {row_number}: invalid Review Status for Receive={review_status!r}; "
                         f"excluded from tax calculations (accepted values: {accepted_receive_review_statuses})"
                     ),
+                )
+                continue
+            if normalized_review_status == "GIFT":
+                ir_rows.append(
+                    CryptoIrRow(
+                        timestamp=timestamp,
+                        operation_id=operation_id,
+                        transaction_type="Deposit",
+                        asset=asset,
+                        asset_type="crypto",
+                        quantity=quantity,
+                        proceeds_eur=abs(total_eur) if total_eur is not None else None,
+                        fee_eur=fee_eur,
+                        cost_basis_eur=ZERO,
+                        review_status=review_status,
+                        source_exchange="coinbase",
+                        source_row_number=row_number,
+                        source_transaction_type="Receive",
+                        subtotal_eur=subtotal_eur,
+                        total_eur=total_eur,
+                    )
                 )
                 continue
             cost_basis_raw = raw.get(schema.cost_basis_eur, "") if schema.cost_basis_eur is not None else ""

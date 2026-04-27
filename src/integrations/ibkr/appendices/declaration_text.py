@@ -406,7 +406,7 @@ def _append_appendix9_section(
                     foreign_tax=Money(country_result.aggregated_foreign_tax_paid_eur, "EUR"),
                     allowable_credit=Money(country_result.allowable_credit_aggregated_eur, "EUR"),
                     recognized_credit=Money(country_result.recognized_credit_correct_eur, "EUR"),
-                    document_ref="R-185 / Activity Statement",
+                    document_ref="",
                 )
             )
     else:
@@ -428,7 +428,7 @@ def _append_appendix9_section(
                     ),
                     "EUR",
                 ),
-                document_ref="R-185 / Activity Statement",
+                document_ref="",
             )
         )
     lines.extend(render_appendix9_part2(rows, money_context=money_context))

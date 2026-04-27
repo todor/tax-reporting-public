@@ -215,6 +215,8 @@ def test_appendix_9_section_contains_expected_values(tmp_path: Path) -> None:
     assert "Платен данък в чужбина: 4.00" in text
     assert "Допустим размер на данъчния кредит: 2.00" in text
     assert "Размер на признатия данъчен кредит: 2.00" in text
+    assert "№ и дата на документа за дохода и съответния данък:" in text
+    assert "R-185 / Activity Statement" not in text
 
 def test_appendix_9_allowable_credit_uses_code_constant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import integrations.ibkr.activity_statement_analyzer as ibkr_module

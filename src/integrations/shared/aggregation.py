@@ -503,7 +503,7 @@ def _build_appendix9_lines(
             foreign_tax=Money(bucket.foreign_tax_eur, "EUR"),
             allowable_credit=Money(bucket.allowable_credit_eur, "EUR"),
             recognized_credit=Money(bucket.recognized_credit_eur, "EUR"),
-            document_ref=", ".join(sorted(bucket.document_refs)) if bucket.document_refs else "-",
+            document_ref=", ".join(sorted(bucket.document_refs)) if bucket.document_refs else "",
         )
         for (country, code), bucket in sorted(aggregated.appendix9_part2_by_group.items())
     ]

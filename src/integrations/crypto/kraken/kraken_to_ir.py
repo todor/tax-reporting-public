@@ -175,6 +175,8 @@ def _manual_receive_fields_or_warn(
             ),
         )
         return None
+    if normalized_for_validation == "GIFT":
+        return review_status, ZERO, False
 
     if row.cost_basis_raw == "":
         _add_unsupported_row(

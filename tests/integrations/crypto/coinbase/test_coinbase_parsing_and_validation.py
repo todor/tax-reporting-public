@@ -116,7 +116,7 @@ def test_receive_non_taxable_does_not_require_cost_basis_and_is_mapped(tmp_path:
                 cost_basis_eur="",
             )
         ],
-        rates={"EUR": Decimal("1")},
+        rates={"EUR": Decimal("1"), "BTC": Decimal("50000")},
     )
     out_rows = h.read_csv(result.output_csv_path)
     assert len(out_rows) == 1

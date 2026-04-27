@@ -64,12 +64,12 @@ Practical input notes:
 - Require manual basis fields:
 - `Review Status` in:
 - `CARRY_OVER_BASIS`
-- `RESET_BASIS_FROM_PRIOR_TAX_EVENT`
+- `GIFT` (forces `Cost Basis (EUR)=0`)
 - `NON-TAXABLE` (non-taxable inventory movement)
 - `Cost Basis (EUR)` present and non-negative for basis-carrying statuses.
 - If `Review Status` is `NON-TAXABLE`:
 - row is mapped as non-taxable receive movement (affects holdings/state, no taxable PnL).
-- `Cost Basis (EUR)` is not required and no warning/manual-check is emitted.
+- `Cost Basis (EUR)` is not expected and is ignored.
 - If those manual basis fields are missing/invalid for basis-carrying statuses:
 - warning + manual-check required, and row is excluded from tax calculations.
 - Quantity is net of same-asset fee (`amount - fee`).

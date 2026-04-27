@@ -203,7 +203,7 @@ def analyze_ir_rows(
                 source_tx = (row.source_transaction_type or "").strip().upper()
                 review_status = (row.review_status or "").strip().replace("-", "_").upper()
                 if review_status == "NON_TAXABLE":
-                    execution_value = row.cost_basis_eur if row.cost_basis_eur is not None else (row.proceeds_eur or ZERO)
+                    execution_value = row.proceeds_eur or ZERO
                     ledger.increase_without_realization(
                         row.asset,
                         quantity=abs(row.quantity),

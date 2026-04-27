@@ -361,7 +361,7 @@ def build_ibkr_result(
                     "foreign_tax_eur": country.aggregated_foreign_tax_paid_eur,
                     "allowable_credit_eur": country.allowable_credit_aggregated_eur,
                     "recognized_credit_eur": country.recognized_credit_correct_eur,
-                    "document_ref": "R-185 / Activity Statement",
+                    "document_ref": "",
                 },
             )
         )
@@ -374,4 +374,3 @@ def build_ibkr_result(
         appendices=appendices,
         diagnostics=diagnostics,
     )
-
