@@ -1,6 +1,27 @@
 # Tax Reporting (Bulgaria / НАП)
 
-Python project for Bulgarian annual tax reporting workflows.
+Python-based CLI for generating Bulgarian annual tax reporting outputs from real-world investment data (IBKR, crypto exchanges, P2P platforms).
+
+The goal of this project is simple:
+
+> Process complex investment activity and generate declaration-ready results in minutes instead of days of manual work.
+
+This repository provides a transparent, extensible engine that handles real-world edge cases across multiple platforms.
+
+It is especially useful if:
+
+- you invest across multiple brokers and platforms
+- you want to avoid manual Excel workflows
+- you need full visibility into how results are calculated
+
+The project is evolving based on real usage and feedback, with the aim to cover the majority of practical investment scenarios over time.
+
+## Who is this for
+
+- Individual investors managing their own tax reporting
+- Users with activity across multiple platforms (IBKR, crypto, P2P, etc.)
+- Accounting professionals exploring automation or evaluating tooling for client workflows
+- Developers or advanced users who want full control and transparency
 
 The repository now includes:
 
@@ -19,6 +40,25 @@ The repository now includes:
 - IBKR activity statement analyzer (trades + interest + dividends)
 
 Some areas are still intentionally phased and evolving (for example broader asset coverage and additional appendices).
+
+## Commercial Usage
+
+This project is free for personal use.
+
+Companies (e.g. accounting firms) may evaluate the tool internally.
+
+Using this tool to provide paid services (e.g. tax reporting for clients) requires a commercial license.
+
+See [COMMERCIAL_USAGE.md](./COMMERCIAL_USAGE.md) for full details.
+
+## Contact
+
+For commercial usage or collaboration:
+
+- Email: todor.projects@gmail.com
+- LinkedIn: https://www.linkedin.com/in/todorppetrov/
+
+Please include a short description of your use case.
 
 ## Setup
 
@@ -656,3 +696,12 @@ PYTHONPATH=src pyenv exec python -m services.crypto_fx.cli get-rate \
   --is-future \
   --timestamp 2025-10-11T10:30:15Z
 ```
+
+## License
+
+This project is licensed under **MIT + Commons Clause**.
+
+- Free for personal use
+- Commercial usage requires a separate agreement
+
+See [LICENSE](./LICENSE) for details.
