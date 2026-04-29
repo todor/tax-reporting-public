@@ -60,75 +60,180 @@ For commercial usage or collaboration:
 
 Please include a short description of your use case.
 
-## Setup
+## Installation & Usage
 
-Use the pyenv environment set in `.python-version` (`tax-reporting`).
+Install `uv` once:
 
-If you need to create it:
-
+**macOS:**
 ```bash
-pyenv install -s 3.13.0
-pyenv virtualenv 3.13.0 tax-reporting
-pyenv local tax-reporting
+brew install uv
 ```
 
-Install dependencies:
-
-```bash
-pyenv exec python -m pip install -r requirements.txt
+**Windows (PowerShell):**
+```powershell
+irm https://astral.sh/uv/install.ps1 | iex
 ```
 
-Current external dependencies in `requirements.txt`:
-
-- `requests` (FX services HTTP clients)
-- `pypdf` (machine-generated PDF text extraction for P2P analyzers)
-- `pytest` (test runner)
-
-Dependency policy:
-
-- `requirements.txt` is the single install list for both runtime and repository tests.
-- third-party imports currently used by the codebase are limited to the three packages above.
-
-## Run
-
-Run tests:
-
+**Linux:**
 ```bash
-pyenv exec pytest
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Run the unified analyzer CLI:
+### Option 1 - Try instantly (no install)
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer --help
+uvx tax-reporting --help
 ```
 
-Single analyzer mode:
+`uvx` runs a published Python CLI in an ephemeral, cached environment without installing it globally.
+
+Example single analyzer run:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer ibkr --input path/to/file.csv --tax-year 2025
+uvx tax-reporting ibkr \
+  --input path/to/ibkr_activity_statement.csv \
+  --tax-year 2025 \
+  --tax-exempt-mode listed_symbol
 ```
 
-Aggregate mode (auto-detect + aggregate declaration summary):
+Example aggregate run:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer \
+uvx tax-reporting \
   --input-dir path/to/reports \
   --tax-year 2025 \
   --output-dir output
 ```
 
-Notes:
+### Option 2 - Install globally
 
-- `report_analyzer` is the only user-facing analyzer CLI.
-- use integration aliases (for example `ibkr`, `coinbase`, `kraken`, `finexify`, `afranga`) with `report_analyzer`; do not call `src/integrations/...` modules directly for normal usage.
+```bash
+uv tool install tax-reporting
+tax-reporting --help
+```
 
-### Unified CLI Modes
+`uv tool install` installs a persistent command-line tool in uv's managed tool environment.
+
+After installing, run:
+
+```bash
+tax-reporting coinbase \
+  --input "path/to/Coinbase Report.csv" \
+  --tax-year 2025
+```
+
+### Command Choice
+
+- `uvx tax-reporting` -> run without installing
+- `uv tool install tax-reporting` -> install once
+- `tax-reporting ...` -> run the installed CLI
+
+Important: `uvx tax-reporting` and `uv tool install tax-reporting` work after the package is published to PyPI or another configured package index. Before publishing, use the development workflow below or install from Git.
+
+## Development
+
+Setup:
+
+```bash
+git clone <repository-url>
+cd <repository-directory>
+uv sync
+```
+
+Run:
+
+```bash
+uv run tax-reporting --help
+```
+
+Development workflow:
+
+```bash
+uv run tax-reporting ibkr \
+  --input path/to/ibkr_activity_statement.csv \
+  --tax-year 2025 \
+  --tax-exempt-mode listed_symbol
+
+uv run pytest
+uv run ruff check .
+
+uv add <package>
+uv sync
+```
+
+What the uv commands mean:
+
+- `uv run` = execute a command inside the project environment
+- `uv add` = add a dependency to `pyproject.toml`
+- `uv sync` = create/update the environment from `pyproject.toml` and `uv.lock`
+
+No need for:
+
+- `pyenv`
+- `virtualenv`
+- `pip install`
+- `PYTHONPATH` hacks
+
+## Publishing / Release Process
+
+Maintainers publish the package so users can run:
+
+```bash
+uvx tax-reporting
+uv tool install tax-reporting
+```
+
+Required `pyproject.toml` metadata:
+
+```toml
+[project]
+name = "tax-reporting"
+version = "..."
+
+[project.scripts]
+tax-reporting = "report_analyzer.cli:main"
+```
+
+Build:
+
+```bash
+uv build
+```
+
+Publish:
+
+```bash
+uv publish
+```
+
+Recommended secure publishing:
+
+- Use PyPI Trusted Publishing via GitHub Actions.
+- Avoid long-lived PyPI API tokens.
+
+After publishing:
+
+```bash
+uvx tax-reporting --help
+uv tool install tax-reporting
+tax-reporting --help
+```
+
+Important: these commands only work once the package is available on PyPI or another configured index.
+
+Private usage before publishing:
+
+```bash
+uvx git+ssh://git@github.com/<owner>/<repo>.git
+uv tool install git+ssh://git@github.com/<owner>/<repo>.git
+```
+
+## Unified CLI Reference
 
 Single analyzer mode:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer <alias> \
+uv run tax-reporting <alias> \
   --input <file> \
   --tax-year 2025 \
   --output-dir output/<alias>
@@ -137,7 +242,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer <alias> \
 Aggregate mode (auto-detect + run all + aggregate declaration summary):
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer \
+uv run tax-reporting \
   --input-dir <folder> \
   --tax-year 2025 \
   --output-dir output
@@ -146,12 +251,12 @@ PYTHONPATH=src pyenv exec python -m report_analyzer \
 Display currency examples:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
+uv run tax-reporting coinbase \
   --input "path/to/Coinbase Report.csv" \
   --tax-year 2025 \
   --display-currency EUR
 
-PYTHONPATH=src pyenv exec python -m report_analyzer \
+uv run tax-reporting \
   --input-dir path/to/reports \
   --tax-year 2025 \
   --output-dir output \
@@ -314,7 +419,7 @@ print(result.fetched_count, result.rows_written)
 Use a custom cache directory:
 
 ```bash
-PYTHONPATH=src pyenv exec python - <<'PY'
+uv run python - <<'PY'
 from services.bnb_fx import get_exchange_rate
 
 rate = get_exchange_rate("USD", "2024-10-15", cache_dir="output/fx-cache")
@@ -337,7 +442,7 @@ for d in ["2025-10-11", "2025-10-12"]:
 Build cache for period:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli period \
+uv run python -m services.bnb_fx.cli period \
   --symbols USD,EUR \
   --start-date 2024-01-01 \
   --end-date 2024-12-31
@@ -346,7 +451,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli period \
 Build cache for full years:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli years \
+uv run python -m services.bnb_fx.cli years \
   --symbols USD \
   --years 2023,2024,2025
 ```
@@ -354,7 +459,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli years \
 Build cache into a custom folder:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli period \
+uv run python -m services.bnb_fx.cli period \
   --symbols USD \
   --start-date 2024-01-01 \
   --end-date 2024-03-31 \
@@ -364,7 +469,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli period \
 Get one rate:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
+uv run python -m services.bnb_fx.cli get-rate \
   --symbol USD \
   --date 2024-10-15
 ```
@@ -372,7 +477,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 Get multiple dates:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
+uv run python -m services.bnb_fx.cli get-rate \
   --symbol USD \
   --dates 2025-10-11,2025-10-12
 ```
@@ -386,7 +491,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 
 ## Current Structure
 
-- `src/report_analyzer.py`: unified analyzer CLI (single and aggregate modes)
+- `src/report_analyzer/`: unified analyzer CLI package (single and aggregate modes)
 - `src/main.py`: backwards-compatible wrapper delegating to unified CLI
 - `src/config.py`: central project paths
 - `src/logging_config.py`: minimal logging setup
@@ -463,7 +568,7 @@ PYTHONPATH=src pyenv exec python -m services.bnb_fx.cli get-rate \
 Pure realized-cashflow analyzer (no FIFO/carryover), based on Binance Futures PnL / Transaction History CSV:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer binance_futures \
+uv run tax-reporting binance_futures \
   --input path/to/binance_futures_pnl.csv \
   --tax-year 2025
 ```
@@ -471,7 +576,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer binance_futures \
 ### IBKR activity statement analyzer
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
+uv run tax-reporting ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
   --tax-exempt-mode listed_symbol \
@@ -481,7 +586,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
 Optional venue override inputs (activates closed-world venue classification for this run):
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
+uv run tax-reporting ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
   --tax-exempt-mode execution_exchange \
@@ -492,7 +597,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
 Closed-world without adding extra regulated exchanges:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
+uv run tax-reporting ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
   --tax-exempt-mode execution_exchange \
@@ -514,7 +619,7 @@ IBKR appendix credit math note:
 ### Coinbase report analyzer
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
+uv run tax-reporting coinbase \
   --input "path/to/Coinbase Report - since inception.csv" \
   --tax-year 2025
 ```
@@ -522,7 +627,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
 ### Finexify fund analyzer
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer finexify \
+uv run tax-reporting finexify \
   --input "path/to/finexify.csv" \
   --tax-year 2025
 ```
@@ -530,7 +635,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer finexify \
 ### Afranga P2P analyzer
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer afranga \
+uv run tax-reporting afranga \
   --input "path/to/afranga_statement.pdf" \
   --tax-year 2025
 ```
@@ -545,7 +650,7 @@ Notes:
 Estateguru:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer estateguru \
+uv run tax-reporting estateguru \
   --input "path/to/Estateguru report.pdf" \
   --tax-year 2025
 ```
@@ -553,7 +658,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer estateguru \
 Lendermarket:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer lendermarket \
+uv run tax-reporting lendermarket \
   --input "path/to/Lendermarket report.pdf" \
   --tax-year 2025
 ```
@@ -561,7 +666,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer lendermarket \
 Iuvo:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer iuvo \
+uv run tax-reporting iuvo \
   --input "path/to/Iuvo report.pdf" \
   --tax-year 2025
 ```
@@ -569,7 +674,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer iuvo \
 Robocash:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer robocash \
+uv run tax-reporting robocash \
   --input "path/to/Robocash report.pdf" \
   --tax-year 2025
 ```
@@ -577,7 +682,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer robocash \
 Bondora Go & Grow:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer bondora_go_grow \
+uv run tax-reporting bondora_go_grow \
   --input "path/to/Go & Grow report.pdf" \
   --tax-year 2025
 ```
@@ -593,7 +698,7 @@ P2P tax-mapping quick reference:
 Optional:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
+uv run tax-reporting coinbase \
   --input "path/to/Coinbase Report - since inception.csv" \
   --tax-year 2025 \
   --output-dir output/coinbase \
@@ -603,7 +708,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
 Opening-state mode (recommended after first filing year):
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
+uv run tax-reporting coinbase \
   --input "path/to/Coinbase Report - 2025-only.csv" \
   --tax-year 2025 \
   --opening-state-json output/coinbase/coinbase_report_since_inception_state_end_2024.json \
@@ -622,7 +727,7 @@ Opening-state contract:
 ### Kraken report analyzer
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer kraken \
+uv run tax-reporting kraken \
   --input "path/to/kraken_ledger.csv" \
   --tax-year 2025
 ```
@@ -630,7 +735,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer kraken \
 Opening-state mode (recommended after first filing year):
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer kraken \
+uv run tax-reporting kraken \
   --input "path/to/kraken_ledger_2026.csv" \
   --tax-year 2026 \
   --opening-state-json output/kraken/kraken_report_since_inception_state_end_2025.json \
@@ -704,7 +809,7 @@ For full Kraken rules and edge-case behavior, see:
 CLI:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m services.crypto_fx.cli get-rate \
+uv run python -m services.crypto_fx.cli get-rate \
   --symbol-or-pair ALCHUSDT \
   --exchange binance \
   --is-future \

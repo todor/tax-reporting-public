@@ -4,7 +4,7 @@ This module analyzes Interactive Brokers Activity Statement CSV files and prepar
 
 Module:
 
-- user-facing CLI: `PYTHONPATH=src pyenv exec python -m report_analyzer ibkr ...`
+- user-facing CLI: `uv run tax-reporting ibkr ...`
 
 Internal IBKR module structure:
 
@@ -37,7 +37,7 @@ Conventions:
 ## Quick Start
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
+uv run tax-reporting ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
   --tax-exempt-mode listed_symbol
@@ -46,7 +46,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
 Optional multi-account alias:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
+uv run tax-reporting ibkr \
   --input path/to/ibkr_activity_statement_account2.csv \
   --tax-year 2025 \
   --tax-exempt-mode listed_symbol \
@@ -56,7 +56,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
 Closed-world venue classification example (adds regulated overrides for this run):
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
+uv run tax-reporting ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
   --tax-exempt-mode execution_exchange \
@@ -67,7 +67,7 @@ PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
 Closed-world without adding extra regulated venues:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
+uv run tax-reporting ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
   --tax-exempt-mode execution_exchange \

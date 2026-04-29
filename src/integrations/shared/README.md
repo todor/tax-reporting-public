@@ -1,6 +1,6 @@
 # Shared Analyzer Layer
 
-This package contains cross-integration shared orchestration pieces used by the user-facing unified CLI (`python -m report_analyzer`).
+This package contains cross-integration shared orchestration pieces used by the user-facing unified CLI (`uv run tax-reporting`).
 
 ## Modules
 
@@ -31,11 +31,11 @@ This package contains cross-integration shared orchestration pieces used by the 
 
 Single-analyzer mode:
 
-- `python -m report_analyzer <alias> --input <file> --tax-year <year> [options]`
+- `uv run tax-reporting <alias> --input <file> --tax-year <year> [options]`
 
 Aggregate mode:
 
-- `python -m report_analyzer --input-dir <dir> --tax-year <year> [options]`
+- `uv run tax-reporting --input-dir <dir> --tax-year <year> [options]`
 - auto-detects files by alias token rules and extension
 - supports repeated `--analyzer-input alias=path` overrides
 - supports multi-file-per-alias execution and accumulation

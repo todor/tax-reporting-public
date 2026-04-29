@@ -2,7 +2,7 @@
 
 Entry point (user-facing):
 
-- `PYTHONPATH=src pyenv exec python -m report_analyzer estateguru ...`
+- `uv run tax-reporting estateguru ...`
 
 
 ## Overview
@@ -90,7 +90,7 @@ Warnings:
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer estateguru \
+uv run tax-reporting estateguru \
   --input "path/to/Estateguru report.pdf" \
   --tax-year 2025
 ```

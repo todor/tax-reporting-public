@@ -2,7 +2,7 @@
 
 Entry point (user-facing):
 
-- `PYTHONPATH=src pyenv exec python -m report_analyzer lendermarket ...`
+- `uv run tax-reporting lendermarket ...`
 
 
 ## Overview
@@ -64,7 +64,7 @@ Warnings:
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer lendermarket \
+uv run tax-reporting lendermarket \
   --input "path/to/Lendermarket report.pdf" \
   --tax-year 2025
 ```

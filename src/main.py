@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from report_analyzer import main as unified_main
+from report_analyzer.cli import main as unified_main
 
 
 def main() -> int:
@@ -11,4 +11,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -84,7 +84,7 @@ def _validate_tax_year(tax_year: int) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     registry = discover_analyzer_registry()
-    parser = argparse.ArgumentParser(prog="report_analyzer")
+    parser = argparse.ArgumentParser(prog="tax-reporting")
     parser.set_defaults(_registry=registry)
 
     # Aggregate mode arguments (when no subcommand/analyzer alias is provided).

@@ -2,7 +2,7 @@
 
 Entry point (user-facing):
 
-- `PYTHONPATH=src pyenv exec python -m report_analyzer iuvo ...`
+- `uv run tax-reporting iuvo ...`
 
 
 ## Overview
@@ -90,7 +90,7 @@ Warnings:
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer iuvo \
+uv run tax-reporting iuvo \
   --input "path/to/Iuvo report.pdf" \
   --tax-year 2025
 ```

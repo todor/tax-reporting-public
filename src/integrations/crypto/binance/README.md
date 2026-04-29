@@ -6,7 +6,7 @@ This folder contains Binance-specific analyzers used for tax reporting.
 
 Module:
 
-- user-facing CLI: `PYTHONPATH=src pyenv exec python -m report_analyzer binance_futures ...`
+- user-facing CLI: `uv run tax-reporting binance_futures ...`
 
 Purpose:
 
@@ -188,7 +188,7 @@ You can reproduce the output in a spreadsheet exactly:
 CLI:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer binance_futures \
+uv run tax-reporting binance_futures \
   --input path/to/binance_futures_pnl.csv \
   --tax-year 2025
 ```
@@ -205,7 +205,7 @@ CLI options:
 Optional:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer binance_futures \
+uv run tax-reporting binance_futures \
   --input path/to/binance_futures_pnl.csv \
   --tax-year 2025 \
   --output-dir output/binance/futures \

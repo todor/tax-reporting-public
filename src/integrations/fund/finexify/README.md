@@ -2,7 +2,7 @@
 
 Entry point (user-facing):
 
-- `PYTHONPATH=src pyenv exec python -m report_analyzer finexify ...`
+- `uv run tax-reporting finexify ...`
 
 
 ## Architecture
@@ -121,7 +121,7 @@ Only `withdraw` rows contribute to Appendix 5 totals.
 You can pass prior year-end state:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer finexify \
+uv run tax-reporting finexify \
   --input "path/to/finexify_2026.csv" \
   --tax-year 2026 \
   --opening-state-json output/finexify/<state_end_2025>.json
@@ -141,7 +141,7 @@ State contract:
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer finexify \
+uv run tax-reporting finexify \
   --input "path/to/finexify.csv" \
   --tax-year 2025
 ```

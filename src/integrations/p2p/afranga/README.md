@@ -2,7 +2,7 @@
 
 Entry point (user-facing):
 
-- `PYTHONPATH=src pyenv exec python -m report_analyzer afranga ...`
+- `uv run tax-reporting afranga ...`
 
 
 ## Overview
@@ -173,7 +173,7 @@ Audit Data
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer afranga \
+uv run tax-reporting afranga \
   --input "path/to/afranga_statement.pdf" \
   --tax-year 2025
 ```

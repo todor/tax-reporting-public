@@ -2,7 +2,7 @@
 
 Entry point (user-facing):
 
-- `PYTHONPATH=src pyenv exec python -m report_analyzer coinbase ...`
+- `uv run tax-reporting coinbase ...`
 
 
 ## Architecture
@@ -202,7 +202,7 @@ for each asset, plus `state_tax_year_end`.
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
+uv run tax-reporting coinbase \
   --input "path/to/Coinbase Report - since inception.csv" \
   --tax-year 2025
 ```
@@ -226,7 +226,7 @@ CLI stdout policy:
 With opening state:
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
+uv run tax-reporting coinbase \
   --input "path/to/Coinbase Report - 2026.csv" \
   --tax-year 2026 \
   --opening-state-json output/coinbase/<previous_run_state_end_2025>.json

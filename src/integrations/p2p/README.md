@@ -26,11 +26,11 @@ Shared components live in `integrations.p2p.shared`:
 
 User-facing execution:
 
-- run P2P analyzers through `python -m report_analyzer <alias> ...`
+- run P2P analyzers through `uv run tax-reporting <alias> ...`
 
 Display currency for TXT output:
 
-- all P2P analyzers support `--display-currency {EUR,BGN}` through `report_analyzer`
+- all P2P analyzers support `--display-currency {EUR,BGN}` through `tax-reporting`
 - default is `EUR`
 - `BGN` affects only declaration-facing TXT money rendering; calculations remain in EUR
 - conversion uses `services.bnb_fx` at tax-year end (`YYYY-12-31`)

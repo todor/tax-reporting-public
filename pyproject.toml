@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tax-reporting"
+version = "0.1.0"
+description = "Bulgarian tax reporting analyzers for investment activity"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT AND LicenseRef-Commons-Clause"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Todor Petrov" },
+]
+dependencies = [
+    "pypdf",
+    "requests",
+]
+
+[project.urls]
+Homepage = "https://github.com/todorppetrov/tax-reporting"
+Repository = "https://github.com/todorppetrov/tax-reporting"
+
+[project.scripts]
+tax-reporting = "report_analyzer.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+py-modules = ["config", "logging_config", "main"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+ignore = ["F401", "F841"]

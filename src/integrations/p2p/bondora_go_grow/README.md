@@ -2,7 +2,7 @@
 
 Entry point (user-facing):
 
-- `PYTHONPATH=src pyenv exec python -m report_analyzer bondora_go_grow ...`
+- `uv run tax-reporting bondora_go_grow ...`
 
 
 ## Overview
@@ -77,7 +77,7 @@ Warnings:
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer bondora_go_grow \
+uv run tax-reporting bondora_go_grow \
   --input "path/to/Go & Grow report.pdf" \
   --tax-year 2025
 ```

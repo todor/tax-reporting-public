@@ -2,7 +2,7 @@
 
 Entry point (user-facing):
 
-- `PYTHONPATH=src pyenv exec python -m report_analyzer robocash ...`
+- `uv run tax-reporting robocash ...`
 
 
 ## Overview
@@ -63,7 +63,7 @@ Hard fail:
 ## CLI
 
 ```bash
-PYTHONPATH=src pyenv exec python -m report_analyzer robocash \
+uv run tax-reporting robocash \
   --input "path/to/Robocash report.pdf" \
   --tax-year 2025
 ```
