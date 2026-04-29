@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import argparse
 import csv
-import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from integrations.shared.rendering.display_currency import build_money_render_context
+from integrations.shared.rendering.display_currency import build_render_context
 
 from .appendices.aggregations import (
     _aggregate_appendix8_company_rows_by_country_and_method,
@@ -19,7 +17,7 @@ from .appendices.aggregations import (
     _write_tax_credit_debug_report,
 )
 from .appendices.csv_output import build_output_rows, validate_output_rows
-from .appendices.declaration_text import _build_declaration_text, _build_manual_check_reasons
+from .appendices.declaration_text import _build_declaration_text
 from .constants import (
     APPENDIX8_LIST_MODE_COMPANY,
     APPENDIX8_LIST_MODE_COUNTRY,
@@ -70,8 +68,6 @@ from .sections.trades import (
     process_trades_section,
 )
 from .shared import _build_active_headers, _default_fx_provider, _normalize_report_alias
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -497,7 +493,7 @@ def analyze_ibkr_activity_statement(
         report_alias=normalized_alias,
         summary=summary,
     )
-    money_context = build_money_render_context(
+    render_context = build_render_context(
         tax_year=tax_year,
         display_currency=display_currency,
         cache_dir=cache_dir,
@@ -507,7 +503,7 @@ def analyze_ibkr_activity_statement(
         _build_declaration_text(
             result,
             appendix9_allowable_credit_rate=APPENDIX_9_ALLOWABLE_CREDIT_RATE,
-            money_context=money_context,
+            money_context=render_context.money_context,
         ),
         encoding="utf-8",
     )
@@ -527,100 +523,3 @@ def analyze_ibkr_activity_statement(
         )
 
     return result
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="ibkr-activity-analyzer")
-    parser.add_argument("--input", type=Path, required=True, help="IBKR Activity Statement CSV")
-    parser.add_argument("--tax-year", type=int, required=True, help="Tax year")
-    parser.add_argument(
-        "--tax-exempt-mode",
-        choices=[TAX_MODE_LISTED_SYMBOL, TAX_MODE_EXECUTION_EXCHANGE],
-        required=True,
-        help="Tax exempt classification mode",
-    )
-    parser.add_argument(
-        "--appendix8-dividend-list-mode",
-        choices=[APPENDIX8_LIST_MODE_COMPANY, APPENDIX8_LIST_MODE_COUNTRY],
-        default=APPENDIX8_LIST_MODE_COMPANY,
-        help="Appendix 8 dividend listing mode (default: company)",
-    )
-    parser.add_argument(
-        "--eu-regulated-exchange",
-        action="append",
-        default=[],
-        help=(
-            "Additional EU-regulated exchange code override. "
-            "Can be passed multiple times or comma-separated."
-        ),
-    )
-    parser.add_argument(
-        "--closed-world",
-        action="store_true",
-        help=(
-            "Use closed-world exchange classification even without "
-            "--eu-regulated-exchange overrides."
-        ),
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=DEFAULT_OUTPUT_DIR,
-        help="Output directory (default: output/ibkr/activity_statement)",
-    )
-    parser.add_argument(
-        "--report-alias",
-        help="Optional report alias to include in output filenames (for multiple accounts)",
-    )
-    parser.add_argument("--cache-dir", type=Path, help="Optional bnb_fx cache dir override")
-    parser.add_argument(
-        "--display-currency",
-        choices=["EUR", "BGN"],
-        default="EUR",
-        help=(
-            "Controls ONLY TXT output rendering. "
-            "All calculations and aggregation are performed in EUR. "
-            "BGN rendering uses BNB FX service at tax year end."
-        ),
-    )
-    parser.add_argument("--log-level", default="INFO")
-    return parser
-
-
-def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-
-    try:
-        result = analyze_ibkr_activity_statement(
-            input_csv=args.input,
-            tax_year=args.tax_year,
-            tax_exempt_mode=args.tax_exempt_mode,
-            appendix8_dividend_list_mode=args.appendix8_dividend_list_mode,
-            report_alias=args.report_alias,
-            output_dir=args.output_dir,
-            cache_dir=args.cache_dir,
-            display_currency=args.display_currency,
-            eu_regulated_exchanges=args.eu_regulated_exchange,
-            closed_world=args.closed_world,
-        )
-    except IbkrAnalyzerError as exc:
-        logger.error("%s", exc)
-        print("STATUS: ERROR")
-        return 2
-
-    summary = result.summary
-    manual_check_required = bool(_build_manual_check_reasons(summary))
-    print(f"STATUS: {'MANUAL CHECK REQUIRED' if manual_check_required else 'SUCCESS'}")
-    print(f"Modified CSV: {result.output_csv_path}")
-    print(f"Declaration TXT: {result.declaration_txt_path}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

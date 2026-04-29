@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -152,6 +153,28 @@ def test_single_analyzer_mode_passes_display_currency_override(
     assert code == 0
     assert len(run_capture.contexts) == 1
     assert run_capture.contexts[0].options["display_currency"] == "BGN"
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "integrations.ibkr.activity_statement_analyzer",
+        "integrations.crypto.binance.futures_pnl_analyzer",
+        "integrations.crypto.coinbase.report_analyzer",
+        "integrations.crypto.kraken.report_analyzer",
+        "integrations.fund.finexify.report_analyzer",
+        "integrations.p2p.afranga.report_analyzer",
+        "integrations.p2p.estateguru.report_analyzer",
+        "integrations.p2p.lendermarket.report_analyzer",
+        "integrations.p2p.iuvo.report_analyzer",
+        "integrations.p2p.robocash.report_analyzer",
+        "integrations.p2p.bondora_go_grow.report_analyzer",
+    ],
+)
+def test_standalone_analyzer_modules_do_not_expose_main(module_name: str) -> None:
+    module = importlib.import_module(module_name)
+
+    assert not hasattr(module, "main")
 
 
 def test_auto_detection_uses_alias_tokens_and_include_pattern(tmp_path: Path) -> None:

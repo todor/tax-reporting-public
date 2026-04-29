@@ -354,38 +354,9 @@ def test_tax_text_hides_zero_only_informative_block_when_net_result_is_zero(tmp_
     assert "Информативни" not in text
 
 
-def test_cli_prints_status_and_output_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    input_csv = tmp_path / "input.csv"
-    _write_csv(
-        input_csv,
-        [_base_row(time="2025-01-01 00:00:00", operation="Fee", change="1")],
-    )
-
-    monkeypatch.setattr(
-        analyzer,
-        "_default_eur_rate_provider",
-        lambda _cache_dir: (lambda _ts: Decimal("1")),
-    )
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "futures_pnl_analyzer.py",
-            "--input",
-            str(input_csv),
-            "--tax-year",
-            "2025",
-            "--output-dir",
-            str(tmp_path / "out"),
-        ],
-    )
-
-    exit_code = analyzer.main()
-    output = capsys.readouterr().out
-    assert exit_code == 0
-    assert "STATUS: SUCCESS" in output
-    assert "Detailed CSV:" in output
-    assert "Tax text file:" in output
-    assert "Summary file:" in output
+def test_standalone_cli_is_not_user_facing(
+) -> None:
+    assert not hasattr(analyzer, "main")
 
 
 def test_time_without_timezone_is_treated_as_utc() -> None:

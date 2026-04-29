@@ -9,6 +9,7 @@ from integrations.shared.rendering.common import Money, format_money
 from integrations.shared.rendering.display_currency import (
     DisplayCurrencyError,
     build_money_render_context,
+    build_render_context,
     display_currency_technical_lines,
     normalize_display_currency,
 )
@@ -28,6 +29,14 @@ def test_build_money_render_context_eur_keeps_identity() -> None:
     context = build_money_render_context(tax_year=2025, display_currency="EUR")
     assert context.display_currency == "EUR"
     assert format_money(Money(Decimal("123.45"), "EUR"), context=context) == "123.45 EUR"
+
+
+def test_build_render_context_keeps_calculation_currency_eur() -> None:
+    context = build_render_context(tax_year=2025, display_currency="EUR")
+    assert context.tax_year == 2025
+    assert context.calculation_currency == "EUR"
+    assert context.display_currency == "EUR"
+    assert context.money_context.display_currency == "EUR"
 
 
 def test_build_money_render_context_bgn_uses_bnb_fx_service(

@@ -121,7 +121,6 @@ PYTHONPATH=src pyenv exec python -m report_analyzer \
 Notes:
 
 - `report_analyzer` is the only user-facing analyzer CLI.
-- legacy module-level analyzer CLIs under `src/integrations/...` are kept only as internal wrappers for compatibility/tests.
 - use integration aliases (for example `ibkr`, `coinbase`, `kraken`, `finexify`, `afranga`) with `report_analyzer`; do not call `src/integrations/...` modules directly for normal usage.
 
 ### Unified CLI Modes
@@ -142,6 +141,21 @@ PYTHONPATH=src pyenv exec python -m report_analyzer \
   --input-dir <folder> \
   --tax-year 2025 \
   --output-dir output
+```
+
+Display currency examples:
+
+```bash
+PYTHONPATH=src pyenv exec python -m report_analyzer coinbase \
+  --input "path/to/Coinbase Report.csv" \
+  --tax-year 2025 \
+  --display-currency EUR
+
+PYTHONPATH=src pyenv exec python -m report_analyzer \
+  --input-dir path/to/reports \
+  --tax-year 2025 \
+  --output-dir output \
+  --display-currency BGN
 ```
 
 Auto-detection notes:

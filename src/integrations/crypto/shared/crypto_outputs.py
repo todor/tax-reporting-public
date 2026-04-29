@@ -10,8 +10,10 @@ from integrations.shared.rendering.appendix5 import (
     render_appendix5_table2,
 )
 from integrations.shared.rendering.common import Money
+from integrations.shared.rendering.common import append_technical_details
+from integrations.shared.rendering.common import render_manual_review_section
 from integrations.shared.rendering.display_currency import (
-    build_money_render_context,
+    build_render_context,
     display_currency_technical_lines,
 )
 
@@ -25,11 +27,6 @@ from .crypto_ir_models import (
 
 DECIMAL_TWO = Decimal("0.01")
 DECIMAL_EIGHT = Decimal("0.00000001")
-TECHNICAL_DETAILS_SEPARATOR = (
-    "------------------------------ Technical Details ------------------------------"
-)
-
-
 def fmt_decimal(value: Decimal, *, quant: Decimal | None = None) -> str:
     if quant is not None:
         value = value.quantize(quant, rounding=ROUND_HALF_UP)
@@ -122,17 +119,16 @@ def build_declaration_text(
     display_currency: str = "EUR",
     cache_dir: str | Path | None = None,
 ) -> str:
-    money_context = build_money_render_context(
+    render_context = build_render_context(
         tax_year=tax_year,
         display_currency=display_currency,
         cache_dir=cache_dir,
     )
+    money_context = render_context.money_context
     lines: list[str] = []
 
     if summary.manual_check_required:
-        lines.append("!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!")
-        for reason in summary.manual_check_reasons:
-            lines.append(f"- {reason}")
+        lines.extend(render_manual_review_section(summary.manual_check_reasons))
         lines.append("")
 
     if _should_render_appendix5(summary):
@@ -181,10 +177,7 @@ def build_declaration_text(
     technical_lines.append(f"- ignored fiat Deposit/Withdraw rows: {summary.ignored_fiat_deposit_withdraw_rows}")
     technical_lines.extend(f"- {line}" for line in display_currency_technical_lines(money_context))
 
-    if technical_lines:
-        lines.append(TECHNICAL_DETAILS_SEPARATOR)
-        lines.append("")
-        lines.extend(technical_lines)
+    append_technical_details(lines, technical_lines)
     return "\n".join(lines).rstrip() + "\n"
 
 

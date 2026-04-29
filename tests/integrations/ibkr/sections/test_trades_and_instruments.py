@@ -591,36 +591,11 @@ def test_commission_is_applied_for_short_closing_trade(tmp_path: Path) -> None:
     result = _run(tmp_path, rows, mode="listed_symbol")
     assert result.summary.appendix_13.losses_eur == Decimal("72.9")
 
-def test_cli_prints_output_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    rows = _base_rows()
-    input_csv = tmp_path / "input.csv"
-    _write_rows(input_csv, rows)
-
+def test_standalone_cli_is_not_user_facing(
+) -> None:
     from integrations.ibkr import activity_statement_analyzer as module
 
-    monkeypatch.setattr(module, "_default_fx_provider", lambda _cache_dir: _fx_provider)
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "activity_statement_analyzer.py",
-            "--input",
-            str(input_csv),
-            "--tax-year",
-            "2025",
-            "--tax-exempt-mode",
-            "listed_symbol",
-            "--report-alias",
-            "account_A",
-            "--output-dir",
-            str(tmp_path / "out"),
-        ],
-    )
-    exit_code = module.main()
-    out = capsys.readouterr().out
-    assert exit_code == 0
-    assert "Modified CSV:" in out
-    assert "Declaration TXT:" in out
-    assert "account_A" in out
+    assert not hasattr(module, "main")
 
 def test_report_alias_is_in_output_filenames(tmp_path: Path) -> None:
     result = _run(tmp_path, _base_rows(), mode="listed_symbol", report_alias="acc_1")

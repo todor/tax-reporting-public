@@ -21,15 +21,12 @@ Shared components live in `integrations.p2p.shared`:
 
 - normalized Appendix 6 result model
 - common renderer for deterministic `.txt` output
-- small runtime helpers (mode validation, output naming, CLI summary lines)
+- small runtime helpers (mode validation and output naming)
 - shared text/money parsing helpers
 
-CLI stdout policy for P2P analyzers:
+User-facing execution:
 
-- `STATUS: SUCCESS` when no warning-level issues exist
-- `STATUS: MANUAL CHECK REQUIRED` when warnings exist
-- `STATUS: ERROR` on failure
-- declaration output path
+- run P2P analyzers through `python -m report_analyzer <alias> ...`
 
 Display currency for TXT output:
 

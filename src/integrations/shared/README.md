@@ -24,6 +24,8 @@ This package contains cross-integration shared orchestration pieces used by the 
   - declaration aggregation from structured appendix records
   - rendering of `aggregated_tax_report_<year>.txt`
   - delegates appendix Bulgarian declaration sections to shared canonical renderers in `integrations.shared.rendering`
+- `rendering/common.py` and `rendering/display_currency.py`
+  - shared TXT document helpers for Technical Details, manual-review banners, and display-only currency context
 
 ## Unified CLI Behavior (Shared Layer)
 

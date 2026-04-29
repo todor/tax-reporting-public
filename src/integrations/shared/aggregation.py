@@ -25,20 +25,15 @@ from integrations.shared.rendering.appendix8 import (
     render_appendix8,
 )
 from integrations.shared.rendering.appendix9 import Appendix9Part2Row, render_appendix9_part2
-from integrations.shared.rendering.common import Money
+from integrations.shared.rendering.common import Money, append_technical_details
 from integrations.shared.rendering.display_currency import (
-    build_money_render_context,
+    build_render_context,
     display_currency_technical_lines,
 )
 
 from .contracts import AnalyzerStatus, AppendixRecord, TaxAnalysisResult
 
 ZERO = Decimal("0")
-TECHNICAL_DETAILS_SEPARATOR = (
-    "------------------------------ Technical Details ------------------------------"
-)
-
-
 def _to_file_uri(path: Path) -> str:
     return path.expanduser().resolve().as_uri()
 
@@ -520,11 +515,12 @@ def render_aggregated_report(
     display_currency: str = "EUR",
     cache_dir: str | Path | None = None,
 ) -> str:
-    money_context = build_money_render_context(
+    render_context = build_render_context(
         tax_year=tax_year,
         display_currency=display_currency,
         cache_dir=cache_dir,
     )
+    money_context = render_context.money_context
     statuses: dict[str, AnalyzerStatus] = {}
     for result in analyzer_results:
         previous = statuses.get(result.analyzer_alias, "OK")
@@ -573,9 +569,5 @@ def render_aggregated_report(
     )
     _render_diagnostics_summary(technical_lines, _collect_diagnostics(analyzer_results, analyzer_errors))
 
-    if lines:
-        lines.append("")
-    lines.append(TECHNICAL_DETAILS_SEPARATOR)
-    lines.append("")
-    lines.extend(technical_lines)
+    append_technical_details(lines, technical_lines)
     return "\n".join(lines).rstrip() + "\n"

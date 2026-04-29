@@ -21,13 +21,14 @@ _write_rows = h._write_rows
 
 
 def test_cli_appendix8_dividend_mode_defaults_to_company(tmp_path: Path) -> None:
-    from integrations.ibkr import activity_statement_analyzer as module
+    import report_analyzer
 
     input_csv = tmp_path / "input.csv"
     _write_rows(input_csv, _base_rows())
-    parser = module.build_parser()
+    parser = report_analyzer.build_parser()
     args = parser.parse_args(
         [
+            "ibkr",
             "--input",
             str(input_csv),
             "--tax-year",

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import argparse
 import csv
 import json
-import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -11,18 +9,16 @@ from pathlib import Path
 from typing import Callable
 
 from config import OUTPUT_DIR
-from services.bnb_fx import get_exchange_rate
 from integrations.shared.rendering.appendix5 import (
     Appendix5Table2Entry,
     render_appendix5_table2,
 )
-from integrations.shared.rendering.common import Money, MoneyRenderContext
+from integrations.shared.rendering.common import Money, MoneyRenderContext, append_technical_details
 from integrations.shared.rendering.display_currency import (
-    build_money_render_context,
+    build_render_context,
     display_currency_technical_lines,
 )
-
-logger = logging.getLogger(__name__)
+from services.bnb_fx import get_exchange_rate
 
 REQUIRED_COLUMNS = [
     "User ID",
@@ -36,10 +32,6 @@ REQUIRED_COLUMNS = [
 
 RELEVANT_OPERATIONS = {"Fee", "Funding Fee", "Realized Profit and Loss"}
 EXPECTED_COIN = "BNFCR"
-TECHNICAL_DETAILS_SEPARATOR = (
-    "------------------------------ Technical Details ------------------------------"
-)
-
 DECIMAL_TWO = Decimal("0.01")
 DECIMAL_EIGHT = Decimal("0.00000001")
 ZERO = Decimal("0")
@@ -397,9 +389,7 @@ def _write_tax_text(
     ]
     if money_context is not None:
         technical_lines.extend(f"- {line}" for line in display_currency_technical_lines(money_context))
-    if technical_lines:
-        lines.extend(["", TECHNICAL_DETAILS_SEPARATOR, ""])
-        lines.extend(technical_lines)
+    append_technical_details(lines, technical_lines)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -476,13 +466,18 @@ def analyze_futures_pnl_report(
     summary_json_path = out_dir / f"futures_pnl_summary_{tax_year}.json"
 
     _write_csv(detailed_path, DETAILED_COLUMNS, detailed_rows)
-    money_context = build_money_render_context(
+    render_context = build_render_context(
         tax_year=tax_year,
         display_currency=display_currency,
         cache_dir=cache_dir,
     )
 
-    _write_tax_text(tax_text_path, tax_year=tax_year, totals=totals, money_context=money_context)
+    _write_tax_text(
+        tax_text_path,
+        tax_year=tax_year,
+        totals=totals,
+        money_context=render_context.money_context,
+    )
     _write_summary_json(summary_json_path, tax_year=tax_year, totals=totals)
 
     return AnalysisResult(
@@ -493,56 +488,3 @@ def analyze_futures_pnl_report(
         summary_json_path=summary_json_path,
         totals=totals,
     )
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="binance-futures-pnl-analyzer")
-    parser.add_argument("--input", type=Path, required=True, help="Binance Futures PnL / Transaction History CSV")
-    parser.add_argument("--tax-year", type=int, required=True, help="Tax year to process")
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Output directory")
-    parser.add_argument("--cache-dir", type=Path, help="Optional bnb_fx cache dir override")
-    parser.add_argument(
-        "--display-currency",
-        choices=["EUR", "BGN"],
-        default="EUR",
-        help=(
-            "Controls ONLY TXT output rendering. "
-            "All calculations and aggregation are performed in EUR. "
-            "BGN rendering uses BNB FX service at tax year end."
-        ),
-    )
-    parser.add_argument("--log-level", default="INFO")
-    return parser
-
-
-def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-
-    try:
-        result = analyze_futures_pnl_report(
-            input_csv=args.input,
-            tax_year=args.tax_year,
-            output_dir=args.output_dir,
-            cache_dir=args.cache_dir,
-            display_currency=args.display_currency,
-        )
-    except FuturesPnlAnalyzerError as exc:
-        logger.error("%s", exc)
-        print("STATUS: ERROR")
-        return 2
-
-    print("STATUS: SUCCESS")
-    print(f"Detailed CSV: {result.detailed_csv_path}")
-    print(f"Tax text file: {result.tax_text_path}")
-    print(f"Summary file: {result.summary_json_path}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

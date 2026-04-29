@@ -28,7 +28,13 @@ from integrations.shared.rendering.appendix9 import (
     Appendix9Part2Row,
     render_appendix9_part2,
 )
-from integrations.shared.rendering.common import Money, MoneyRenderContext, render_money_line
+from integrations.shared.rendering.common import (
+    Money,
+    MoneyRenderContext,
+    append_technical_details,
+    render_manual_review_section,
+    render_money_line,
+)
 from integrations.shared.rendering.display_currency import display_currency_technical_lines
 
 from ..constants import (
@@ -39,10 +45,6 @@ from ..constants import (
 )
 from ..models import AnalysisResult, AnalysisSummary, BucketTotals
 from ..shared import _fmt
-
-TECHNICAL_DETAILS_SEPARATOR = (
-    "------------------------------ Technical Details ------------------------------"
-)
 
 _OPEN_POSITION_MISMATCH_RE = re.compile(
     r"OPEN_POSITION_TRADE_QTY_MISMATCH:\s+asset=(?P<asset>\S+)\s+symbol=(?P<symbol>\S+)\s+"
@@ -137,9 +139,7 @@ def _append_manual_check_section(lines: list[str], *, summary: AnalysisSummary) 
     if not reasons:
         return
 
-    lines.append("!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!")
-    for reason in reasons:
-        lines.append(f"- {reason}")
+    lines.extend(render_manual_review_section(reasons))
     manual_actions: list[str] = []
     unmatched_actions = 0
     for warning in summary.warnings:
@@ -652,9 +652,6 @@ def _build_declaration_text(
     _append_processing_notes_section(technical_lines, summary=summary)
     _append_proof_section(technical_lines, result=result, money_context=money_context)
     _append_sanity_section(technical_lines, summary=summary)
-    if technical_lines:
-        lines.append(TECHNICAL_DETAILS_SEPARATOR)
-        lines.append("")
-        lines.extend(technical_lines)
+    append_technical_details(lines, technical_lines)
 
     return "\n".join(lines).rstrip() + "\n"

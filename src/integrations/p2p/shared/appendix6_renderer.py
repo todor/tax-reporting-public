@@ -11,20 +11,15 @@ from integrations.shared.rendering.appendix6 import (
     Appendix6RenderData,
     render_appendix6,
 )
-from integrations.shared.rendering.common import Money, format_money
+from integrations.shared.rendering.common import Money, append_technical_details, format_money
 from integrations.shared.rendering.display_currency import (
-    build_money_render_context,
+    build_render_context,
     display_currency_technical_lines,
 )
 
 from .appendix6_models import P2PAppendix6Result
 
 DECIMAL_TWO = Decimal("0.01")
-TECHNICAL_DETAILS_SEPARATOR = (
-    "------------------------------ Technical Details ------------------------------"
-)
-
-
 def _fmt_decimal(value: Decimal, *, quant: Decimal = DECIMAL_TWO) -> str:
     return format(value.quantize(quant, rounding=ROUND_HALF_UP), "f")
 
@@ -155,11 +150,12 @@ def build_appendix6_text(
     display_currency: str = "EUR",
     cache_dir: str | Path | None = None,
 ) -> str:
-    money_context = build_money_render_context(
+    render_context = build_render_context(
         tax_year=tax_year,
         display_currency=display_currency,
         cache_dir=cache_dir,
     )
+    money_context = render_context.money_context
     lines: list[str] = []
 
     appendix_lines = render_appendix6(
@@ -259,12 +255,7 @@ def build_appendix6_text(
     technical_lines.append(f"- informational_messages_count: {len(result.informational_messages)}")
     technical_lines.extend(f"- {line}" for line in display_currency_technical_lines(money_context))
 
-    if technical_lines:
-        if lines:
-            lines.append("")
-        lines.append(TECHNICAL_DETAILS_SEPARATOR)
-        lines.append("")
-        lines.extend(technical_lines)
+    append_technical_details(lines, technical_lines)
 
     return "\n".join(lines).rstrip() + "\n"
 

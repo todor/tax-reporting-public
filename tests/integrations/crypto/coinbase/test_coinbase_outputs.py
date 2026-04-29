@@ -250,40 +250,6 @@ def test_manual_check_overrides_metric_is_zero_when_review_status_column_is_miss
     assert "manual check overrides (Review Status non-empty): 0" in text
 
 
-def test_cli_stdout_prints_status_and_output_paths(
-    monkeypatch,
-    capsys,
+def test_standalone_cli_is_not_user_facing(
 ) -> None:
-    summary = analyzer.AnalysisSummary()
-    summary.appendix_5.sale_price_eur = Decimal("123.4567")
-    summary.appendix_5.purchase_price_eur = Decimal("100")
-    summary.appendix_5.wins_eur = Decimal("23.4567")
-    summary.appendix_5.losses_eur = Decimal("0")
-    fake_result = analyzer.AnalysisResult(
-        input_csv_path=Path("/tmp/in.csv"),
-        output_csv_path=Path("/tmp/out.csv"),
-        declaration_txt_path=Path("/tmp/out.txt"),
-        year_end_state_json_path=Path("/tmp/state.json"),
-        summary=summary,
-    )
-
-    monkeypatch.setattr(analyzer, "analyze_coinbase_report", lambda **_kwargs: fake_result)
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "report_analyzer.py",
-            "--input",
-            "/tmp/in.csv",
-            "--tax-year",
-            "2025",
-        ],
-    )
-
-    exit_code = analyzer.main()
-    output = capsys.readouterr().out
-
-    assert exit_code == 0
-    assert "STATUS: SUCCESS" in output
-    assert "Enriched IR CSV: /tmp/out.csv" in output
-    assert "Declaration TXT: /tmp/out.txt" in output
-    assert "Year-end state JSON: /tmp/state.json" in output
+    assert not hasattr(analyzer, "main")

@@ -26,7 +26,7 @@ Afranga uses shared P2P foundations:
 Afranga-specific logic remains local:
 
 - `afranga_parser.py`: summary and appendix parsing + domain validations
-- `report_analyzer.py`: CLI orchestration + output writing
+- `report_analyzer.py`: analyzer orchestration + output writing, called by the unified CLI adapter
 
 ## Input
 

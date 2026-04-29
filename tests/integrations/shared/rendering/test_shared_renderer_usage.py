@@ -6,6 +6,7 @@ from integrations.ibkr.appendices import declaration_text
 from integrations.p2p.shared import appendix6_renderer
 from integrations.shared import aggregation
 from integrations.shared.rendering import appendix5, appendix6, appendix13, appendix8, appendix9
+from integrations.shared.rendering import common
 
 
 def test_shared_appendix5_renderer_is_reused_across_outputs() -> None:
@@ -21,3 +22,10 @@ def test_shared_appendix_renderers_are_reused_in_ibkr_and_p2p() -> None:
     assert declaration_text.render_appendix9_part2 is appendix9.render_appendix9_part2
     assert appendix6_renderer.render_appendix6 is appendix6.render_appendix6
 
+
+def test_common_document_helpers_are_reused_across_outputs() -> None:
+    assert crypto_outputs.append_technical_details is common.append_technical_details
+    assert fund_outputs.append_technical_details is common.append_technical_details
+    assert aggregation.append_technical_details is common.append_technical_details
+    assert declaration_text.append_technical_details is common.append_technical_details
+    assert appendix6_renderer.append_technical_details is common.append_technical_details

@@ -8,7 +8,7 @@ from typing import Callable
 
 from services.bnb_fx import convert_amount
 
-from .common import DisplayCurrency, MoneyRenderContext
+from .common import DisplayCurrency, MoneyRenderContext, RenderContext
 
 DISPLAY_CURRENCIES: tuple[DisplayCurrency, ...] = ("EUR", "BGN")
 
@@ -90,6 +90,27 @@ def build_money_render_context(
         fx_source="BNB",
         fx_date_iso=fx_date.isoformat(),
         fx_pair="EUR/BGN",
+    )
+
+
+def build_render_context(
+    *,
+    tax_year: int,
+    display_currency: str,
+    cache_dir: str | Path | None = None,
+    eur_to_bgn_rate_provider: EurToBgnRateProvider | None = None,
+) -> RenderContext:
+    money_context = build_money_render_context(
+        tax_year=tax_year,
+        display_currency=display_currency,
+        cache_dir=cache_dir,
+        eur_to_bgn_rate_provider=eur_to_bgn_rate_provider,
+    )
+    return RenderContext(
+        tax_year=tax_year,
+        calculation_currency="EUR",
+        display_currency=money_context.display_currency,
+        money_context=money_context,
     )
 
 

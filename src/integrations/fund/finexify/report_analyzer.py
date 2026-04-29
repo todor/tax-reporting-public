@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import logging
 from pathlib import Path
 
@@ -9,7 +8,6 @@ from integrations.crypto.shared.runtime import (
 )
 from integrations.fund.shared.fund_ir_models import FundAnalysisSummary
 from integrations.fund.shared.fund_outputs import (
-    build_fund_run_cli_summary_lines,
     load_fund_state_json,
     write_declaration_text,
     write_enriched_ir_csv,
@@ -20,7 +18,6 @@ from integrations.fund.shared.runtime import (
     FundEurUnitRateProvider,
     default_fund_eur_unit_rate_provider,
 )
-
 from .constants import APPENDIX_5_DECLARATION_CODE, DEFAULT_OUTPUT_DIR
 from .finexify_to_ir import load_and_map_finexify_csv_to_ir
 from .models import AnalysisResult, FinexifyAnalyzerError
@@ -155,63 +152,3 @@ def analyze_finexify_report(
         year_end_state_json_path=year_end_state_json_path,
         summary=analysis.summary,
     )
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="finexify-report-analyzer")
-    parser.add_argument("--input", type=Path, required=True, help="Finexify transaction CSV")
-    parser.add_argument("--tax-year", type=int, required=True, help="Tax year")
-    parser.add_argument(
-        "--opening-state-json",
-        type=Path,
-        help=(
-            "Optional opening state JSON. For --tax-year YYYY, state_tax_year_end in the state file "
-            "must be < YYYY."
-        ),
-    )
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Output directory")
-    parser.add_argument("--cache-dir", type=Path, help="Optional FX cache dir override")
-    parser.add_argument(
-        "--display-currency",
-        choices=["EUR", "BGN"],
-        default="EUR",
-        help=(
-            "Controls ONLY TXT output rendering. "
-            "All calculations and aggregation are performed in EUR. "
-            "BGN rendering uses BNB FX service at tax year end."
-        ),
-    )
-    parser.add_argument("--log-level", default="INFO")
-    return parser
-
-
-def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-
-    try:
-        result = analyze_finexify_report(
-            input_csv=args.input,
-            tax_year=args.tax_year,
-            opening_state_json=args.opening_state_json,
-            output_dir=args.output_dir,
-            cache_dir=args.cache_dir,
-            display_currency=args.display_currency,
-        )
-    except FinexifyAnalyzerError as exc:
-        logger.error("%s", exc)
-        print("STATUS: ERROR")
-        return 2
-
-    for line in build_fund_run_cli_summary_lines(result=result):
-        print(line)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

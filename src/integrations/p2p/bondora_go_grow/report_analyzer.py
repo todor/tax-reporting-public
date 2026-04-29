@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import argparse
-import logging
 from pathlib import Path
 
 from integrations.p2p.shared.appendix6_models import (
@@ -13,16 +11,11 @@ from integrations.p2p.shared.appendix6_models import (
 from integrations.p2p.shared.appendix6_renderer import write_appendix6_text
 from integrations.p2p.shared.runtime import (
     build_appendix6_output_path,
-    build_p2p_run_cli_summary_lines,
     validate_secondary_market_mode,
 )
-
 from .bondora_go_grow_parser import parse_bondora_go_grow_pdf
-from .constants import DEFAULT_OUTPUT_DIR, SECONDARY_MARKET_MODE_HELP
+from .constants import DEFAULT_OUTPUT_DIR
 from .models import BondoraGoGrowAnalyzerError
-
-logger = logging.getLogger(__name__)
-
 
 def _validate_tax_year(tax_year: int) -> None:
     if tax_year < 2009 or tax_year > 2100:
@@ -77,63 +70,3 @@ def analyze_bondora_go_grow_report(
         output_txt_path=output_txt_path,
         result=result,
     )
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="bondora-go-grow-report-analyzer")
-    parser.add_argument("--input", type=Path, required=True, help="Bondora Go & Grow tax report PDF")
-    parser.add_argument("--tax-year", type=int, required=True, help="Tax year")
-    parser.add_argument(
-        "--secondary-market-mode",
-        default=SECONDARY_MARKET_MODE_APPENDIX_6,
-        help=SECONDARY_MARKET_MODE_HELP,
-    )
-    parser.add_argument(
-        "--display-currency",
-        choices=["EUR", "BGN"],
-        default="EUR",
-        help=(
-            "Controls ONLY TXT output rendering. "
-            "All calculations and aggregation are performed in EUR. "
-            "BGN rendering uses BNB FX service at tax year end."
-        ),
-    )
-    parser.add_argument("--cache-dir", type=Path, help="Optional bnb_fx cache dir override")
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Output directory")
-    parser.add_argument("--log-level", default="INFO")
-    return parser
-
-
-def main() -> int:
-    parser = build_parser()
-    args = parser.parse_args()
-
-    logging.basicConfig(
-        level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-
-    try:
-        run_result = analyze_bondora_go_grow_report(
-            input_pdf=args.input,
-            tax_year=args.tax_year,
-            output_dir=args.output_dir,
-            secondary_market_mode=args.secondary_market_mode,
-            display_currency=args.display_currency,
-            cache_dir=args.cache_dir,
-        )
-    except BondoraGoGrowAnalyzerError as exc:
-        logger.error("%s", exc)
-        print("STATUS: ERROR")
-        return 2
-
-    for line in build_p2p_run_cli_summary_lines(
-        result=run_result.result,
-        output_txt_path=run_result.output_txt_path,
-    ):
-        print(line)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
