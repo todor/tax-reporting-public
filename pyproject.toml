@@ -43,6 +43,3 @@ testpaths = ["tests"]
 
 [tool.ruff]
 target-version = "py313"
-
-[tool.ruff.lint]
-ignore = ["F401", "F841"]

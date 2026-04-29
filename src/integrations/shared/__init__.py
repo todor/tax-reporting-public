@@ -19,4 +19,25 @@ from .contracts import (
 )
 from .registry import AnalyzerRegistry, AnalyzerRegistryError, discover_analyzer_registry
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "AnalysisDiagnostic",
+    "AnalyzerDefinition",
+    "AnalyzerRegistry",
+    "AnalyzerRegistryError",
+    "AnalyzerRunContext",
+    "AnalyzerStatus",
+    "AppendixRecord",
+    "CliMode",
+    "DetectionItem",
+    "DetectionResult",
+    "InputDetectionError",
+    "TaxAnalysisResult",
+    "add_mode_argument",
+    "aggregate_appendix_records",
+    "detect_analyzer_inputs",
+    "discover_analyzer_registry",
+    "option_value",
+    "parse_analyzer_input_overrides",
+    "render_aggregated_report",
+    "resolved_cache_dir",
+]

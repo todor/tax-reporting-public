@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from decimal import Decimal
 from pathlib import Path
 
 from integrations.p2p.shared.appendix6_models import (

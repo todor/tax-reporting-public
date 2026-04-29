@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
 from typing import Callable
 
 from config import OUTPUT_DIR

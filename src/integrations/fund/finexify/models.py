@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from integrations.fund.shared.fund_ir_models import CsvRow, FundAnalysisRunResult, LoadedCsv
+from integrations.fund.shared.fund_ir_models import FundAnalysisRunResult, LoadedCsv
 
 
 class FinexifyAnalyzerError(Exception):

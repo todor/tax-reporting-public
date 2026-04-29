@@ -311,7 +311,7 @@ def _get_non_fiat_price_on_or_before(
             session=session,
         )
         return effective_ts, price_usd, PRICING_SOURCE_BINANCE_SPOT, False
-    except (AssetNotFoundOnBinanceError, CryptoFxError) as spot_exc:
+    except (AssetNotFoundOnBinanceError, CryptoFxError):
         logger.info(
             "Spot pricing unavailable for %s at %s; trying Binance futures mark-price fallback",
             symbol,

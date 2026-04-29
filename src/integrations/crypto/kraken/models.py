@@ -39,5 +39,12 @@ LoadedKrakenCsv = LoadedCsv[CsvSchema]
 AnalysisResult = IrAnalysisRunResult
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
-
+__all__ = [
+    "AnalysisResult",
+    "CsvRow",
+    "CsvSchema",
+    "CsvValidationError",
+    "FxConversionError",
+    "KrakenAnalyzerError",
+    "LoadedKrakenCsv",
+]

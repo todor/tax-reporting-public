@@ -380,19 +380,6 @@ def analyze_ibkr_activity_statement(
         eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
         closed_world_mode=closed_world_mode,
     )
-    trades_row_extras: dict[int, list[str]] = {}
-    trades_row_base_len: dict[int, int] = {}
-    interest_row_extras: dict[int, list[str]] = {}
-    interest_row_base_len: dict[int, int] = {}
-    dividends_row_extras: dict[int, dict[str, str]] = {}
-    dividends_row_base_len: dict[int, int] = {}
-    withholding_row_extras: dict[int, dict[str, str]] = {}
-    withholding_row_base_len: dict[int, int] = {}
-    open_positions_row_extras: dict[int, dict[str, str]] = {}
-    open_positions_row_base_len: dict[int, int] = {}
-    dividends_row_added_columns: dict[int, list[str]] = {}
-    withholding_row_added_columns: dict[int, list[str]] = {}
-    open_positions_row_added_columns: dict[int, list[str]] = {}
     reconciliation_warnings = run_open_position_reconciliation(
         rows=rows,
         active_headers=active_headers,
