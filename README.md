@@ -130,6 +130,41 @@ tax-reporting coinbase \
 
 Important: `uvx tax-reporting` and `uv tool install tax-reporting` work after the package is published to PyPI or another configured package index. Before publishing, use the development workflow below or install from Git.
 
+## Example: IBKR + Kraken (real-world workflow)
+
+These are sanitized real-world-style reports intended for demonstration purposes.
+
+```text
+examples/inputs/
+  ibkr_activity_statement_sample_sanitized.csv
+  kraken_report_since_inception_sample_sanitized.csv
+```
+
+```bash
+uv run tax-reporting \
+  --input-dir examples/inputs \
+  --tax-year 2025 \
+  --clean-output \
+  --display-currency BGN \
+  --output-dir output/examples
+
+uv run tax-reporting ibkr \
+  --input examples/inputs/ibkr_activity_statement_sample_sanitized.csv \
+  --tax-year 2025 \
+  --display-currency BGN \
+  --output-dir output/examples/ibkr
+
+uv run tax-reporting kraken \
+  --input examples/inputs/kraken_report_since_inception_sample_sanitized.csv \
+  --tax-year 2025 \
+  --display-currency BGN \
+  --output-dir output/examples/kraken
+```
+
+Per-analyzer outputs: `output/examples/ibkr/`, `output/examples/kraken/`.
+Aggregated output: `output/examples/aggregated_tax_report_2025.txt`.
+This mirrors real-world multi-provider workflows.
+
 ## Development
 
 Setup:
