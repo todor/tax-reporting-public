@@ -19,7 +19,12 @@ Reserved mode:
 
 ## Input
 
-- machine-generated Lendermarket tax statement PDF for `01.01 - 31.12`
+Required report from Lendermarket:
+
+- Open `https://app.lendermarket.com/tax-report`
+- Select period: `1 January - 31 December` for the selected tax year
+- Click `Download Tax Report`
+- Use the generated machine-readable PDF
 
 Expected key labels:
 

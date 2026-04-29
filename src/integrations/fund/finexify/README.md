@@ -17,6 +17,11 @@ All accounting/tax logic runs in `integrations.fund.shared`.
 
 ## Input CSV
 
+Required report:
+
+- CSV export from Finexify
+- The CSV must contain fund-style account rows, not trade-by-trade exchange history
+
 Required columns:
 
 - `Type`
@@ -32,6 +37,12 @@ Supported `Type` values:
 - `Deposit`
 - `Balance`
 - `Withdraw`
+
+Tax-event note:
+
+- `Deposit` rows are not taxable by themselves.
+- `Balance` rows are snapshots and are not taxable by themselves.
+- `Withdraw` rows are the taxable realization events.
 
 Unknown types are warned and excluded.
 Empty rows are ignored.

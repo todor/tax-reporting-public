@@ -35,6 +35,22 @@ For Coinbase Statements CSV:
 
 `Fees and/or Spread` is parsed explicitly and kept in IR as informational fee data.
 
+## Input Report
+
+Required Coinbase export:
+
+- Open Coinbase and go to `Profile Icon -> Manage Account -> Statements`
+- Select `All Assets`
+- Select `All Transactions`
+- Use the missing period or export from the beginning of account history
+- Format: CSV
+- Generate and download the report
+
+Important notes:
+
+- Full history is preferred because cost basis depends on earlier buys, receives, sends, and conversions.
+- Alternatively, provide an opening state from a previous completed year and then process rows after that state.
+
 ## Input CSV Schema
 
 Canonical required columns:

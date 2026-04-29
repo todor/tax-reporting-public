@@ -17,6 +17,21 @@ Purpose:
 - `Funding Fee`
 - `Realized Profit and Loss`
 
+## Input Report
+
+Required Binance export:
+
+- Open `https://www.binance.com/en/my/download-center`
+- `Data Type`: `Asset History`
+- Report: `Transaction History`
+- Export format: CSV
+
+Important notes:
+
+- This is the only Binance file used by the analyzer for Appendix 5 calculations.
+- Do not use `Trade History -> Futures -> Trade History` as analyzer input. It can be useful as a reference for manual review, but the analyzer expects the Asset History / Transaction History cashflow export.
+- Do not use `Trade History -> Spot -> Trade History` or `Asset History -> Convert -> Order History` as input for this analyzer.
+
 Input CSV header (required columns):
 
 - `User ID`

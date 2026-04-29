@@ -74,6 +74,25 @@ PYTHONPATH=src pyenv exec python -m report_analyzer ibkr \
   --closed-world
 ```
 
+## Input Report
+
+Required report from Interactive Brokers:
+
+- Custom Account Activity Statement
+- Export format: CSV (machine input)
+- Recommended companion export: PDF with the same settings, only for human review/audit
+
+Export settings:
+
+- `Default Sections`: `All`
+- `Section Configurations`: set all flags to `No`
+
+Important notes:
+
+- The analyzer is designed to work from the IBKR Activity Statement CSV.
+- Do not use the Dividend Report as analyzer input; dividends are read from the Activity Statement sections.
+- Use one full report for the selected tax year. IBKR reports include the sections needed for that year, so this analyzer does not require an opening state file.
+
 ## CLI Options
 
 - `--input`: IBKR Activity Statement CSV (required)

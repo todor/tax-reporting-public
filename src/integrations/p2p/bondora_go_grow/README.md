@@ -19,7 +19,13 @@ Reserved mode:
 
 ## Input
 
-- machine-generated Bondora Go & Grow tax report PDF
+Required report from Bondora Go & Grow:
+
+- Open `https://app.goandgrow.eu/en/statements/index/`
+- Click `Download`
+- Set `Report Type = Tax Report`
+- Select the tax year
+- Download the generated machine-readable PDF
 
 Expected key content:
 

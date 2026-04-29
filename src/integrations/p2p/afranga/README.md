@@ -30,8 +30,22 @@ Afranga-specific logic remains local:
 
 ## Input
 
-- Afranga tax statement PDF
-- machine-generated text PDF (OCR is not used)
+Required report from Afranga:
+
+- Open `https://afranga.com/profile/my-profile`
+- Use `Tax statements`
+- Select the tax year and starting month
+- Click `Generate`
+- Use the generated machine-readable PDF
+
+Expected report content:
+
+- Summary fields for interest, late interest, bonuses, and secondary-market discount/premium
+- Appendix rows per company in the form `<company>, company number <number> registered in <country>`
+- Detail rows for `Income from interest` and `Income from late interest`
+- WHT / withheld tax values when present
+
+OCR is not used; the PDF must contain extractable text.
 
 ## Parsing approach
 

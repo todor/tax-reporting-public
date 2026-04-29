@@ -19,7 +19,13 @@ Reserved mode:
 
 ## Input
 
-- machine-generated Iuvo Profit Statement PDF for selected period
+Required report from Iuvo:
+
+- Open `https://iuvo-group.com/en/account-statement`
+- Choose `Profit Statement`
+- Use `Change Period` and select `1 January - 31 December` for the selected tax year
+- Click `Filter`
+- Download the generated machine-readable PDF
 
 Expected key fields:
 

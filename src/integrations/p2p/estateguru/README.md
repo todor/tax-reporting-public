@@ -19,7 +19,13 @@ Reserved mode:
 
 ## Input
 
-- machine-generated Estateguru Income Statement PDF for `01.01 - 31.12`
+Required report from Estateguru:
+
+- Open `https://beta.estateguru.co/en/settings/reports`
+- Choose `Generate income statement`
+- Period: `1 January - 31 December` for the selected tax year
+- Do not enable details
+- Export/download the generated machine-readable PDF
 
 Expected key labels:
 

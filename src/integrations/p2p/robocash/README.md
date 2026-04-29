@@ -19,7 +19,13 @@ Reserved mode:
 
 ## Input
 
-- machine-generated Robocash tax report PDF for one year
+Required report from Robocash:
+
+- Open `https://robo.cash/cabinet/statement`
+- Set `Type = Tax Report`
+- Select period: `1 January - 31 December` for the selected tax year
+- Click `Generate`
+- Native format is DOCX; export/convert it to a machine-readable PDF before using it as analyzer input
 
 Expected key labels:
 

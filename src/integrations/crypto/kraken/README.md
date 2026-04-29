@@ -128,6 +128,22 @@ Enriched IR CSV numeric formatting:
 - IR numeric columns (`Quantity`, `Proceeds (EUR)`, `Fee (EUR)`, `Cost Basis (EUR)`) keep Decimal precision from mapping/analysis.
 - Tax-result columns (`Purchase Price`, `Sale Price`, `Profit Win/Loss`, `Net Profit`) keep fixed 8-decimal formatting.
 
+## Input Report
+
+Required Kraken export:
+
+- Open `https://www.kraken.com/c/account-settings/documents`
+- Choose `New Export`
+- Export type: `Ledger`
+- Select `All` in all available selection boxes
+- Period: from the beginning of account usage, or at least the missing period after a previously exported/analyzed state
+- Format: CSV
+
+Important notes:
+
+- Full ledger history is preferred because cost basis is calculated from the chronological transaction history.
+- A tax-year-only export is not enough unless a valid opening state is provided.
+
 ## CLI
 
 ```bash
