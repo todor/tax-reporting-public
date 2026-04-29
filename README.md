@@ -373,6 +373,8 @@ What you can do:
 
 - Use BNB XML export only (CSV is no longer supported).
 - Get a historical FX quote by symbol and date.
+- Get a direct conversion rate from one supported currency to another.
+- Convert an amount from one supported currency to another.
 - Auto-fetch and cache the whole quarter on cache miss.
 - Preload cache for any date period.
 - Preload cache for full years.
@@ -385,6 +387,8 @@ Rate semantics:
 - `rate` returned by `get_exchange_rate()` is always for `1` unit of the requested symbol.
 - Example for USD: `rate=0.85` means `1 USD = 0.85 EUR`.
 - For `EUR`, returned rate is always `1`.
+- `get_conversion_rate(source, target, date)` returns the multiplier from `source` to `target`.
+- `convert_amount(amount, source, target, date)` returns `amount * get_conversion_rate(...)`.
 
 ### From Python code
 
@@ -396,6 +400,27 @@ from services.bnb_fx import get_exchange_rate
 rate = get_exchange_rate("USD", "2024-10-15")
 print(rate.symbol, rate.date, rate.rate, rate.base_currency)
 # rate is always "EUR for 1 symbol unit"
+```
+
+Get a direct conversion rate:
+
+```python
+from services.bnb_fx import get_conversion_rate
+
+usd_to_chf = get_conversion_rate("USD", "CHF", "2024-10-15")
+print(usd_to_chf)
+# multiplier for USD -> CHF on the requested date
+```
+
+Convert an amount:
+
+```python
+from decimal import Decimal
+
+from services.bnb_fx import convert_amount
+
+amount_chf = convert_amount(Decimal("100"), "USD", "CHF", "2024-10-15")
+print(amount_chf)
 ```
 
 Build cache for an arbitrary period:
@@ -420,10 +445,15 @@ Use a custom cache directory:
 
 ```bash
 uv run python - <<'PY'
-from services.bnb_fx import get_exchange_rate
+from decimal import Decimal
+
+from services.bnb_fx import convert_amount, get_exchange_rate
 
 rate = get_exchange_rate("USD", "2024-10-15", cache_dir="output/fx-cache")
 print(rate.rate, rate.base_currency)
+
+amount_bgn = convert_amount(Decimal("100"), "EUR", "BGN", "2024-10-15", cache_dir="output/fx-cache")
+print(amount_bgn)
 PY
 ```
 
