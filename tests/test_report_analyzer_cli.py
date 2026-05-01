@@ -124,6 +124,15 @@ def test_single_analyzer_mode_runs_selected_analyzer(
     assert run_capture.contexts[0].options["display_currency"] == "EUR"
 
 
+def test_list_analyzers_outputs_builtin_aliases(capsys: pytest.CaptureFixture[str]) -> None:
+    code = report_analyzer.main(["--list-analyzers"])
+    stdout = capsys.readouterr().out
+
+    assert code == 0
+    assert "ibkr" in stdout
+    assert "kraken" in stdout
+
+
 def test_single_analyzer_mode_passes_display_currency_override(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

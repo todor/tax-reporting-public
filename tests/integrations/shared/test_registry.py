@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-from typing import Iterator
+from pathlib import Path
 
 import pytest
 
 from integrations.shared.contracts import AnalyzerDefinition, AnalyzerRunContext, TaxAnalysisResult
-from integrations.shared.registry import AnalyzerRegistryError, discover_analyzer_registry
+from integrations.shared.registry import AnalyzerRegistryError, build_analyzer_registry, discover_analyzer_registry
+from report_analyzer.registry import BUILTIN_ANALYZERS, list_analyzers
 
 
-def _fake_definition(alias: str) -> AnalyzerDefinition:
+def _fake_definition(alias: str, *, aliases: tuple[str, ...] = ()) -> AnalyzerDefinition:
     def add_arguments(parser, mode):  # noqa: ANN001
         _ = parser
         _ = mode
@@ -26,9 +26,9 @@ def _fake_definition(alias: str) -> AnalyzerDefinition:
     return AnalyzerDefinition(
         alias=alias,
         group="test",
-        aliases=(),
+        aliases=aliases,
         description=f"{alias} test analyzer",
-        default_output_dir=contextlib_dummy_path(),
+        default_output_dir=Path("/tmp"),
         input_suffixes=(".csv",),
         detection_token_sets=((alias,),),
         add_arguments=add_arguments,
@@ -37,73 +37,39 @@ def _fake_definition(alias: str) -> AnalyzerDefinition:
     )
 
 
-def contextlib_dummy_path():
-    # keep it simple: only metadata is needed in registry tests
-    from pathlib import Path
-
-    return Path("/tmp")
-
-
-def test_registry_discovers_analyzer_definition_and_suffix_variant(monkeypatch: pytest.MonkeyPatch) -> None:
-    module_defs = {
-        "integrations.alpha.analyzer_definition": SimpleNamespace(ANALYZER=_fake_definition("alpha")),
-        "integrations.beta.spot_analyzer_definition": SimpleNamespace(ANALYZER=_fake_definition("beta")),
-    }
-
-    def fake_walk_packages(path, prefix) -> Iterator[SimpleNamespace]:  # noqa: ANN001
-        _ = path
-        _ = prefix
-        yield SimpleNamespace(name="integrations.alpha.analyzer_definition")
-        yield SimpleNamespace(name="integrations.beta.spot_analyzer_definition")
-
-    def fake_import(name: str):  # noqa: ANN001
-        return module_defs[name]
-
-    monkeypatch.setattr("integrations.shared.registry.pkgutil.walk_packages", fake_walk_packages)
-    monkeypatch.setattr("integrations.shared.registry.importlib.import_module", fake_import)
-
+def test_registry_uses_static_builtin_analyzers() -> None:
     registry = discover_analyzer_registry()
-    assert sorted(registry.by_alias) == ["alpha", "beta"]
+
+    assert sorted(registry.by_alias) == list_analyzers()
+    assert sorted(registry.by_alias) == sorted(analyzer.alias for analyzer in BUILTIN_ANALYZERS)
+    assert "kraken" in registry.by_alias
+    assert "ibkr" in registry.by_alias
 
 
-def test_registry_supports_analyzers_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    module_defs = {
-        "integrations.bundle.multi_analyzer_definition": SimpleNamespace(
-            ANALYZERS=[_fake_definition("a1"), _fake_definition("a2")]
-        ),
-    }
+def test_registry_resolves_alias_variants() -> None:
+    registry = build_analyzer_registry([_fake_definition("canonical", aliases=("short",))])
 
-    def fake_walk_packages(path, prefix) -> Iterator[SimpleNamespace]:  # noqa: ANN001
-        _ = path
-        _ = prefix
-        yield SimpleNamespace(name="integrations.bundle.multi_analyzer_definition")
-
-    def fake_import(name: str):  # noqa: ANN001
-        return module_defs[name]
-
-    monkeypatch.setattr("integrations.shared.registry.pkgutil.walk_packages", fake_walk_packages)
-    monkeypatch.setattr("integrations.shared.registry.importlib.import_module", fake_import)
-
-    registry = discover_analyzer_registry()
-    assert sorted(registry.by_alias) == ["a1", "a2"]
+    assert registry.resolve("short").alias == "canonical"
 
 
-def test_registry_rejects_invalid_analyzers_container(monkeypatch: pytest.MonkeyPatch) -> None:
-    module_defs = {
-        "integrations.bundle.bad_analyzer_definition": SimpleNamespace(ANALYZERS="not-a-list"),
-    }
+def test_registry_rejects_invalid_registration() -> None:
+    with pytest.raises(AnalyzerRegistryError, match="non-AnalyzerDefinition"):
+        build_analyzer_registry(["not-an-analyzer"])  # type: ignore[list-item]
 
-    def fake_walk_packages(path, prefix) -> Iterator[SimpleNamespace]:  # noqa: ANN001
-        _ = path
-        _ = prefix
-        yield SimpleNamespace(name="integrations.bundle.bad_analyzer_definition")
 
-    def fake_import(name: str):  # noqa: ANN001
-        return module_defs[name]
+def test_registry_rejects_duplicate_alias() -> None:
+    with pytest.raises(AnalyzerRegistryError, match="duplicate analyzer alias"):
+        build_analyzer_registry([_fake_definition("dup"), _fake_definition("dup")])
 
-    monkeypatch.setattr("integrations.shared.registry.pkgutil.walk_packages", fake_walk_packages)
-    monkeypatch.setattr("integrations.shared.registry.importlib.import_module", fake_import)
 
-    with pytest.raises(AnalyzerRegistryError, match="ANALYZERS must be list/tuple"):
-        discover_analyzer_registry()
+def test_registry_rejects_alias_collision() -> None:
+    with pytest.raises(AnalyzerRegistryError, match="alias collision"):
+        build_analyzer_registry([
+            _fake_definition("left", aliases=("shared",)),
+            _fake_definition("right", aliases=("shared",)),
+        ])
 
+
+def test_registry_empty_error_is_user_facing() -> None:
+    with pytest.raises(AnalyzerRegistryError, match="No analyzers were discovered"):
+        build_analyzer_registry([])

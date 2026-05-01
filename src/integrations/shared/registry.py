@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import importlib
-import pkgutil
 from dataclasses import dataclass
-
-import integrations
 
 from .contracts import AnalyzerDefinition
 
@@ -33,56 +29,38 @@ class AnalyzerRegistry:
 
 
 def discover_analyzer_registry() -> AnalyzerRegistry:
+    from report_analyzer.registry import BUILTIN_ANALYZERS
+
+    return build_analyzer_registry(BUILTIN_ANALYZERS)
+
+
+def build_analyzer_registry(analyzers: list[AnalyzerDefinition]) -> AnalyzerRegistry:
     by_alias: dict[str, AnalyzerDefinition] = {}
     alias_lookup: dict[str, str] = {}
 
-    for module_info in pkgutil.walk_packages(
-        integrations.__path__,
-        prefix=f"{integrations.__name__}.",
-    ):
-        module_leaf = module_info.name.rsplit(".", 1)[-1]
-        if module_leaf != "analyzer_definition" and not module_leaf.endswith("_analyzer_definition"):
-            continue
-        module = importlib.import_module(module_info.name)
-        candidate_items: list[AnalyzerDefinition] = []
+    for item in analyzers:
+        if not isinstance(item, AnalyzerDefinition):
+            raise AnalyzerRegistryError("built-in analyzer registry contains non-AnalyzerDefinition registration")
+        alias = item.alias.strip().lower()
+        if alias in by_alias:
+            raise AnalyzerRegistryError(f"duplicate analyzer alias: {alias}")
+        by_alias[alias] = item
 
-        definition = getattr(module, "ANALYZER", None)
-        if definition is not None:
-            candidate_items.append(definition)
-
-        definitions = getattr(module, "ANALYZERS", None)
-        if definitions is not None:
-            if not isinstance(definitions, (list, tuple)):
+        all_aliases = {alias, *(token.strip().lower() for token in item.aliases)}
+        for raw_alias in all_aliases:
+            if raw_alias == "":
+                continue
+            existing = alias_lookup.get(raw_alias)
+            if existing is not None and existing != alias:
                 raise AnalyzerRegistryError(
-                    f"{module_info.name}.ANALYZERS must be list/tuple of AnalyzerDefinition"
+                    f"alias collision: {raw_alias!r} ({existing}, {alias})"
                 )
-            candidate_items.extend(definitions)
-
-        if not candidate_items:
-            continue
-
-        for item in candidate_items:
-            if not isinstance(item, AnalyzerDefinition):
-                raise AnalyzerRegistryError(
-                    f"{module_info.name} contains non-AnalyzerDefinition registration"
-                )
-            alias = item.alias.strip().lower()
-            if alias in by_alias:
-                raise AnalyzerRegistryError(f"duplicate analyzer alias: {alias}")
-            by_alias[alias] = item
-
-            all_aliases = {alias, *(token.strip().lower() for token in item.aliases)}
-            for raw_alias in all_aliases:
-                if raw_alias == "":
-                    continue
-                existing = alias_lookup.get(raw_alias)
-                if existing is not None and existing != alias:
-                    raise AnalyzerRegistryError(
-                        f"alias collision: {raw_alias!r} ({existing}, {alias})"
-                    )
-                alias_lookup[raw_alias] = alias
+            alias_lookup[raw_alias] = alias
 
     if not by_alias:
-        raise AnalyzerRegistryError("no analyzers with ANALYZER definition were discovered")
+        raise AnalyzerRegistryError(
+            "No analyzers were discovered.\n\n"
+            "If you are running a packaged executable, this likely means the application was built incorrectly."
+        )
 
     return AnalyzerRegistry(by_alias=by_alias, alias_lookup=alias_lookup)

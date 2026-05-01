@@ -16,6 +16,7 @@ from integrations.shared.autodetect import (
 from integrations.shared.contracts import AnalyzerRunContext, AnalyzerStatus, TaxAnalysisResult
 from integrations.shared.registry import AnalyzerRegistryError, discover_analyzer_registry
 from integrations.shared.rendering.display_currency import DisplayCurrencyError
+from report_analyzer.registry import list_analyzers
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,11 @@ def build_parser() -> argparse.ArgumentParser:
     registry = discover_analyzer_registry()
     parser = argparse.ArgumentParser(prog="tax-reporting")
     parser.set_defaults(_registry=registry)
+    parser.add_argument(
+        "--list-analyzers",
+        action="store_true",
+        help="List available analyzers and exit",
+    )
 
     # Aggregate mode arguments (when no subcommand/analyzer alias is provided).
     parser.add_argument("--input-dir", type=Path, help="Input folder with analyzer files")
@@ -313,6 +319,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         parser = build_parser()
         args = parser.parse_args(argv)
+        if args.list_analyzers:
+            for analyzer in list_analyzers():
+                print(analyzer)
+            return 0
         if getattr(args, "single_analyzer_alias", None):
             return _run_single_mode(args)
         return _run_aggregate_mode(args)

@@ -9,9 +9,8 @@ This package contains cross-integration shared orchestration pieces used by the 
   - shared structured result model (`TaxAnalysisResult`)
   - diagnostics and appendix records
 - `registry.py`
-  - dynamic analyzer discovery (`analyzer_definition.py` and `*_analyzer_definition.py` modules)
+  - static built-in analyzer registration from `report_analyzer.registry.BUILTIN_ANALYZERS`
   - alias resolution
-  - supports either a single `ANALYZER` or multiple `ANALYZERS` in one module
 - `autodetect.py`
   - input-folder scanning and analyzer auto-detection
   - optional `--include-pattern` filter uses strict glob (`fnmatch`) semantics
