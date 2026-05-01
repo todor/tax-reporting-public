@@ -130,6 +130,36 @@ tax-reporting coinbase \
 
 Important: `uvx tax-reporting` and `uv tool install tax-reporting` work after the package is published to PyPI or another configured package index. Before publishing, use the development workflow below or install from Git.
 
+### Prebuilt Binaries
+
+GitHub Releases may include standalone binaries:
+
+- Windows x64: download `tax-reporting-windows-x64.zip`, unzip it, then run `tax-reporting.exe`.
+- macOS Apple Silicon: download `tax-reporting-macos-arm64.tar.gz`, extract with `tar -xzf`, then run `./tax-reporting`.
+- macOS Intel: download `tax-reporting-macos-x64.tar.gz`, extract with `tar -xzf`, then run `./tax-reporting`.
+
+macOS may warn because the binaries are unsigned. Technical users can also use `uvx tax-reporting` after the package is published to PyPI.
+
+#### macOS unsigned binary warning
+
+The macOS binaries are not currently Apple-notarized or signed with a Developer ID certificate.
+
+Because of this, macOS Gatekeeper may show a warning such as:
+
+> “tax-reporting” cannot be opened because Apple cannot check it for malicious software.
+
+If you trust the downloaded binary, you can allow it from:
+
+System Settings → Privacy & Security → Open Anyway
+
+Alternatively, you can run it from Terminal after removing the quarantine attribute:
+
+```bash
+xattr -d com.apple.quarantine ./tax-reporting-macos-arm64
+chmod +x ./tax-reporting-macos-arm64
+./tax-reporting-macos-arm64 --help
+```
+
 ## Example: IBKR + Kraken (real-world workflow)
 
 These are sanitized real-world-style reports intended for demonstration purposes.
