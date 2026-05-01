@@ -12,7 +12,7 @@ Behavior summary:
 
 from .cache import default_cache_dir
 from .client import get_crypto_eur_rate
-from .exchanges import KRAKEN_SYMBOL_MAP, normalize_kraken_symbol, resolve_target_symbol
+from .exchanges import KRAKEN_SYMBOL_MAP, clear_symbol_resolution_cache, normalize_kraken_symbol, resolve_target_symbol
 from .models import (
     AssetNotFoundOnBinanceError,
     CacheError,
@@ -36,6 +36,7 @@ __all__ = [
     "ResolvedAsset",
     "SymbolYearCache",
     "UnsupportedExchangeError",
+    "clear_symbol_resolution_cache",
     "default_cache_dir",
     "get_crypto_eur_rate",
     "normalize_kraken_symbol",

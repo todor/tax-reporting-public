@@ -39,6 +39,11 @@ KRAKEN_SYMBOL_MAP = {
 }
 
 
+def clear_symbol_resolution_cache() -> None:
+    with _RESOLUTION_CACHE_LOCK:
+        _RESOLUTION_CACHE.clear()
+
+
 def normalize_kraken_symbol(symbol: str) -> str:
     return KRAKEN_SYMBOL_MAP.get(symbol.upper(), symbol.upper())
 

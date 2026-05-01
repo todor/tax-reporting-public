@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import requests
+import pytest
 
-from services.crypto_fx.exchanges import normalize_kraken_symbol, resolve_target_symbol
+from services.crypto_fx.exchanges import clear_symbol_resolution_cache, normalize_kraken_symbol, resolve_target_symbol
 
 
 class _DummySession(requests.Session):
     pass
+
+
+@pytest.fixture(autouse=True)
+def _isolate_symbol_resolution_cache():
+    clear_symbol_resolution_cache()
+    yield
+    clear_symbol_resolution_cache()
 
 
 def test_binance_pair_detection(monkeypatch) -> None:
