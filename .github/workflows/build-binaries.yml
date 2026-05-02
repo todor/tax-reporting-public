@@ -81,6 +81,7 @@ jobs:
             --with zstandard \
             python -m nuitka \
             --mode=onefile \
+            --assume-yes-for-downloads \
             --output-dir=dist/nuitka \
             --output-filename="${{ matrix.binary }}" \
             --python-flag=-m \
