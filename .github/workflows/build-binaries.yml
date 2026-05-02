@@ -4,17 +4,27 @@ on:
   workflow_dispatch:
     inputs:
       upload_to_release:
-        description: "Upload validated binaries to the GitHub Release for pyproject.toml version"
+        description: "Upload validated binaries to the GitHub Release for the resolved version"
         type: boolean
         default: false
       overwrite_existing_assets:
         description: "Delete only conflicting release assets before upload"
         type: boolean
         default: false
-      publish_to_pypi:
-        description: "Publish the Python package to PyPI using trusted publishing"
-        type: boolean
-        default: false
+      publish_target:
+        description: "Publish package"
+        type: choice
+        required: true
+        default: "none"
+        options:
+          - "none"
+          - "pypi"
+          - "testpypi"
+      version_override:
+        description: "Optional version override, e.g. 0.1.0.dev1. Leave empty to use pyproject.toml version."
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -69,6 +79,15 @@ jobs:
             ~/.uv
           key: uv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
 
+      - name: Validate version override
+        shell: bash
+        run: |
+          VERSION_OVERRIDE="${{ inputs.version_override }}"
+          if [[ "$VERSION_OVERRIDE" == v* ]]; then
+            echo "version_override must not start with 'v': $VERSION_OVERRIDE"
+            exit 1
+          fi
+
       - name: Show runner architecture
         shell: bash
         run: |
@@ -90,6 +109,19 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+      - name: Apply version override
+        shell: bash
+        run: |
+          VERSION_OVERRIDE="${{ inputs.version_override }}"
+          if [ -n "$VERSION_OVERRIDE" ]; then
+            if [[ "$VERSION_OVERRIDE" == v* ]]; then
+              echo "version_override must not start with 'v': $VERSION_OVERRIDE"
+              exit 1
+            fi
+            VERSION_OVERRIDE="$VERSION_OVERRIDE" python -c 'from pathlib import Path; import os, re; path = Path("pyproject.toml"); text = path.read_text(encoding="utf-8"); text = re.sub(r"(?m)^version = \".*\"$", "version = \"" + os.environ["VERSION_OVERRIDE"] + "\"", text, count=1); path.write_text(text, encoding="utf-8")'
+          fi
+          python -c 'import tomllib; print("Resolved package version:", tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
 
       - name: Build onefile binary
         shell: bash
@@ -219,7 +251,16 @@ jobs:
         id: version
         shell: bash
         run: |
-          VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          VERSION_OVERRIDE="${{ inputs.version_override }}"
+          if [ -n "$VERSION_OVERRIDE" ]; then
+            if [[ "$VERSION_OVERRIDE" == v* ]]; then
+              echo "version_override must not start with 'v': $VERSION_OVERRIDE"
+              exit 1
+            fi
+            VERSION="$VERSION_OVERRIDE"
+          else
+            VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
@@ -275,7 +316,7 @@ jobs:
     name: Publish to PyPI
     runs-on: ubuntu-latest
     needs: collect-release-assets
-    if: ${{ inputs.publish_to_pypi }}
+    if: ${{ inputs.publish_target != 'none' }}
     permissions:
       contents: read
       id-token: write
@@ -289,11 +330,31 @@ jobs:
       - name: Install Python
         run: uv python install 3.13
 
+      - name: Apply version override
+        shell: bash
+        run: |
+          VERSION_OVERRIDE="${{ inputs.version_override }}"
+          if [ -n "$VERSION_OVERRIDE" ]; then
+            if [[ "$VERSION_OVERRIDE" == v* ]]; then
+              echo "version_override must not start with 'v': $VERSION_OVERRIDE"
+              exit 1
+            fi
+            VERSION_OVERRIDE="$VERSION_OVERRIDE" python -c 'from pathlib import Path; import os, re; path = Path("pyproject.toml"); text = path.read_text(encoding="utf-8"); text = re.sub(r"(?m)^version = \".*\"$", "version = \"" + os.environ["VERSION_OVERRIDE"] + "\"", text, count=1); path.write_text(text, encoding="utf-8")'
+          fi
+          python -c 'import tomllib; print("Resolved package version:", tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])'
+          echo "Publish target: ${{ inputs.publish_target }}"
+
       - name: Build package
         run: uv build
 
       - name: Publish package
-        run: uv publish
+        shell: bash
+        run: |
+          if [ "${{ inputs.publish_target }}" = "testpypi" ]; then
+            uv publish --publish-url https://test.pypi.org/legacy/
+          else
+            uv publish
+          fi
 
   workflow-summary:
     name: Workflow summary
@@ -310,7 +371,16 @@ jobs:
       - name: Write summary
         shell: bash
         run: |
-          VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          VERSION_OVERRIDE="${{ inputs.version_override }}"
+          if [ -n "$VERSION_OVERRIDE" ]; then
+            if [[ "$VERSION_OVERRIDE" == v* ]]; then
+              echo "version_override must not start with 'v': $VERSION_OVERRIDE"
+              exit 1
+            fi
+            VERSION="$VERSION_OVERRIDE"
+          else
+            VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          fi
           TAG="v${VERSION}"
           {
             echo "## tax-reporting release workflow"
@@ -326,6 +396,6 @@ jobs:
             echo "- release asset collection result: ${{ needs.collect-release-assets.result }}"
             echo "- release upload requested: ${{ inputs.upload_to_release }}"
             echo "- release upload result: ${{ needs.upload-release.result }}"
-            echo "- PyPI publish requested: ${{ inputs.publish_to_pypi }}"
+            echo "- PyPI publish target: ${{ inputs.publish_target }}"
             echo "- PyPI publish result: ${{ needs.publish-pypi.result }}"
           } >> "$GITHUB_STEP_SUMMARY"
