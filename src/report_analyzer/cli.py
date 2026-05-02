@@ -32,10 +32,12 @@ def _validate_clean_output_target(output_dir: Path) -> None:
     normalized = output_dir.expanduser().resolve()
     if str(normalized).strip() == "":
         raise InputDetectionError("refusing to clean empty output path")
-    if normalized == Path("/"):
-        raise InputDetectionError("refusing to clean root output path '/'")
+    if normalized == Path(normalized.anchor).resolve():
+        raise InputDetectionError(f"refusing to clean filesystem root {normalized}")
     if normalized == Path.home().resolve():
         raise InputDetectionError("refusing to clean home directory")
+    if normalized == Path.cwd().resolve():
+        raise InputDetectionError("refusing to clean current working directory")
     if normalized == PROJECT_ROOT.resolve():
         raise InputDetectionError("refusing to clean repository root directory")
 

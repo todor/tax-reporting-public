@@ -19,29 +19,45 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: build-binaries-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-binaries:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
-      fail-fast: false
-      matrix:
+      fail-fast: true
+      matrix:   
         include:
           - name: Windows x64
             os: windows-latest
             artifact: tax-reporting-windows-x64.zip
             binary: tax-reporting.exe
+
           - name: macOS arm64
-            os: macos-latest
+            os: macos-26
             artifact: tax-reporting-macos-arm64.tar.gz
             binary: tax-reporting
+
           - name: macOS x64
-            os: macos-13
+            os: macos-26-intel
             artifact: tax-reporting-macos-x64.tar.gz
             binary: tax-reporting
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Show runner architecture
+        shell: bash
+        run: |
+          echo "Runner OS: $RUNNER_OS"
+          echo "Runner Arch: $RUNNER_ARCH"
+          uname -a
+          uname -m
+          sw_vers || true
 
       - uses: astral-sh/setup-uv@v5
         with:
@@ -267,7 +283,7 @@ jobs:
       - collect-release-assets
       - upload-release
       - publish-pypi
-    if: always()
+    if: success() || failure()
     steps:
       - uses: actions/checkout@v4
 

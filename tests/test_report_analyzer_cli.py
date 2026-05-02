@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import shutil
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -324,15 +325,22 @@ def test_group_param_and_analyzer_override_resolution(
     assert run_capture.contexts[0].options["mode"] == "appendix_5"
 
 
-def test_clean_output_safety_rejects_dangerous_targets() -> None:
-    with pytest.raises(InputDetectionError):
-        report_analyzer._prepare_output_dir(output_dir=Path("/"), clean_output=True)
+def test_clean_output_safety_rejects_dangerous_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_rmtree(path):  # noqa: ANN001
+        raise AssertionError(f"rmtree must not be called for dangerous path: {path}")
 
-    with pytest.raises(InputDetectionError):
-        report_analyzer._prepare_output_dir(output_dir=Path.home(), clean_output=True)
+    monkeypatch.setattr(shutil, "rmtree", fail_rmtree)
 
-    with pytest.raises(InputDetectionError):
-        report_analyzer._prepare_output_dir(output_dir=report_analyzer.PROJECT_ROOT, clean_output=True)
+    dangerous_paths = [
+        Path("/"),
+        Path(Path.cwd().resolve().anchor),
+        Path.home(),
+        Path.cwd(),
+        report_analyzer.PROJECT_ROOT,
+    ]
+    for path in dangerous_paths:
+        with pytest.raises(InputDetectionError):
+            report_analyzer._prepare_output_dir(output_dir=path, clean_output=True)
 
 
 def test_aggregate_mode_sums_structured_appendix_records(
@@ -653,11 +661,13 @@ def test_manual_review_rows_are_excluded_from_totals(
 
 
 def test_render_aggregated_report_snapshot() -> None:
+    input_path = Path("/tmp/coinbase.csv")
+    output_path = Path("/tmp/coinbase.txt")
     result = TaxAnalysisResult(
         analyzer_alias="coinbase",
-        input_path=Path("/tmp/coinbase.csv"),
+        input_path=input_path,
         tax_year=2025,
-        output_paths={"declaration_txt": Path("/tmp/coinbase.txt")},
+        output_paths={"declaration_txt": output_path},
         appendices=[
             AppendixRecord(
                 appendix="5",
@@ -677,7 +687,7 @@ def test_render_aggregated_report_snapshot() -> None:
     )
     rendered = render_aggregated_report(
         tax_year=2025,
-        detected_inputs={"coinbase": [Path("/tmp/coinbase.csv")]},
+        detected_inputs={"coinbase": [input_path]},
         ignored_inputs=[],
         analyzer_results=[result],
         analyzer_errors={},
@@ -687,7 +697,7 @@ def test_render_aggregated_report_snapshot() -> None:
     assert "  Продажна цена: 11.00 EUR" in rendered
     assert "------------------------------ Technical Details ------------------------------" in rendered
     assert "- global status: OK" in rendered
-    assert "declaration: file:///private/tmp/coinbase.txt" in rendered
+    assert f"declaration: {output_path.resolve().as_uri()}" in rendered
 
 
 def test_render_aggregated_report_suppresses_zero_only_appendix_sections() -> None:

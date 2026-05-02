@@ -56,9 +56,10 @@ def test_build_p2p_run_cli_summary_lines() -> None:
         taxable_code_606=Decimal("4"),
         withheld_tax=Decimal("5"),
     )
-    lines = build_p2p_run_cli_summary_lines(result=result, output_txt_path=Path("/tmp/out.txt"))
+    output_txt_path = Path("/tmp/out.txt")
+    lines = build_p2p_run_cli_summary_lines(result=result, output_txt_path=output_txt_path)
     assert any(line == "STATUS: SUCCESS" for line in lines)
-    assert any("Declaration TXT: /tmp/out.txt" == line for line in lines)
+    assert any(line == f"Declaration TXT: {output_txt_path}" for line in lines)
 
 
 def test_build_p2p_run_cli_summary_lines_manual_check_required() -> None:
