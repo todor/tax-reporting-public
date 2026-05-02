@@ -27,7 +27,7 @@ jobs:
   build-binaries:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 45
     strategy:
       fail-fast: true
       matrix:   
@@ -49,6 +49,25 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache Nuitka
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/Nuitka
+            ~/AppData/Local/Nuitka
+            C:\Users\runneradmin\AppData\Local\Nuitka
+          key: nuitka-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+          restore-keys: |
+            nuitka-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache uv
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/uv
+            ~/.uv
+          key: uv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
 
       - name: Show runner architecture
         shell: bash
