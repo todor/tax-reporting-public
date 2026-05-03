@@ -58,10 +58,10 @@ jobs:
             binary: tax-reporting
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Cache Nuitka
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/Nuitka
@@ -72,7 +72,7 @@ jobs:
             nuitka-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache uv
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cache/uv
@@ -97,7 +97,7 @@ jobs:
           uname -m
           sw_vers || true
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
 
@@ -196,7 +196,7 @@ jobs:
           tar -czf "dist/release/${{ matrix.artifact }}" -C dist/nuitka "${{ matrix.binary }}"
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: binary-${{ matrix.artifact }}
           path: dist/release/${{ matrix.artifact }}
@@ -207,7 +207,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-binaries
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: binary-*
           path: dist/release
@@ -224,7 +224,7 @@ jobs:
             > checksums.txt
 
       - name: Upload release assets
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-assets
           path: dist/release/*
@@ -240,9 +240,9 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: release-assets
           path: dist/release
@@ -321,9 +321,9 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
 
@@ -366,7 +366,7 @@ jobs:
       - publish-pypi
     if: success() || failure()
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Write summary
         shell: bash

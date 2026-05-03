@@ -14,8 +14,8 @@ authors = [
     { name = "Todor Petrov" },
 ]
 dependencies = [
-    "pypdf",
-    "requests",
+    "pypdf>=5.0,<7.0",
+    "requests>=2.31,<3.0",
 ]
 
 [project.urls]
@@ -27,8 +27,8 @@ tax-reporting = "report_analyzer.cli:main"
 
 [dependency-groups]
 dev = [
-    "pytest",
-    "ruff",
+    "pytest>=8.0,<9.0",
+    "ruff>=0.8,<1.0",
 ]
 
 [tool.setuptools]
