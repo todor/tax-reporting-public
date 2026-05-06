@@ -91,7 +91,9 @@ Important notes:
 
 - The analyzer is designed to work from the IBKR Activity Statement CSV.
 - Do not use the Dividend Report as analyzer input; dividends are read from the Activity Statement sections.
-- Use one full report for the selected tax year. IBKR reports include the sections needed for that year, so this analyzer does not require an opening state file.
+- Use one full report for the selected tax year. The `Statement -> Period` row must cover exactly January 1 through December 31 of `--tax-year`, for example `January 1, 2025 - December 31, 2025`.
+- Wrong or missing statement periods fail by default because tax reporting and SPB-8 can be incorrect.
+- `--skip-period-validation` is for development/testing with partial reports only; do not use it for real tax reporting.
 
 ## CLI Options
 
@@ -102,6 +104,7 @@ Important notes:
 - `--eu-regulated-exchange`: additional EU-regulated exchange code override; can be passed multiple times or comma-separated
 - `--closed-world`: force closed-world exchange classification even without `--eu-regulated-exchange`
 - `--report-alias`: optional alias added in output filenames
+- `--skip-period-validation`: skip strict full-year Statement Period validation; development/testing only
 - `--output-dir`: optional output root (default `output/ibkr/activity_statement`)
 - `--cache-dir`: optional `bnb_fx` cache override
 - `--display-currency {EUR,BGN}`: optional TXT rendering currency (calculation currency remains EUR)
@@ -128,6 +131,23 @@ Outputs:
 - modified CSV (multi-section preserved; only selected sections are extended)
 - declaration text file (Bulgarian)
 - sanity debug artifacts (`_sanity_debug`)
+
+## СПБ-8
+
+IBKR SPB-8 data is automatic. Do not add IBKR rows to the manual SPB-8 input CSV.
+
+- Securities are derived from Open Positions and Financial Instrument Information.
+- Beginning security quantities use Trades and supported Transfers for instruments still present in Open Positions.
+- Supported transfer asset categories are `Stocks` and `Treasury Bills`.
+- Transfers do not affect tax PnL or Appendix 5 because tax reporting uses IBKR Closed Lots.
+- Unsupported transfer rows produce warnings and are skipped for SPB-8.
+- Corporate actions such as stock splits, reverse splits, spin-offs, acquisitions, and mergers are not handled yet.
+- Cash is derived from Cash Report, not Net Asset Value.
+- Cash uses `Starting Cash` as beginning balance and `Ending Cash` as ending balance.
+- The `Currency` column is preserved as the original currency; values are not converted to EUR/BGN for SPB-8.
+- The `Total` column is used as the amount.
+- `Base Currency Summary` rows are ignored.
+- Multiple cash currencies produce multiple SPB-8 cash lines.
 - stdout status + output paths (`SUCCESS` / `MANUAL CHECK REQUIRED` / `ERROR`)
 
 ## Core Principles
@@ -192,7 +212,7 @@ Scope/limits:
 - this is a minimal safety net only
 - no lot matching
 - no timestamp matching
-- no transfer/corporate-action parsing in this check
+- no transfer/corporate-action parsing in this check; Transfers are used only for SPB-8 beginning quantity reconstruction
 
 ## Tax Modes (Trades)
 

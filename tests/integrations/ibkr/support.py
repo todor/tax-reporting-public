@@ -49,6 +49,11 @@ __all__ = [
 
 
 def _write_rows(path: Path, rows: list[list[str]]) -> None:
+    if not any(len(row) >= 4 and row[0] == "Statement" and row[1] == "Data" and row[2] == "Period" for row in rows):
+        rows[:0] = [
+            ["Statement", "Header", "Field Name", "Field Value"],
+            ["Statement", "Data", "Period", "January 1, 2025 - December 31, 2025"],
+        ]
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)

@@ -75,6 +75,14 @@ def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
         type=str,
         help="Optional report alias for IBKR output filenames",
     )
+    add_mode_argument(
+        parser,
+        mode=mode,
+        analyzer_alias="ibkr",
+        single_flag="skip-period-validation",
+        action="store_true",
+        help="Skip strict IBKR full-year statement period validation; for development/testing only",
+    )
 
 
 def _build_options(
@@ -122,6 +130,15 @@ def _build_options(
             aggregate_attr="ibkr_report_alias",
             default=None,
         ),
+        "skip_period_validation": bool(
+            option_value(
+                args,
+                mode=mode,
+                single_attr="skip_period_validation",
+                aggregate_attr="ibkr_skip_period_validation",
+                default=False,
+            )
+        ),
         "display_currency": str(
             option_value(
                 args,
@@ -148,6 +165,7 @@ def _run(context: AnalyzerRunContext):
         display_currency=str(context.options.get("display_currency", "EUR")),
         eu_regulated_exchanges=context.options.get("eu_regulated_exchanges"),
         closed_world=bool(context.options.get("closed_world")),
+        skip_period_validation=bool(context.options.get("skip_period_validation")),
     )
     return build_ibkr_result(
         analyzer_alias="ibkr",

@@ -5,6 +5,8 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+from integrations.shared.spb8 import SPB8Row
+
 from .constants import APPENDIX8_LIST_MODE_COMPANY, DIVIDEND_TAX_RATE, ZERO
 
 class IbkrAnalyzerError(Exception):
@@ -228,6 +230,8 @@ class AnalysisSummary:
     sanity_report_path: str = ""
     sanity_failures_count: int = 0
     sanity_failure_messages: list[str] = field(default_factory=list)
+    spb8_rows: list[SPB8Row] = field(default_factory=list)
+    spb8_notes: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)

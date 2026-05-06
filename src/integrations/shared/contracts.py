@@ -6,6 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Literal
 
+from .spb8 import SPB8Row
 from .cli_helpers import CliMode
 
 DiagnosticSeverity = Literal["INFO", "WARNING", "MANUAL_REVIEW", "ERROR"]
@@ -37,6 +38,8 @@ class TaxAnalysisResult:
     output_paths: dict[str, Path]
     appendices: list[AppendixRecord]
     diagnostics: list[AnalysisDiagnostic]
+    spb8_rows: list[SPB8Row] = field(default_factory=list)
+    spb8_notes: list[str] = field(default_factory=list)
 
     @property
     def status(self) -> AnalyzerStatus:

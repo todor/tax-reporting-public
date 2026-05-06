@@ -195,6 +195,106 @@ Per-analyzer outputs: `output/examples/ibkr/`, `output/examples/kraken/`.
 Aggregated output: `output/examples/aggregated_tax_report_2025.txt`.
 This mirrors real-world multi-provider workflows.
 
+## СПБ-8 (BNB Declaration)
+
+СПБ-8 is a Bulgarian National Bank declaration for certain foreign assets and liabilities. This tool helps prepare the data for the declaration, but it does not submit anything to BNB.
+
+Currently, IBKR SPB-8 data is derived automatically from the IBKR Activity Statement. The manual CSV is only for data that cannot currently be derived automatically.
+
+Quick start:
+
+1. Run the tool normally, without an SPB-8 input file:
+
+```bash
+uv run tax-reporting \
+  --input-dir examples/inputs \
+  --tax-year 2025 \
+  --output-dir output/examples
+```
+
+2. The tool writes `output/examples/spb8-input-file.csv` for manual-only SPB-8 rows, if any.
+3. Fill missing `start nav` and `end nav` values for those manual rows.
+4. Run again:
+
+```bash
+uv run tax-reporting \
+  --input-dir examples/inputs \
+  --tax-year 2025 \
+  --spb8-input-file output/examples/spb8-input-file.csv \
+  --output-dir output/examples
+```
+
+5. Use the generated `СПБ-8` section in the TXT output to fill the official BNB form.
+
+CLI options:
+
+- `--spb8-input-file PATH` reads a completed manual SPB-8 CSV.
+- `--no-spb8` disables SPB-8 generation.
+- `--spb8-exclude-crypto` excludes crypto platforms from SPB-8.
+
+Input CSV header:
+
+```csv
+account name,platform,type,country,currency,start nav,end nav
+```
+
+Columns:
+
+- `account name`: account/report label.
+- `platform`: supported platform alias, for example `kraken`, `coinbase`, `lendermarket`.
+- `type`: `01`, `02`, `03`, `04`, or the full Bulgarian type label.
+- `country`: Bulgarian or English country name; inferred from platform if empty.
+- `currency`: currency code such as `EUR`.
+- `start nav`, `end nav`: numeric values for the beginning/end of the reporting year.
+
+The generated template includes one row per detected input source that currently needs manual SPB-8 data. It does not include IBKR rows. If only IBKR inputs are detected, the file may contain only the CSV header.
+
+Automatically inferred/calculated where possible:
+
+- platform, type, country
+- IBKR cash from Cash Report (`Starting Cash` / `Ending Cash`) by original currency
+- IBKR securities with ISIN from Open Positions, Trades, Transfers, and instrument metadata
+
+Usually filled manually:
+
+- P2P beginning/end NAV
+- crypto beginning/end NAV; crypto SPB-8 data is not automatically generated yet
+- fund beginning/end NAV; fund SPB-8 data is not automatically generated yet
+- any row left blank in the template
+
+Limitations and warnings:
+
+- securities without ISIN are excluded and reported for review
+- crypto SPB-8 treatment may depend on accountant interpretation
+- Bulgaria platforms are not included in filing rows
+- IBKR Transfers are used for SPB-8 beginning quantity reconstruction only; unsupported transfer rows produce warnings
+- corporate actions such as stock splits, reverse splits, spin-offs, acquisitions, and mergers are not handled yet
+
+IBKR SPB-8 principle:
+
+- IBKR securities are derived automatically from holdings/open positions.
+- IBKR beginning security quantities use Trades and supported Transfers (`Stocks`, `Treasury Bills`) for instruments still present in Open Positions.
+- Transfers do not affect tax PnL or Appendix 5; tax logic continues to use IBKR Closed Lots.
+- IBKR cash is derived automatically from Cash Report, not Net Asset Value.
+- Cash Report uses `Starting Cash` as beginning balance, `Ending Cash` as ending balance, `Currency` as the original currency, and `Total` as the amount.
+- `Base Currency Summary` is ignored.
+- Multiple cash currencies produce multiple SPB-8 cash lines.
+- Do not add IBKR rows manually to the SPB-8 input CSV.
+
+Example output:
+
+```text
+СПБ-8
+- Тип на вземането: 03. Сметки, открити в чужбина
+  Матуритет:
+  Държава: Ирландия
+  Валута: EUR
+  Размер в началото на отчетната година (в хиляди валутни единици): 10.36
+  Размер в края на отчетната година (в хиляди валутни единици): 3.91
+```
+
+For type `01`/`02`/`03`, values are shown in thousands of currency units. For type `04`, securities are shown as quantities by ISIN.
+
 ## Development
 
 Setup:
@@ -677,6 +777,13 @@ uv run tax-reporting ibkr \
   --tax-exempt-mode listed_symbol \
   --report-alias account1
 ```
+
+IBKR Activity Statement period requirements:
+
+- The input must cover exactly January 1 through December 31 of the selected `--tax-year`.
+- The analyzer validates the `Statement -> Period` row, for example `January 1, 2025 - December 31, 2025`.
+- Wrong or missing periods fail by default because tax reporting and SPB-8 can be incorrect.
+- `--skip-period-validation` exists only for development/testing with partial reports. Do not use it for real tax reporting.
 
 Optional venue override inputs (activates closed-world venue classification for this run):
 

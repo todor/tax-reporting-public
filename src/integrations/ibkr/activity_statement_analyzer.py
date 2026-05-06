@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -68,6 +69,7 @@ from .sections.trades import (
     process_trades_section,
 )
 from .shared import _build_active_headers, _default_fx_provider, _normalize_report_alias
+from .spb8 import extract_ibkr_spb8_rows
 
 
 @dataclass(slots=True)
@@ -330,6 +332,51 @@ def _apply_sanity_to_summary(summary: AnalysisSummary, *, sanity) -> None:
     summary.sanity_failure_messages = [failure.to_message() for failure in sanity.failures[:50]]
 
 
+def _extract_statement_account(rows: list[list[str]], *, fallback: str) -> str:
+    for row in rows:
+        if len(row) >= 4 and row[0] == "Statement" and row[1] == "Data" and row[2].strip() == "Account":
+            account = row[3].strip()
+            if account:
+                return account
+    return fallback or "ibkr"
+
+
+def _expected_statement_period_text(tax_year: int) -> str:
+    return f"January 1, {tax_year} - December 31, {tax_year}"
+
+
+def _statement_period_text(rows: list[list[str]]) -> str:
+    for row in rows:
+        if len(row) >= 4 and row[0] == "Statement" and row[1] == "Data" and row[2].strip() == "Period":
+            period_cells = row[3:]
+            while period_cells and period_cells[-1].strip() == "":
+                period_cells = period_cells[:-1]
+            return ",".join(period_cells).strip()
+    return ""
+
+
+def _validate_statement_period(rows: list[list[str]], *, tax_year: int) -> None:
+    expected = _expected_statement_period_text(tax_year)
+    period_text = _statement_period_text(rows)
+    if period_text == "":
+        raise IbkrAnalyzerError(
+            "IBKR statement period is missing; expected Statement,Data,Period,"
+            f"{expected!r}. The analyzer requires a full-year Activity Statement."
+        )
+    try:
+        start_text, end_text = period_text.split(" - ", 1)
+        start_date = datetime.strptime(start_text.strip(), "%B %d, %Y").date()
+        end_date = datetime.strptime(end_text.strip(), "%B %d, %Y").date()
+    except ValueError as exc:
+        raise IbkrAnalyzerError(
+            f"IBKR statement period is malformed: {period_text!r}; expected {expected!r}."
+        ) from exc
+    if period_text != expected or start_date.year != tax_year or end_date.year != tax_year:
+        raise IbkrAnalyzerError(
+            f"IBKR statement period must cover exactly {expected!r}; found {period_text!r}."
+        )
+
+
 def analyze_ibkr_activity_statement(
     *,
     input_csv: str | Path,
@@ -342,6 +389,7 @@ def analyze_ibkr_activity_statement(
     display_currency: str = "EUR",
     eu_regulated_exchanges: list[str] | None = None,
     closed_world: bool = False,
+    skip_period_validation: bool = False,
     fx_rate_provider: FxRateProvider | None = None,
 ) -> AnalysisResult:
     _validate_analysis_request(
@@ -365,6 +413,12 @@ def analyze_ibkr_activity_statement(
         dividend_tax_rate=DIVIDEND_TAX_RATE,
         appendix8_dividend_list_mode=appendix8_dividend_list_mode,
     )
+    if skip_period_validation:
+        summary.warnings.append(
+            "IBKR statement period validation was skipped; results may be incomplete or wrong."
+        )
+    else:
+        _validate_statement_period(rows, tax_year=tax_year)
     summary.exchange_classification_mode = _exchange_classification_mode_label(
         eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
         force_closed_world=closed_world_mode,
@@ -415,6 +469,14 @@ def analyze_ibkr_activity_statement(
         normalized_alias=normalized_alias,
         tax_year=tax_year,
     )
+    spb8 = extract_ibkr_spb8_rows(
+        rows=rows,
+        active_headers=active_headers,
+        listings=listings,
+        account_name=_extract_statement_account(rows, fallback=normalized_alias or input_path.stem),
+    )
+    summary.spb8_rows = spb8.rows
+    summary.spb8_notes = spb8.warnings
 
     populate_trade_aggregate_extras(
         rows=rows,

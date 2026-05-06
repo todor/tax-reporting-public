@@ -30,6 +30,12 @@ from integrations.shared.rendering.display_currency import (
     build_render_context,
     display_currency_technical_lines,
 )
+from integrations.shared.spb8 import (
+    SPB8Row,
+    aggregate_spb8_rows,
+    render_spb8_notes_section,
+    render_spb8_section,
+)
 
 from .contracts import AnalyzerStatus, AppendixRecord, TaxAnalysisResult
 
@@ -514,6 +520,8 @@ def render_aggregated_report(
     analyzer_errors: dict[str, list[str]],
     display_currency: str = "EUR",
     cache_dir: str | Path | None = None,
+    spb8_rows: list[SPB8Row] | None = None,
+    spb8_notes: list[str] | None = None,
 ) -> str:
     render_context = build_render_context(
         tax_year=tax_year,
@@ -531,6 +539,7 @@ def render_aggregated_report(
 
     global_status = _global_status(list(statuses.values()))
     aggregated = aggregate_appendix_records(analyzer_results)
+    aggregated_spb8_rows = aggregate_spb8_rows(spb8_rows or [])
 
     lines: list[str] = [_status_banner(global_status), ""]
     for section_lines in (
@@ -543,6 +552,8 @@ def render_aggregated_report(
             money_context=money_context,
         ),
         _build_appendix9_lines(aggregated, money_context=money_context),
+        render_spb8_section(aggregated_spb8_rows),
+        render_spb8_notes_section(spb8_notes, aggregate=bool(aggregated_spb8_rows)),
     ):
         if not section_lines:
             continue

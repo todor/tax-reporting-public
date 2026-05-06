@@ -373,4 +373,6 @@ def build_ibkr_result(
         output_paths=_output_paths_to_path_map(output_paths),
         appendices=appendices,
         diagnostics=diagnostics,
+        spb8_rows=summary.spb8_rows,
+        spb8_notes=summary.spb8_notes,
     )

@@ -35,9 +35,11 @@ def test_cli_appendix8_dividend_mode_defaults_to_company(tmp_path: Path) -> None
             "2025",
             "--tax-exempt-mode",
             "listed_symbol",
+            "--skip-period-validation",
         ]
     )
     assert args.appendix8_dividend_list_mode == "company"
+    assert args.skip_period_validation is True
 
 def test_dividends_scoped_headers_are_resolved_from_active_header(tmp_path: Path) -> None:
     rows = _base_rows()
