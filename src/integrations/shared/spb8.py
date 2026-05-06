@@ -369,18 +369,17 @@ def render_spb8_notes_section(notes: list[str] | None = None, *, aggregate: bool
 
 
 def _row_has_renderable_values(row: SPB8Row) -> bool:
-    return row.start_nav is not None or row.end_nav is not None or bool(row.isin)
+    return _row_has_nonzero_rendered_end_value(row)
 
 
 def _render_row(row: SPB8Row) -> list[str]:
     if row.type_code == "04":
-        lines = [
+        return [
             f"- Тип на вземането: {row.type_label}",
             f"  ISIN: {row.isin or '-'}",
             f"  Размер в началото на отчетната година: {_format_optional(row.start_nav)}",
             f"  Размер в края на отчетната година: {_format_optional(row.end_nav)}",
         ]
-        return lines
     return [
         f"- Тип на вземането: {row.type_label}",
         f"  Матуритет: {row.maturity}",
@@ -403,6 +402,13 @@ def _format_optional(value: Decimal | None) -> str:
     if value is None:
         return ""
     return format(value.normalize(), "f")
+
+
+def _row_has_nonzero_rendered_end_value(row: SPB8Row) -> bool:
+    end_value = _format_optional(row.end_nav) if row.type_code == "04" else _format_thousands(row.end_nav)
+    if end_value == "":
+        return False
+    return Decimal(end_value) != Decimal("0")
 
 
 def rows_by_platform(rows: list[SPB8Row]) -> dict[str, list[SPB8Row]]:

@@ -154,3 +154,40 @@ def test_aggregated_spb8_grouping_sums_compatible_rows() -> None:
         SPB8Row("kraken, coinbase", "kraken", "03", "Ирландия", "EUR", Decimal("4000"), Decimal("6000")),
         SPB8Row("isin", "ibkr", "04", "Ирландия", "", Decimal("1"), Decimal("2"), isin="IE00B4L5Y983"),
     ]
+
+
+def test_render_spb8_omits_non_securities_row_when_rendered_end_value_is_zero() -> None:
+    lines = render_spb8_section(
+        [
+            SPB8Row(
+                "revolut",
+                "revolut",
+                "03",
+                "Литва",
+                "USD",
+                Decimal("0"),
+                Decimal("0.1"),
+            )
+        ]
+    )
+
+    assert lines == []
+
+
+def test_render_spb8_omits_securities_row_when_end_value_is_zero() -> None:
+    lines = render_spb8_section(
+        [
+            SPB8Row(
+                "isin",
+                "ibkr",
+                "04",
+                "Ирландия",
+                "",
+                Decimal("12"),
+                Decimal("0"),
+                isin="IE00B4L5Y983",
+            )
+        ]
+    )
+
+    assert lines == []
