@@ -34,6 +34,7 @@ def extract_ibkr_spb8_rows(
     active_headers: dict[int, _ActiveHeader],
     listings: dict[str, InstrumentListing],
     account_name: str,
+    corporate_actions_present: bool = False,
 ) -> IbkrSPB8Extraction:
     warnings: list[str] = []
     spb8_rows = _extract_cash_rows(rows=rows, active_headers=active_headers, account_name=account_name)
@@ -42,6 +43,7 @@ def extract_ibkr_spb8_rows(
         active_headers=active_headers,
         listings=listings,
         account_name=account_name,
+        corporate_actions_present=corporate_actions_present,
     )
     spb8_rows.extend(securities_rows)
     warnings.extend(securities_warnings)
@@ -115,6 +117,7 @@ def _extract_security_rows(
     active_headers: dict[int, _ActiveHeader],
     listings: dict[str, InstrumentListing],
     account_name: str,
+    corporate_actions_present: bool,
 ) -> tuple[list[SPB8Row], list[str]]:
     warnings: list[str] = []
     end_qty_by_isin: dict[str, Decimal] = defaultdict(lambda: ZERO)
@@ -192,7 +195,7 @@ def _extract_security_rows(
     for isin, end_quantity in sorted(end_qty_by_isin.items()):
         trade_delta = trade_delta_by_isin.get(isin, ZERO)
         transfer_adjustment = transfer_adjustment_by_isin.get(isin, ZERO)
-        start_quantity = end_quantity - trade_delta + transfer_adjustment
+        start_quantity = None if corporate_actions_present else end_quantity - trade_delta + transfer_adjustment
         result.append(
             SPB8Row(
                 account_name=f"{account_name} securities",

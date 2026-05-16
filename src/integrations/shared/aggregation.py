@@ -371,6 +371,34 @@ def _render_diagnostics_summary(
             lines.append(f"  {entry}")
 
 
+def _status_reason_lines(
+    *,
+    global_status: AnalyzerStatus,
+    analyzer_results: list[TaxAnalysisResult],
+    analyzer_errors: dict[str, list[str]],
+    spb8_notes: list[str] | None,
+) -> list[str]:
+    if global_status == "ERROR":
+        reasons = [f"{alias}: {error}" for alias, errors in sorted(analyzer_errors.items()) for error in errors]
+        reasons.extend(
+            f"{diagnostic.analyzer_alias}: {diagnostic.message}"
+            for result in analyzer_results
+            for diagnostic in result.diagnostics
+            if diagnostic.severity == "ERROR"
+        )
+        return ["Причина за ERROR:", *(f"- {reason}" for reason in reasons)]
+    if global_status == "NEEDS_REVIEW":
+        reasons = [
+            f"{diagnostic.analyzer_alias}: {diagnostic.message}"
+            for result in analyzer_results
+            for diagnostic in result.diagnostics
+            if diagnostic.severity == "MANUAL_REVIEW"
+        ]
+        reasons.extend(note for note in spb8_notes or [] if note.startswith("СПБ-8: липсва стойност"))
+        return ["Причина за ръчна проверка:", *(f"- {reason}" for reason in reasons)]
+    return []
+
+
 def _build_appendix5_lines(
     aggregated: AggregatedAppendices,
     *,
@@ -522,6 +550,7 @@ def render_aggregated_report(
     cache_dir: str | Path | None = None,
     spb8_rows: list[SPB8Row] | None = None,
     spb8_notes: list[str] | None = None,
+    spb8_needs_review: bool = False,
 ) -> str:
     render_context = build_render_context(
         tax_year=tax_year,
@@ -538,10 +567,21 @@ def render_aggregated_report(
             statuses[alias] = "ERROR"
 
     global_status = _global_status(list(statuses.values()))
+    if spb8_needs_review and global_status in {"OK", "WARNING"}:
+        global_status = "NEEDS_REVIEW"
     aggregated = aggregate_appendix_records(analyzer_results)
     aggregated_spb8_rows = aggregate_spb8_rows(spb8_rows or [])
 
-    lines: list[str] = [_status_banner(global_status), ""]
+    lines: list[str] = [_status_banner(global_status)]
+    status_reasons = _status_reason_lines(
+        global_status=global_status,
+        analyzer_results=analyzer_results,
+        analyzer_errors=analyzer_errors,
+        spb8_notes=spb8_notes,
+    )
+    if status_reasons:
+        lines.extend(["", *status_reasons])
+    lines.append("")
     for section_lines in (
         _build_appendix5_lines(aggregated, money_context=money_context),
         _build_appendix13_lines(aggregated, money_context=money_context),

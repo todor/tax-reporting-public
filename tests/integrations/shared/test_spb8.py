@@ -12,6 +12,8 @@ from integrations.shared.spb8 import (
     default_platform_rows,
     manual_input_template_rows_for_platform,
     filter_rows_for_options,
+    merge_external_platform_rows,
+    missing_spb8_value_notes,
     normalize_header_name,
     normalize_type,
     read_spb8_csv,
@@ -24,8 +26,9 @@ from integrations.shared.spb8 import (
 def test_header_normalization_accepts_aliases() -> None:
     assert normalize_header_name("account_name") == "account name"
     assert normalize_header_name("account-name") == "account name"
-    assert normalize_header_name(" start value ") == "start nav"
-    assert normalize_header_name("end_nav") == "end nav"
+    assert normalize_header_name("ISIN") == "ISIN"
+    assert normalize_header_name(" start value ") == "start amount"
+    assert normalize_header_name("end_nav") == "end amount"
 
 
 def test_type_normalization_accepts_codes_and_labels() -> None:
@@ -103,15 +106,33 @@ def test_write_completed_csv_uses_canonical_header(tmp_path: Path) -> None:
     )
 
     assert output_path.read_text(encoding="utf-8").splitlines()[0] == (
-        "account name,platform,type,country,currency,start nav,end nav"
+        "account name,platform,type,country,ISIN,currency,start amount,end amount"
     )
+
+
+def test_write_spb8_csv_uses_type_specific_isin_and_currency_values(tmp_path: Path) -> None:
+    output_path = tmp_path / "spb8-input-file.csv"
+
+    write_spb8_csv(
+        output_path,
+        [
+            SPB8Row("kraken", "kraken", "03", "Ирландия", "EUR", Decimal("1000"), Decimal("2000")),
+            SPB8Row("isin", "ibkr", "04", "Ирландия", "", Decimal("1"), Decimal("2"), isin="IE00B4L5Y983"),
+        ],
+    )
+
+    assert output_path.read_text(encoding="utf-8").splitlines() == [
+        "account name,platform,type,country,ISIN,currency,start amount,end amount",
+        "kraken,kraken,03,Ирландия,-,EUR,1000,2000",
+        "isin,ibkr,04,Ирландия,IE00B4L5Y983,-,1,2",
+    ]
 
 
 def test_validation_reports_bad_platform_with_row_number(tmp_path: Path) -> None:
     input_path = tmp_path / "spb8.csv"
     input_path.write_text(
-        "account name,platform,type,country,currency,start nav,end nav\n"
-        "bad,unknown,03,Ireland,EUR,1,2\n",
+        "account name,platform,type,country,ISIN,currency,start amount,end amount\n"
+        "bad,unknown,03,Ireland,-,EUR,1,2\n",
         encoding="utf-8",
     )
 
@@ -122,22 +143,52 @@ def test_validation_reports_bad_platform_with_row_number(tmp_path: Path) -> None
 def test_validation_requires_nav_for_foreign_filing_rows(tmp_path: Path) -> None:
     input_path = tmp_path / "spb8.csv"
     input_path.write_text(
-        "account name,platform,type,country,currency,start nav,end nav\n"
-        "kraken,kraken,03,Ireland,EUR,,2\n",
+        "account name,platform,type,country,ISIN,currency,start amount,end amount\n"
+        "kraken,kraken,03,Ireland,-,EUR,,2\n",
         encoding="utf-8",
     )
 
-    with pytest.raises(SPB8Error, match="row 2: start nav is required"):
-        read_spb8_csv(input_path)
+    rows = read_spb8_csv(input_path)
+
+    assert rows[0].start_nav is None
+    assert rows[0].end_nav == Decimal("2")
+
+
+def test_type_specific_validation_for_spb8_csv(tmp_path: Path) -> None:
+    type04_bad_currency = tmp_path / "bad_type04.csv"
+    type04_bad_currency.write_text(
+        "account name,platform,type,country,ISIN,currency,start amount,end amount\n"
+        "isin,ibkr,04,Ireland,IE00B4L5Y983,EUR,1,2\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SPB8Error, match="currency must be '-'"):
+        read_spb8_csv(type04_bad_currency)
+
+    non_security_bad_isin = tmp_path / "bad_type03.csv"
+    non_security_bad_isin.write_text(
+        "account name,platform,type,country,ISIN,currency,start amount,end amount\n"
+        "kraken,kraken,03,Ireland,IE00B4L5Y983,EUR,1,2\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SPB8Error, match="ISIN must be '-'"):
+        read_spb8_csv(non_security_bad_isin)
 
 
 def test_no_spb8_disables_rows_and_crypto_exclusion_adds_note() -> None:
     rows = default_platform_rows(platform="kraken", account_name="kraken")
 
     assert filter_rows_for_options(rows, enabled=False, exclude_crypto=False) == ([], [])
+    assert filter_rows_for_options(rows, enabled=True, exclude_crypto=False) == (
+        rows,
+        [
+            "Използвана интерпретация за този отчет: крипто платформите са включени като "
+            "03. Сметки, открити в чужбина, с валута EUR по подразбиране. "
+            "Потвърдете с вашия счетоводител."
+        ],
+    )
     assert filter_rows_for_options(rows, enabled=True, exclude_crypto=True) == (
         [],
-        ["Crypto platforms were excluded from SPB-8 because --spb8-exclude-crypto was used."],
+        ["Крипто платформите са изключени от СПБ-8, защото е използван --spb8-exclude-crypto."],
     )
 
 
@@ -154,6 +205,36 @@ def test_aggregated_spb8_grouping_sums_compatible_rows() -> None:
         SPB8Row("kraken, coinbase", "kraken", "03", "Ирландия", "EUR", Decimal("4000"), Decimal("6000")),
         SPB8Row("isin", "ibkr", "04", "Ирландия", "", Decimal("1"), Decimal("2"), isin="IE00B4L5Y983"),
     ]
+
+
+def test_spb8_input_values_override_analyzer_values_and_empty_values_fall_back() -> None:
+    analyzer_rows = [
+        SPB8Row("kraken analyzer", "kraken", "03", "Ирландия", "EUR", Decimal("100"), Decimal("200")),
+        SPB8Row("isin analyzer", "ibkr", "04", "Ирландия", "", Decimal("1"), Decimal("2"), isin="IE00B4L5Y983"),
+    ]
+    external_rows = [
+        SPB8Row("kraken csv", "kraken", "03", "Ирландия", "EUR", Decimal("1000"), None, source="csv"),
+        SPB8Row("isin csv", "ibkr", "04", "Ирландия", "", Decimal("10"), None, isin="IE00B4L5Y983", source="csv"),
+    ]
+
+    merged = merge_external_platform_rows(analyzer_rows, external_rows)
+
+    assert merged == [
+        SPB8Row("kraken csv", "kraken", "03", "Ирландия", "EUR", Decimal("1000"), Decimal("200"), source="csv"),
+        SPB8Row("isin csv", "ibkr", "04", "Ирландия", "", Decimal("10"), Decimal("2"), isin="IE00B4L5Y983", source="csv"),
+    ]
+
+
+def test_missing_spb8_values_emit_warnings() -> None:
+    notes = missing_spb8_value_notes(
+        [
+            SPB8Row("kraken", "kraken", "03", "Ирландия", "EUR", None, Decimal("2000")),
+            SPB8Row("isin", "ibkr", "04", "Ирландия", "", None, Decimal("2"), isin="IE00B4L5Y983"),
+        ]
+    )
+
+    assert any("platform=kraken" in note and "start amount" in note for note in notes)
+    assert any("ISIN=IE00B4L5Y983" in note and "start amount" in note for note in notes)
 
 
 def test_render_spb8_omits_non_securities_row_when_rendered_end_value_is_zero() -> None:

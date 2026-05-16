@@ -71,6 +71,36 @@ from .sections.trades import (
 from .shared import _build_active_headers, _default_fx_provider, _normalize_report_alias
 from .spb8 import extract_ibkr_spb8_rows
 
+SUPPORTED_IBKR_SECTIONS = {
+    "Account Information",
+    "Borrow Fee Details",
+    "Cash Report",
+    "Change in Dividend Accruals",
+    "Change in NAV",
+    "Codes",
+    "Deposits & Withdrawals",
+    "Dividends",
+    "Fees",
+    "Financial Instrument Information",
+    "Forex Balances",
+    "Interest",
+    "Interest Accruals",
+    "Mark-to-Market Performance Summary",
+    "Net Asset Value",
+    "Net Stock Position Summary",
+    "Notes/Legal Notes",
+    "Open Positions",
+    "Realized & Unrealized Performance Summary",
+    "Statement",
+    "Stock Yield Enhancement Program Securities Lent Activity",
+    "Stock Yield Enhancement Program Securities Lent Interest Details",
+    "Total P/L for Statement Period",
+    "Trades",
+    "Transfers",
+    "Withholding Tax",
+}
+CORPORATE_ACTIONS_SECTION = "Corporate Actions"
+
 
 @dataclass(slots=True)
 class _ProcessedSections:
@@ -377,6 +407,26 @@ def _validate_statement_period(rows: list[list[str]], *, tax_year: int) -> None:
         )
 
 
+def _section_names(rows: list[list[str]]) -> set[str]:
+    return {row[0].strip() for row in rows if row and row[0].strip()}
+
+
+def _has_corporate_actions(rows: list[list[str]]) -> bool:
+    return CORPORATE_ACTIONS_SECTION in _section_names(rows)
+
+
+def _unsupported_section_warning(rows: list[list[str]]) -> str:
+    unsupported = sorted(_section_names(rows) - SUPPORTED_IBKR_SECTIONS - {CORPORATE_ACTIONS_SECTION})
+    if not unsupported:
+        return ""
+    sections = ", ".join(f"[{section}]" for section in unsupported)
+    return (
+        "⚠️ Открити са секции в IBKR Activity Statement CSV, които анализаторът все още не обработва: "
+        f"{sections}. Прегледайте ги ръчно, ако могат да имат влияние върху данъците или СПБ-8. "
+        "Ако липсват стойности в SPB-8 input файла, попълнете ги ръчно."
+    )
+
+
 def analyze_ibkr_activity_statement(
     *,
     input_csv: str | Path,
@@ -419,6 +469,10 @@ def analyze_ibkr_activity_statement(
         )
     else:
         _validate_statement_period(rows, tax_year=tax_year)
+    unsupported_section_warning = _unsupported_section_warning(rows)
+    if unsupported_section_warning:
+        summary.warnings.append(unsupported_section_warning)
+    summary.spb8_corporate_actions_present = _has_corporate_actions(rows)
     summary.exchange_classification_mode = _exchange_classification_mode_label(
         eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
         force_closed_world=closed_world_mode,
@@ -474,6 +528,7 @@ def analyze_ibkr_activity_statement(
         active_headers=active_headers,
         listings=listings,
         account_name=_extract_statement_account(rows, fallback=normalized_alias or input_path.stem),
+        corporate_actions_present=summary.spb8_corporate_actions_present,
     )
     summary.spb8_rows = spb8.rows
     summary.spb8_notes = spb8.warnings

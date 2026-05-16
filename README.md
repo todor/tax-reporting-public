@@ -168,12 +168,14 @@ These are sanitized real-world-style reports intended for demonstration purposes
 examples/inputs/
   ibkr_activity_statement_sample_sanitized.csv
   kraken_report_since_inception_sample_sanitized.csv
+  spb8-input-file.csv
 ```
 
 ```bash
 uv run tax-reporting \
   --input-dir examples/inputs \
   --tax-year 2025 \
+  --spb8-input-file examples/inputs/spb8-input-file.csv \
   --clean-output \
   --display-currency BGN \
   --output-dir output/examples
@@ -199,7 +201,7 @@ This mirrors real-world multi-provider workflows.
 
 СПБ-8 is a Bulgarian National Bank declaration for certain foreign assets and liabilities. This tool helps prepare the data for the declaration, but it does not submit anything to BNB.
 
-Currently, IBKR SPB-8 data is derived automatically from the IBKR Activity Statement. The manual CSV is only for data that cannot currently be derived automatically.
+Currently, IBKR SPB-8 data is derived automatically from the IBKR Activity Statement where safe. The SPB-8 CSV is a manual completion and override file for missing or uncertain values.
 
 Quick start:
 
@@ -212,8 +214,8 @@ uv run tax-reporting \
   --output-dir output/examples
 ```
 
-2. The tool writes `output/examples/spb8-input-file.csv` for manual-only SPB-8 rows, if any.
-3. Fill missing `start nav` and `end nav` values for those manual rows.
+2. The tool writes `output/examples/spb8-input-file.csv`.
+3. Fill any missing `start amount` and `end amount` values, or override generated values if needed.
 4. Run again:
 
 ```bash
@@ -228,14 +230,14 @@ uv run tax-reporting \
 
 CLI options:
 
-- `--spb8-input-file PATH` reads a completed manual SPB-8 CSV.
+- `--spb8-input-file PATH` reads a completed SPB-8 CSV. Filled values override analyzer-derived values; empty values fall back to analyzer-derived values when available.
 - `--no-spb8` disables SPB-8 generation.
 - `--spb8-exclude-crypto` excludes crypto platforms from SPB-8.
 
 Input CSV header:
 
 ```csv
-account name,platform,type,country,currency,start nav,end nav
+account name,platform,type,country,ISIN,currency,start amount,end amount
 ```
 
 Columns:
@@ -244,10 +246,11 @@ Columns:
 - `platform`: supported platform alias, for example `kraken`, `coinbase`, `lendermarket`.
 - `type`: `01`, `02`, `03`, `04`, or the full Bulgarian type label.
 - `country`: Bulgarian or English country name; inferred from platform if empty.
-- `currency`: currency code such as `EUR`.
-- `start nav`, `end nav`: numeric values for the beginning/end of the reporting year.
+- `ISIN`: `-` for types `01`/`02`/`03`; real ISIN for type `04`.
+- `currency`: 3-letter currency code for types `01`/`02`/`03`; `-` for type `04`.
+- `start amount`, `end amount`: NAV/balance for types `01`/`02`/`03`; quantity/size for type `04`.
 
-The generated template includes one row per detected input source that currently needs manual SPB-8 data. It does not include IBKR rows. If only IBKR inputs are detected, the file may contain only the CSV header.
+The generated template includes detected manual platforms and analyzer-derived SPB-8 rows. For IBKR securities, it includes one type `04` row per ISIN. If Corporate Actions are detected, IBKR type `04` start amounts may be left empty for manual completion.
 
 Automatically inferred/calculated where possible:
 
@@ -261,25 +264,29 @@ Usually filled manually:
 - crypto beginning/end NAV; crypto SPB-8 data is not automatically generated yet
 - fund beginning/end NAV; fund SPB-8 data is not automatically generated yet
 - any row left blank in the template
+- IBKR type `04` start quantities when Corporate Actions make reconstruction unsafe
 
 Limitations and warnings:
 
 - securities without ISIN are excluded and reported for review
-- crypto SPB-8 treatment may depend on accountant interpretation
+- crypto platforms are treated in this report as type `03` foreign accounts with EUR currency by default; confirm this interpretation with your accountant
 - Bulgaria platforms are not included in filing rows
 - IBKR Transfers are used for SPB-8 beginning quantity reconstruction only; unsupported transfer rows produce warnings
 - corporate actions such as stock splits, reverse splits, spin-offs, acquisitions, and mergers are not handled yet
+- if Corporate Actions are present, review the IBKR section manually because it may affect SPB-8 and taxes
+- unknown IBKR Activity Statement sections produce one consolidated warning for manual review
 
 IBKR SPB-8 principle:
 
 - IBKR securities are derived automatically from holdings/open positions.
 - IBKR beginning security quantities use Trades and supported Transfers (`Stocks`, `Treasury Bills`) for instruments still present in Open Positions.
+- When Corporate Actions are present, type `04` start quantities are left empty unless supplied through `--spb8-input-file`.
 - Transfers do not affect tax PnL or Appendix 5; tax logic continues to use IBKR Closed Lots.
 - IBKR cash is derived automatically from Cash Report, not Net Asset Value.
 - Cash Report uses `Starting Cash` as beginning balance, `Ending Cash` as ending balance, `Currency` as the original currency, and `Total` as the amount.
 - `Base Currency Summary` is ignored.
 - Multiple cash currencies produce multiple SPB-8 cash lines.
-- Do not add IBKR rows manually to the SPB-8 input CSV.
+- Use the SPB-8 input CSV to override or complete IBKR type `04` quantities when needed.
 
 Example output:
 

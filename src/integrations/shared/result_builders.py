@@ -375,4 +375,5 @@ def build_ibkr_result(
         diagnostics=diagnostics,
         spb8_rows=summary.spb8_rows,
         spb8_notes=summary.spb8_notes,
+        spb8_corporate_actions_present=summary.spb8_corporate_actions_present,
     )

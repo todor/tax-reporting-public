@@ -14,9 +14,10 @@ SPB8_CSV_HEADER = [
     "platform",
     "type",
     "country",
+    "ISIN",
     "currency",
-    "start nav",
-    "end nav",
+    "start amount",
+    "end amount",
 ]
 
 SPB8_TYPES: dict[str, str] = {
@@ -99,13 +100,16 @@ def normalize_header_name(value: str) -> str:
         "platform": "platform",
         "type": "type",
         "country": "country",
+        "isin": "ISIN",
         "currency": "currency",
-        "start": "start nav",
-        "start value": "start nav",
-        "start nav": "start nav",
-        "end": "end nav",
-        "end value": "end nav",
-        "end nav": "end nav",
+        "start": "start amount",
+        "start amount": "start amount",
+        "start value": "start amount",
+        "start nav": "start amount",
+        "end": "end amount",
+        "end amount": "end amount",
+        "end value": "end amount",
+        "end nav": "end amount",
     }
     return aliases.get(normalized, normalized)
 
@@ -171,15 +175,26 @@ def _parse_decimal(value: str, *, field: str, row_number: int) -> Decimal | None
         raise SPB8Error(f"row {row_number}: invalid {field}: {value!r}") from exc
 
 
-def _validate_required_decimal(row: SPB8Row, *, row_number: int) -> None:
-    if row.is_bulgaria:
-        return
-    if row.type_code == "04" and row.isin == "":
-        return
-    if row.start_nav is None:
-        raise SPB8Error(f"row {row_number}: start nav is required for SPB-8 filing rows")
-    if row.end_nav is None:
-        raise SPB8Error(f"row {row_number}: end nav is required for SPB-8 filing rows")
+def _validate_type_specific_fields(
+    *,
+    type_code: str,
+    isin: str,
+    currency: str,
+    row_number: int,
+) -> tuple[str, str]:
+    normalized_isin = isin.strip().upper()
+    normalized_currency = currency.strip().upper()
+    if type_code == "04":
+        if normalized_isin in {"", "-"}:
+            raise SPB8Error(f"row {row_number}: ISIN is required for SPB-8 type 04 rows")
+        if normalized_currency not in {"", "-"}:
+            raise SPB8Error(f"row {row_number}: currency must be '-' for SPB-8 type 04 rows")
+        return normalized_isin, ""
+    if normalized_isin not in {"", "-"}:
+        raise SPB8Error(f"row {row_number}: ISIN must be '-' for SPB-8 type {type_code} rows")
+    if not re.fullmatch(r"[A-Z]{3}", normalized_currency):
+        raise SPB8Error(f"row {row_number}: currency must be a 3-letter ISO code for SPB-8 type {type_code} rows")
+    return "", normalized_currency
 
 
 def read_spb8_csv(path: Path) -> list[SPB8Row]:
@@ -188,9 +203,13 @@ def read_spb8_csv(path: Path) -> list[SPB8Row]:
         if reader.fieldnames is None:
             raise SPB8Error("SPB-8 input CSV is empty")
         normalized_fields = [normalize_header_name(field) for field in reader.fieldnames]
-        missing = [field for field in SPB8_CSV_HEADER if field not in normalized_fields]
+        required_fields = [field for field in SPB8_CSV_HEADER if field != "ISIN"]
+        missing = [field for field in required_fields if field not in normalized_fields]
         if missing:
-            raise SPB8Error(f"SPB-8 input CSV is missing columns: {', '.join(missing)}")
+            expected = ", ".join(SPB8_CSV_HEADER)
+            raise SPB8Error(
+                f"SPB-8 input CSV is missing columns: {', '.join(missing)}. Expected header: {expected}"
+            )
 
         rows: list[SPB8Row] = []
         for row_number, raw_row in enumerate(reader, start=2):
@@ -206,20 +225,23 @@ def read_spb8_csv(path: Path) -> list[SPB8Row]:
             if type_code not in SPB8_TYPES:
                 raise SPB8Error(f"row {row_number}: unsupported SPB-8 type: {normalized['type']!r}")
             country = normalize_country(normalized["country"], platform=platform, row_number=row_number)
-            currency = normalized["currency"].strip().upper()
-            if currency == "":
-                raise SPB8Error(f"row {row_number}: currency is required")
+            isin, currency = _validate_type_specific_fields(
+                type_code=type_code,
+                isin=normalized.get("ISIN", "-"),
+                currency=normalized["currency"],
+                row_number=row_number,
+            )
             row = SPB8Row(
                 account_name=normalized["account name"].strip() or platform,
                 platform=platform,
                 type_code=type_code,
                 country=country,
                 currency=currency,
-                start_nav=_parse_decimal(normalized["start nav"], field="start nav", row_number=row_number),
-                end_nav=_parse_decimal(normalized["end nav"], field="end nav", row_number=row_number),
+                start_nav=_parse_decimal(normalized["start amount"], field="start amount", row_number=row_number),
+                end_nav=_parse_decimal(normalized["end amount"], field="end amount", row_number=row_number),
+                isin=isin,
                 source="csv",
             )
-            _validate_required_decimal(row, row_number=row_number)
             rows.append(row)
     return rows
 
@@ -236,7 +258,8 @@ def write_spb8_csv(path: Path, rows: list[SPB8Row]) -> None:
                     row.platform,
                     row.type_code,
                     row.country,
-                    row.currency,
+                    row.isin if row.type_code == "04" else "-",
+                    "-" if row.type_code == "04" else row.currency,
                     _decimal_to_csv(row.start_nav),
                     _decimal_to_csv(row.end_nav),
                 ]
@@ -256,7 +279,8 @@ def default_platform_rows(*, platform: str, account_name: str, currency: str = "
                 platform=platform,
                 type_code="04",
                 country=infer_country_for_platform(platform),
-                currency=currency,
+                currency="",
+                isin="-",
             ),
             SPB8Row(
                 account_name=f"{account_name} cash",
@@ -302,9 +326,13 @@ def filter_rows_for_options(
     crypto = {canonical_platform(platform) for platform in CRYPTO_PLATFORMS}
     if exclude_crypto:
         filtered = [row for row in filtered if canonical_platform(row.platform) not in crypto]
-        notes.append("Crypto platforms were excluded from SPB-8 because --spb8-exclude-crypto was used.")
+        notes.append("Крипто платформите са изключени от СПБ-8, защото е използван --spb8-exclude-crypto.")
     elif any(canonical_platform(row.platform) in crypto for row in filtered):
-        notes.append("Crypto SPB-8 treatment may depend on accountant interpretation.")
+        notes.append(
+            "Използвана интерпретация за този отчет: крипто платформите са включени като "
+            "03. Сметки, открити в чужбина, с валута EUR по подразбиране. "
+            "Потвърдете с вашия счетоводител."
+        )
     if any(row.is_bulgaria for row in filtered):
         notes.append("Не се включва в СПБ-8: държава България.")
     return filtered, notes
@@ -339,18 +367,78 @@ def _sum_optional(left: Decimal | None, right: Decimal | None) -> Decimal | None
 
 
 def merge_external_platform_rows(analyzer_rows: list[SPB8Row], external_rows: list[SPB8Row]) -> list[SPB8Row]:
-    external_platform_types = {(canonical_platform(row.platform), row.type_code) for row in external_rows}
-    merged = list(external_rows)
-    for row in analyzer_rows:
-        platform_type = (canonical_platform(row.platform), row.type_code)
-        if row.type_code != "04" and platform_type in external_platform_types:
-            continue
-        merged.append(row)
+    analyzer_by_key = {_override_key(row): row for row in analyzer_rows}
+    merged: list[SPB8Row] = []
+    used_keys: set[tuple[str, ...]] = set()
+    for external in external_rows:
+        key = _override_key(external)
+        analyzer = analyzer_by_key.get(key)
+        if analyzer is None:
+            merged.append(external)
+        else:
+            used_keys.add(key)
+            merged.append(
+                replace(
+                    analyzer,
+                    account_name=external.account_name or analyzer.account_name,
+                    country=external.country or analyzer.country,
+                    currency=external.currency if external.type_code != "04" else "",
+                    start_nav=external.start_nav if external.start_nav is not None else analyzer.start_nav,
+                    end_nav=external.end_nav if external.end_nav is not None else analyzer.end_nav,
+                    source="csv",
+                )
+            )
+    for analyzer in analyzer_rows:
+        if _override_key(analyzer) not in used_keys:
+            merged.append(analyzer)
     return merged
 
 
+def missing_spb8_value_notes(rows: list[SPB8Row]) -> list[str]:
+    notes: list[str] = []
+    for row in rows:
+        if row.is_bulgaria:
+            continue
+        if row.type_code != "04" and _row_has_zero_rendered_end_value(row):
+            continue
+        if row.start_nav is None:
+            notes.append(_missing_value_note(row, field_label="start amount"))
+        if row.end_nav is None:
+            notes.append(_missing_value_note(row, field_label="end amount"))
+    return notes
+
+
+def _override_key(row: SPB8Row) -> tuple[str, ...]:
+    platform = canonical_platform(row.platform)
+    if row.type_code == "04":
+        return (platform, row.type_code, row.isin.strip().upper())
+    return (
+        platform,
+        row.type_code,
+        row.country.strip().casefold(),
+        row.currency.strip().upper(),
+        row.maturity.strip().casefold(),
+    )
+
+
+def _missing_value_note(row: SPB8Row, *, field_label: str) -> str:
+    if row.type_code == "04":
+        return (
+            "СПБ-8: липсва стойност за "
+            f"{field_label} за ISIN={row.isin}; попълнете я в SPB-8 input файла."
+        )
+    return (
+        "СПБ-8: липсва стойност за "
+        f"{field_label} за platform={row.platform}, type={row.type_code}, country={row.country}, currency={row.currency}; "
+        "попълнете я в SPB-8 input файла."
+    )
+
+
 def render_spb8_section(rows: list[SPB8Row]) -> list[str]:
-    filing_rows = [row for row in rows if not row.is_bulgaria and _row_has_renderable_values(row)]
+    filing_source_rows = [row for row in rows if not row.is_bulgaria]
+    if missing_spb8_value_notes(filing_source_rows):
+        return []
+    filing_rows = [row for row in filing_source_rows if _row_has_renderable_values(row)]
     if not filing_rows:
         return []
     lines = ["СПБ-8"]
@@ -409,6 +497,13 @@ def _row_has_nonzero_rendered_end_value(row: SPB8Row) -> bool:
     if end_value == "":
         return False
     return Decimal(end_value) != Decimal("0")
+
+
+def _row_has_zero_rendered_end_value(row: SPB8Row) -> bool:
+    end_value = _format_optional(row.end_nav) if row.type_code == "04" else _format_thousands(row.end_nav)
+    if end_value == "":
+        return False
+    return Decimal(end_value) == Decimal("0")
 
 
 def rows_by_platform(rows: list[SPB8Row]) -> dict[str, list[SPB8Row]]:

@@ -40,6 +40,7 @@ class TaxAnalysisResult:
     diagnostics: list[AnalysisDiagnostic]
     spb8_rows: list[SPB8Row] = field(default_factory=list)
     spb8_notes: list[str] = field(default_factory=list)
+    spb8_corporate_actions_present: bool = False
 
     @property
     def status(self) -> AnalyzerStatus:

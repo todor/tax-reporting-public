@@ -23,6 +23,7 @@ from integrations.shared.spb8 import (
     filter_rows_for_options,
     manual_input_template_rows_for_platform,
     merge_external_platform_rows,
+    missing_spb8_value_notes,
     read_spb8_csv,
     render_spb8_notes_section,
     render_spb8_section,
@@ -146,17 +147,88 @@ def _write_spb8_template(*, output_dir: Path, rows: list[SPB8Row]) -> Path:
     return output_path
 
 
-def _spb8_warning_notes(*, input_file_provided: bool) -> list[str]:
-    if input_file_provided:
+def _spb8_warning_notes(*, input_file_provided: bool, has_missing_values: bool) -> list[str]:
+    if input_file_provided or not has_missing_values:
         return []
     return [
-        "SPB-8 input file was not provided. A template was generated. Fill it and rerun with --spb8-input-file <path>.",
+        "Входен SPB-8 CSV файл не е предоставен. Генериран е шаблон. "
+        "Попълнете липсващите стойности и стартирайте отново с --spb8-input-file <path>.",
     ]
+
+
+def _external_rows_for_result(result: TaxAnalysisResult, external_rows: list[SPB8Row]) -> list[SPB8Row]:
+    return rows_by_platform(external_rows).get(result.analyzer_alias, [])
+
+
+def _merged_spb8_rows_for_result(result: TaxAnalysisResult, external_rows: list[SPB8Row]) -> list[SPB8Row]:
+    if not external_rows:
+        return result.spb8_rows
+    return merge_external_platform_rows(result.spb8_rows, _external_rows_for_result(result, external_rows))
+
+
+def _corporate_actions_notes(result: TaxAnalysisResult, rows: list[SPB8Row]) -> list[str]:
+    if not result.spb8_corporate_actions_present:
+        return []
+    has_missing_start_quantity = any(
+        row.type_code == "04" and not row.is_bulgaria and row.end_nav is not None and row.start_nav is None
+        for row in rows
+    )
+    if has_missing_start_quantity:
+        return [
+            "\n".join(
+                [
+                    "⚠️ Открити са корпоративни събития (Corporate Actions) в IBKR Activity Statement CSV.",
+                    "Корпоративните събития все още не се обработват автоматично от анализатора.",
+                    "Началните количества за СПБ-8 може да не могат да бъдат изчислени надеждно.",
+                    "Попълнете липсващите начални количества в SPB-8 input файла за съответните ISIN-и.",
+                    'Прегледайте секцията "Corporate Actions" ръчно, защото тя може да има влияние и върху данъците.',
+                ]
+            )
+        ]
+    return [
+        "\n".join(
+            [
+                "⚠️ Открити са корпоративни събития (Corporate Actions) в IBKR Activity Statement CSV.",
+                "Корпоративните събития все още не се обработват автоматично от анализатора.",
+                'Прегледайте секцията "Corporate Actions" ръчно, защото тя може да има влияние и върху данъците.',
+            ]
+        )
+    ]
+
+
+def _spb8_notes_for_result(
+    result: TaxAnalysisResult,
+    *,
+    rows: list[SPB8Row],
+    input_file_provided: bool,
+    option_notes: list[str],
+) -> list[str]:
+    missing_notes = missing_spb8_value_notes(rows)
+    return (
+        result.spb8_notes
+        + _corporate_actions_notes(result, rows)
+        + missing_notes
+        + _spb8_warning_notes(input_file_provided=input_file_provided, has_missing_values=bool(missing_notes))
+        + option_notes
+    )
+
+
+def _dedupe_notes(notes: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for note in notes:
+        if note in seen:
+            continue
+        seen.add(note)
+        result.append(note)
+    return result
 
 
 def _global_status_from_results(
     results: list[TaxAnalysisResult],
     analyzer_errors: dict[str, list[str]],
+    *,
+    spb8_needs_review: bool = False,
 ) -> AnalyzerStatus:
     statuses: list[AnalyzerStatus] = [result.status for result in results]
     if analyzer_errors:
@@ -165,9 +237,26 @@ def _global_status_from_results(
         return "ERROR"
     if any(status == "NEEDS_REVIEW" for status in statuses):
         return "NEEDS_REVIEW"
+    if spb8_needs_review:
+        return "NEEDS_REVIEW"
     if any(status == "WARNING" for status in statuses):
         return "WARNING"
     return "OK"
+
+
+def _print_aggregate_error_details(analyzer_errors: dict[str, list[str]]) -> None:
+    if not analyzer_errors:
+        return
+    print("ERROR details:")
+    for alias, errors in sorted(analyzer_errors.items()):
+        for error in errors:
+            print(f"- {alias}: {error}")
+
+
+def _status_with_spb8_review(status: AnalyzerStatus, *, spb8_needs_review: bool) -> AnalyzerStatus:
+    if spb8_needs_review and status in {"OK", "WARNING"}:
+        return "NEEDS_REVIEW"
+    return status
 
 
 def _validate_tax_year(tax_year: int) -> None:
@@ -285,16 +374,24 @@ def _run_single_mode(args: argparse.Namespace) -> int:
 
     if _spb8_enabled(args):
         external_rows = _load_spb8_input(args.spb8_input_file) if args.spb8_input_file is not None else []
-        rows = rows_by_platform(external_rows).get(result.analyzer_alias, result.spb8_rows) if external_rows else result.spb8_rows
+        rows = _merged_spb8_rows_for_result(result, external_rows)
         rows, option_notes = filter_rows_for_options(
             rows,
             enabled=True,
             exclude_crypto=bool(args.spb8_exclude_crypto),
         )
-        notes = result.spb8_notes + _spb8_warning_notes(input_file_provided=args.spb8_input_file is not None) + option_notes
+        notes = _spb8_notes_for_result(
+            result,
+            rows=rows,
+            input_file_provided=args.spb8_input_file is not None,
+            option_notes=option_notes,
+        )
+        spb8_needs_review = bool(missing_spb8_value_notes(rows))
         _append_spb8_to_declaration(result, rows=rows, notes=notes)
+    else:
+        spb8_needs_review = False
 
-    status = result.status
+    status = _status_with_spb8_review(result.status, spb8_needs_review=spb8_needs_review)
     if status == "OK":
         print("STATUS: SUCCESS")
     elif status == "NEEDS_REVIEW":
@@ -362,17 +459,16 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
         "cache_dir": str(args.cache_dir) if args.cache_dir is not None else None,
         "display_currency": str(args.display_currency),
     }
-    spb8_input_rows = _load_spb8_input(args.spb8_input_file) if args.spb8_input_file is not None else []
-    if _spb8_enabled(args) and args.spb8_input_file is None:
-        template_path = _write_spb8_template(output_dir=output_dir, rows=_spb8_rows_from_detected(detected))
-        print("SPB-8 input file generated based on detected data sources. Fill missing NAV values and rerun with --spb8-input-file.")
-        print(f"SPB-8 input file: {template_path}")
-        print("SPB-8 input file was not provided. A template was generated. Fill it and rerun with --spb8-input-file <path>.")
-    elif _spb8_enabled(args):
-        _write_spb8_template(output_dir=output_dir, rows=spb8_input_rows)
+    spb8_input_rows = (
+        _load_spb8_input(args.spb8_input_file)
+        if _spb8_enabled(args) and args.spb8_input_file is not None
+        else []
+    )
 
     analyzer_results: list[TaxAnalysisResult] = []
     analyzer_errors: dict[str, list[str]] = {}
+    resolved_spb8_rows: list[SPB8Row] = []
+    resolved_spb8_notes: list[str] = []
 
     for alias in sorted(detected):
         definition = registry.resolve(alias)
@@ -407,44 +503,70 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
             try:
                 result = definition.run(context)
                 if _spb8_enabled(args):
-                    external_rows_by_platform = rows_by_platform(spb8_input_rows)
-                    rows = (
-                        external_rows_by_platform.get(result.analyzer_alias, result.spb8_rows)
-                        if spb8_input_rows
-                        else result.spb8_rows
-                    )
+                    rows = _merged_spb8_rows_for_result(result, spb8_input_rows)
+                    resolved_spb8_rows.extend(rows)
                     rows, option_notes = filter_rows_for_options(
                         rows,
                         enabled=True,
                         exclude_crypto=bool(args.spb8_exclude_crypto),
                     )
-                    notes = (
-                        result.spb8_notes
-                        + _spb8_warning_notes(input_file_provided=args.spb8_input_file is not None)
-                        + option_notes
+                    notes = _spb8_notes_for_result(
+                        result,
+                        rows=rows,
+                        input_file_provided=args.spb8_input_file is not None,
+                        option_notes=option_notes,
                     )
+                    resolved_spb8_notes.extend(notes)
                     _append_spb8_to_declaration(result, rows=rows, notes=notes)
                 analyzer_results.append(result)
             except Exception as exc:  # noqa: BLE001
                 logger.error("%s analyzer failed for %s: %s", alias, input_path, exc)
                 analyzer_errors.setdefault(alias, []).append(f"{input_path.name}: {exc}")
 
-    analyzer_spb8_rows = [row for result in analyzer_results for row in result.spb8_rows]
     if not _spb8_enabled(args):
         spb8_rows: list[SPB8Row] = []
         spb8_notes: list[str] = []
+        spb8_needs_review = False
     else:
-        merged_rows = (
-            merge_external_platform_rows(analyzer_spb8_rows, spb8_input_rows)
+        analyzer_template_rows = [row for result in analyzer_results for row in result.spb8_rows]
+        manual_template_rows = _spb8_rows_from_detected(detected)
+        base_template_rows = merge_external_platform_rows(analyzer_template_rows, manual_template_rows)
+        template_rows = (
+            merge_external_platform_rows(base_template_rows, spb8_input_rows)
             if spb8_input_rows
-            else analyzer_spb8_rows
+            else base_template_rows
         )
+        template_path = _write_spb8_template(output_dir=output_dir, rows=template_rows)
+        template_missing_notes = missing_spb8_value_notes(template_rows)
+        if args.spb8_input_file is None:
+            message = "SPB-8 input file generated based on detected data sources."
+            if template_missing_notes:
+                message += " Fill missing amounts and rerun with --spb8-input-file."
+            print(message)
+            print(f"SPB-8 input file: {template_path}")
+            if template_missing_notes:
+                print(
+                    "Входен SPB-8 CSV файл не е предоставен. Генериран е шаблон. "
+                    "Попълнете липсващите стойности и стартирайте отново с --spb8-input-file <path>."
+                )
+        base_report_rows = merge_external_platform_rows(resolved_spb8_rows, manual_template_rows)
+        merged_rows = merge_external_platform_rows(base_report_rows, spb8_input_rows) if spb8_input_rows else base_report_rows
         spb8_rows, spb8_notes = filter_rows_for_options(
             merged_rows,
             enabled=True,
             exclude_crypto=bool(args.spb8_exclude_crypto),
         )
-        spb8_notes = _spb8_warning_notes(input_file_provided=args.spb8_input_file is not None) + spb8_notes
+        spb8_missing_notes = missing_spb8_value_notes(spb8_rows)
+        spb8_notes = _dedupe_notes(
+            resolved_spb8_notes
+            + spb8_missing_notes
+            + _spb8_warning_notes(
+                input_file_provided=args.spb8_input_file is not None,
+                has_missing_values=bool(spb8_missing_notes),
+            )
+            + spb8_notes
+        )
+        spb8_needs_review = bool(spb8_missing_notes)
 
     aggregated_report_text = render_aggregated_report(
         tax_year=args.tax_year,
@@ -456,11 +578,18 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
         cache_dir=args.cache_dir,
         spb8_rows=spb8_rows,
         spb8_notes=spb8_notes,
+        spb8_needs_review=spb8_needs_review,
     )
     aggregated_report_path = output_dir / f"aggregated_tax_report_{args.tax_year}.txt"
     aggregated_report_path.write_text(aggregated_report_text, encoding="utf-8")
 
-    global_status = _global_status_from_results(analyzer_results, analyzer_errors)
+    global_status = _global_status_from_results(
+        analyzer_results,
+        analyzer_errors,
+        spb8_needs_review=spb8_needs_review,
+    )
+    if global_status == "ERROR":
+        _print_aggregate_error_details(analyzer_errors)
     print(f"STATUS: {global_status}")
     print(f"Aggregated report: {aggregated_report_path}")
     return 2 if global_status == "ERROR" else 0

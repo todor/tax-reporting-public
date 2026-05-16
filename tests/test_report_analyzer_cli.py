@@ -47,6 +47,8 @@ def _make_fake_definition(
     run_capture: _RunCapture,
     appendices: list[AppendixRecord] | None = None,
     diagnostics: list[AnalysisDiagnostic] | None = None,
+    spb8_rows: list[SPB8Row] | None = None,
+    spb8_notes: list[str] | None = None,
     aggregate_mode_option_name: str | None = None,
 ) -> AnalyzerDefinition:
     def add_arguments(parser, mode: CliMode):  # noqa: ANN001
@@ -78,6 +80,8 @@ def _make_fake_definition(
             output_paths={"declaration_txt": output_path},
             appendices=list(appendices or []),
             diagnostics=list(diagnostics or []),
+            spb8_rows=list(spb8_rows or []),
+            spb8_notes=list(spb8_notes or []),
         )
 
     return AnalyzerDefinition(
@@ -544,6 +548,7 @@ def test_aggregate_mode_supports_repeated_override_for_same_alias(
 def test_aggregate_mode_continues_on_partial_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     run_capture = _RunCapture(contexts=[])
     success = _make_fake_definition(alias="coinbase", group="crypto", tmp_path=tmp_path, run_capture=run_capture)
@@ -587,7 +592,12 @@ def test_aggregate_mode_continues_on_partial_failure(
     )
 
     assert code == 2
+    stdout = capsys.readouterr().out
+    assert "ERROR details:" in stdout
+    assert "- kraken: kraken.csv: boom" in stdout
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
+    assert "Причина за ERROR:" in report
+    assert "- kraken: kraken.csv: boom" in report
     assert "coinbase: OK" in report
     assert "kraken: ERROR" in report
     assert "boom" in report
@@ -907,19 +917,25 @@ def test_aggregate_mode_generates_spb8_template_from_detected_inputs(
     stdout = capsys.readouterr().out
 
     assert code == 0
+    assert "STATUS: NEEDS_REVIEW" in stdout
     assert "SPB-8 input file generated based on detected data sources" in stdout
     template = out_dir / "spb8-input-file.csv"
     assert template.read_text(encoding="utf-8").splitlines() == [
-        "account name,platform,type,country,currency,start nav,end nav",
-        "kraken_report,kraken,03,Ирландия,EUR,,",
+        "account name,platform,type,country,ISIN,currency,start amount,end amount",
+        "kraken_report,kraken,03,Ирландия,-,EUR,,",
     ]
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
-    assert "СПБ-8\n- Crypto SPB-8 treatment" not in report
+    assert "Третирането на крипто активи за СПБ-8" not in report
+    assert "Използвана интерпретация за този отчет: крипто платформите са включени" in report
+    assert "Причина за ръчна проверка:" in report
+    assert "СПБ-8: липсва стойност за start amount" in report
+    assert "Тип на вземането" not in report
     assert "Забележки за СПБ-8" in report
-    assert "SPB-8 input file was not provided" in report
+    assert "Входен SPB-8 CSV файл не е предоставен" in report
+    assert "SPB-8 input file was not provided" not in report
 
 
-def test_aggregate_mode_does_not_generate_manual_spb8_rows_for_ibkr(
+def test_aggregate_mode_generates_spb8_template_rows_for_ibkr_analyzer_data(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -992,11 +1008,13 @@ def test_aggregate_mode_does_not_generate_manual_spb8_rows_for_ibkr(
     assert code == 0
     assert len(run_capture.contexts) == 3
     assert (out_dir / "spb8-input-file.csv").read_text(encoding="utf-8").splitlines() == [
-        "account name,platform,type,country,currency,start nav,end nav"
+        "account name,platform,type,country,ISIN,currency,start amount,end amount",
+        "ibkr_U1,ibkr,03,Ирландия,-,EUR,1000,2000",
+        "ibkr_U2,ibkr,03,Ирландия,-,EUR,1000,2000",
+        "ibkr_U3,ibkr,03,Ирландия,-,EUR,1000,2000",
     ]
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
     assert "СПБ-8" in report
-    assert "СПБ-8\n- Детайлите" not in report
     assert "Забележки за СПБ-8" in report
     assert report.index("СПБ-8") < report.index(TECHNICAL_DETAILS_SEPARATOR)
     assert "Размер в началото на отчетната година (в хиляди валутни единици): 3.00" in report
@@ -1009,9 +1027,19 @@ def test_aggregate_mode_does_not_generate_manual_spb8_rows_for_ibkr(
 def test_no_spb8_disables_template_and_sections(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     run_capture = _RunCapture(contexts=[])
-    fake = _make_fake_definition(alias="kraken", group="crypto", tmp_path=tmp_path, run_capture=run_capture)
+    fake = _make_fake_definition(
+        alias="kraken",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        spb8_rows=[
+            SPB8Row("kraken", "kraken", "03", "Ирландия", "EUR", Decimal("1000"), Decimal("2000")),
+        ],
+        spb8_notes=["SPB-8 analyzer note that must be suppressed"],
+    )
     registry = _make_registry(fake)
     monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: registry)
     (tmp_path / "kraken_report.csv").write_text("x\n", encoding="utf-8")
@@ -1026,15 +1054,23 @@ def test_no_spb8_disables_template_and_sections(
             "--output-dir",
             str(out_dir),
             "--no-spb8",
+            "--spb8-input-file",
+            str(tmp_path / "missing-spb8.csv"),
         ]
     )
+    stdout = capsys.readouterr().out
 
     assert code == 0
+    assert "SPB-8" not in stdout
+    assert "СПБ-8" not in stdout
     assert not (out_dir / "spb8-input-file.csv").exists()
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
+    assert "SPB-8" not in report
     assert "СПБ-8" not in report
     declaration = next((out_dir / "kraken").rglob("*_declaration.txt"))
-    assert "СПБ-8" not in declaration.read_text(encoding="utf-8")
+    declaration_text = declaration.read_text(encoding="utf-8")
+    assert "SPB-8" not in declaration_text
+    assert "СПБ-8" not in declaration_text
 
 
 def test_spb8_input_file_renders_aggregate_and_individual_sections(
@@ -1095,8 +1131,8 @@ def test_spb8_input_file_renders_aggregate_and_individual_sections(
     (tmp_path / "kraken_report.csv").write_text("x\n", encoding="utf-8")
     spb8_input = tmp_path / "spb8.csv"
     spb8_input.write_text(
-        "account_name,platform,type,country,currency,start_nav,end_nav\n"
-        "kraken,kraken,03,Ireland,EUR,1000,2000\n",
+        "account_name,platform,type,country,ISIN,currency,start_amount,end_amount\n"
+        "kraken,kraken,03,Ireland,-,EUR,1000,2000\n",
         encoding="utf-8",
     )
 
@@ -1125,3 +1161,173 @@ def test_spb8_input_file_renders_aggregate_and_individual_sections(
     assert "СПБ-8" in declaration_text
     assert declaration_text.index("Забележки за СПБ-8") > declaration_text.index("Тип на вземането")
     assert "Забележки за СПБ-8" in declaration_text
+
+
+def test_spb8_input_type04_override_falls_back_to_analyzer_and_resolves_corporate_action_note(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+
+    def add_arguments(parser, mode: CliMode):  # noqa: ANN001
+        _ = parser
+        _ = mode
+
+    def build_options(args, mode: CliMode, group_options):  # noqa: ANN001
+        _ = args
+        _ = mode
+        _ = group_options
+        return {}
+
+    def run(context: AnalyzerRunContext) -> TaxAnalysisResult:
+        run_capture.contexts.append(context)
+        out = context.output_dir / "ibkr_declaration.txt"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("ok\n", encoding="utf-8")
+        return TaxAnalysisResult(
+            analyzer_alias="ibkr",
+            input_path=context.input_path,
+            tax_year=context.tax_year,
+            output_paths={"declaration_txt": out},
+            appendices=[],
+            diagnostics=[],
+            spb8_rows=[
+                SPB8Row(
+                    account_name="ibkr analyzer",
+                    platform="ibkr",
+                    type_code="04",
+                    country="Ирландия",
+                    currency="",
+                    start_nav=None,
+                    end_nav=Decimal("15"),
+                    isin="IE00BK5BQT80",
+                )
+            ],
+            spb8_corporate_actions_present=True,
+        )
+
+    definition = AnalyzerDefinition(
+        alias="ibkr",
+        group="broker",
+        aliases=(),
+        description="ibkr fake analyzer",
+        default_output_dir=tmp_path / "ibkr",
+        input_suffixes=(".csv",),
+        detection_token_sets=(("ibkr",),),
+        add_arguments=add_arguments,
+        build_options=build_options,
+        run=run,
+    )
+    registry = _make_registry(definition)
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: registry)
+    (tmp_path / "ibkr_report.csv").write_text("x\n", encoding="utf-8")
+    spb8_input = tmp_path / "spb8.csv"
+    spb8_input.write_text(
+        "account name,platform,type,country,ISIN,currency,start amount,end amount\n"
+        "ibkr manual,ibkr,04,Ireland,IE00BK5BQT80,-,12,\n",
+        encoding="utf-8",
+    )
+
+    out_dir = tmp_path / "out"
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(out_dir),
+            "--spb8-input-file",
+            str(spb8_input),
+        ]
+    )
+
+    assert code == 0
+    report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
+    assert "ISIN: IE00BK5BQT80" in report
+    assert "Размер в началото на отчетната година: 12" in report
+    assert "Размер в края на отчетната година: 15" in report
+    assert "Открити са корпоративни събития" in report
+    assert "Попълнете липсващите начални количества" not in report
+    assert (out_dir / "spb8-input-file.csv").read_text(encoding="utf-8").splitlines() == [
+        "account name,platform,type,country,ISIN,currency,start amount,end amount",
+        "ibkr manual,ibkr,04,Ирландия,IE00BK5BQT80,-,12,15",
+    ]
+
+
+def test_spb8_corporate_actions_with_missing_start_quantity_warns_for_manual_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+
+    def add_arguments(parser, mode: CliMode):  # noqa: ANN001
+        _ = parser
+        _ = mode
+
+    def build_options(args, mode: CliMode, group_options):  # noqa: ANN001
+        _ = args
+        _ = mode
+        _ = group_options
+        return {}
+
+    def run(context: AnalyzerRunContext) -> TaxAnalysisResult:
+        run_capture.contexts.append(context)
+        out = context.output_dir / "ibkr_declaration.txt"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("ok\n", encoding="utf-8")
+        return TaxAnalysisResult(
+            analyzer_alias="ibkr",
+            input_path=context.input_path,
+            tax_year=context.tax_year,
+            output_paths={"declaration_txt": out},
+            appendices=[],
+            diagnostics=[],
+            spb8_rows=[
+                SPB8Row("ibkr analyzer", "ibkr", "04", "Ирландия", "", None, Decimal("15"), isin="IE00BK5BQT80")
+            ],
+            spb8_corporate_actions_present=True,
+        )
+
+    definition = AnalyzerDefinition(
+        alias="ibkr",
+        group="broker",
+        aliases=(),
+        description="ibkr fake analyzer",
+        default_output_dir=tmp_path / "ibkr",
+        input_suffixes=(".csv",),
+        detection_token_sets=(("ibkr",),),
+        add_arguments=add_arguments,
+        build_options=build_options,
+        run=run,
+    )
+    registry = _make_registry(definition)
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: registry)
+    (tmp_path / "ibkr_report.csv").write_text("x\n", encoding="utf-8")
+
+    out_dir = tmp_path / "out"
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
+
+    stdout = capsys.readouterr().out
+
+    assert code == 0
+    assert "STATUS: NEEDS_REVIEW" in stdout
+    report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
+    assert "Тип на вземането" not in report
+    assert "Попълнете липсващите начални количества" in report
+    assert "ISIN=IE00BK5BQT80" in report
+    assert "Входен SPB-8 CSV файл не е предоставен" in report
+    assert (out_dir / "spb8-input-file.csv").read_text(encoding="utf-8").splitlines() == [
+        "account name,platform,type,country,ISIN,currency,start amount,end amount",
+        "ibkr analyzer,ibkr,04,Ирландия,IE00BK5BQT80,-,,15",
+    ]

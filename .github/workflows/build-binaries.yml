@@ -146,6 +146,7 @@ jobs:
           ./dist/nuitka/${{ matrix.binary }} \
             --input-dir examples/inputs \
             --tax-year 2025 \
+            --spb8-input-file examples/inputs/spb8-input-file.csv \
             --display-currency BGN \
             --output-dir output/examples
           test -f output/examples/aggregated_tax_report_2025.txt
@@ -163,6 +164,7 @@ jobs:
           .\dist\nuitka\${{ matrix.binary }} `
             --input-dir examples\inputs `
             --tax-year 2025 `
+            --spb8-input-file examples\inputs\spb8-input-file.csv `
             --display-currency BGN `
             --output-dir output\examples
           if (!(Test-Path output\examples\aggregated_tax_report_2025.txt)) {
