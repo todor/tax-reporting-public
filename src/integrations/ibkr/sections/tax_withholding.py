@@ -21,6 +21,7 @@ from ..models import (
     _ActiveHeader,
 )
 from ..shared import (
+    IbkrReportDateFormat,
     _activate_header,
     _fmt,
     _index_for,
@@ -351,6 +352,7 @@ def process_withholding_section(
     summary: AnalysisSummary,
     fx_provider,
     tax_year: int,
+    report_date_format: IbkrReportDateFormat,
 ) -> WithholdingSectionResult:
     row_extras: dict[int, dict[str, str]] = {}
     row_base_len: dict[int, int] = {}
@@ -410,7 +412,12 @@ def process_withholding_section(
         review_status_normalized = _normalize_review_status(review_status_raw)
 
         auto_appendix = _classify_withholding_appendix(summary, description=description)
-        tax_date = _parse_interest_date(data[field_idx.date], row_number=row_number)
+        tax_date = _parse_interest_date(
+            data[field_idx.date],
+            row_number=row_number,
+            report_date_format=report_date_format,
+            field_name="Withholding Tax date",
+        )
         tax_amount = _parse_decimal(data[field_idx.amount], row_number=row_number, field_name="Amount")
         auto_country_text, auto_isin, auto_amount_eur, auto_amount_eur_text = _resolve_withholding_auto_fields(
             summary=summary,

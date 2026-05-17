@@ -217,6 +217,12 @@ class AnalysisSummary:
     trades_data_rows_total: int = 0
     trade_discriminator_rows: int = 0
     closedlot_discriminator_rows: int = 0
+    report_date_format_label: str = ""
+    report_date_format_reason: str = ""
+    closedlot_date_format_label: str = ""
+    closedlot_date_format_reason: str = ""
+    unsupported_trade_asset_categories: set[str] = field(default_factory=set)
+    unsupported_trade_asset_category_rows: int = 0
     order_discriminator_rows: int = 0
     closing_trade_candidates: int = 0
     sanity_passed: bool = False

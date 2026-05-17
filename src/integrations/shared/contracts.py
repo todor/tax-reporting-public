@@ -19,6 +19,25 @@ class AnalysisDiagnostic:
     severity: DiagnosticSeverity
     message: str
     analyzer_alias: str
+    code: str | None = None
+    params: dict[str, Any] = field(default_factory=dict)
+    technical_message_en: str | None = None
+
+
+class UserFacingTaxError(Exception):
+    """Expected user-actionable failure rendered through shared report messages."""
+
+    def __init__(
+        self,
+        *,
+        code: str,
+        params: dict[str, Any] | None = None,
+        technical_message_en: str | None = None,
+    ) -> None:
+        self.code = code
+        self.params = params or {}
+        self.technical_message_en = technical_message_en
+        super().__init__(technical_message_en or code)
 
 
 @dataclass(slots=True)

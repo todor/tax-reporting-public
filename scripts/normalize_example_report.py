@@ -12,11 +12,25 @@ def normalize_report(text: str) -> str:
         "file://<REPO>/examples/inputs/",
         normalized,
     )
+    normalized = normalized.replace("file://", "__FILE_URI__")
+    normalized = re.sub(
+        r"(?:[A-Za-z]:)?[/\\]\S*[/\\]examples[/\\]inputs[/\\]",
+        "<REPO>/examples/inputs/",
+        normalized,
+    )
+    normalized = normalized.replace("__FILE_URI__", "file://")
     normalized = re.sub(
         r"file://\S*?/output/examples/",
         "file://<OUTPUT>/",
         normalized,
     )
+    normalized = normalized.replace("file://", "__FILE_URI__")
+    normalized = re.sub(
+        r"(?:[A-Za-z]:)?[/\\]\S*[/\\]output[/\\]examples(?=$|[/\\]|\s)",
+        "<OUTPUT>",
+        normalized,
+    )
+    normalized = normalized.replace("__FILE_URI__", "file://")
     return normalized
 
 

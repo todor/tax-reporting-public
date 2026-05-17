@@ -132,7 +132,7 @@ Output sections:
 - `Част II`
 - `Част III`
 - `Audit Data`
-- `Бележки по обработката` (when parser emits non-blocking explanatory notes)
+- shared top-level warning/manual-review summary when parser emits actionable diagnostics
 
 Informative rows include reporting year, statement period, summary metrics, appendix net/WHT totals, and active secondary-market mode.
 

@@ -30,6 +30,7 @@ from integrations.shared.rendering.display_currency import (
     build_render_context,
     display_currency_technical_lines,
 )
+from integrations.shared.reporting import normalize_diagnostics
 from integrations.shared.spb8 import (
     SPB8Row,
     aggregate_spb8_rows,
@@ -37,11 +38,13 @@ from integrations.shared.spb8 import (
     render_spb8_section,
 )
 
-from .contracts import AnalyzerStatus, AppendixRecord, TaxAnalysisResult
+from .contracts import AnalysisDiagnostic, AnalyzerStatus, AppendixRecord, TaxAnalysisResult
 
 ZERO = Decimal("0")
-def _to_file_uri(path: Path) -> str:
-    return path.expanduser().resolve().as_uri()
+
+
+def _format_path(path: Path) -> str:
+    return str(path.expanduser().resolve())
 
 
 def _status_banner(global_status: AnalyzerStatus) -> str:
@@ -134,6 +137,15 @@ class AggregatedAppendices:
     appendix8_part1_by_group: dict[tuple[str, str, str], Appendix8Part1Totals] = field(default_factory=dict)
     appendix8_part3_by_group: dict[tuple[str, str, str, str], Appendix8Part3Totals] = field(default_factory=dict)
     appendix9_part2_by_group: dict[tuple[str, str], Appendix9Part2Totals] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class AnalyzerRunStatus:
+    analyzer_alias: str
+    status: AnalyzerStatus
+    source_path: Path | str | None = None
+    declaration_path: Path | str | None = None
+    reason: str = ""
 
 
 def _aggregate_appendix5(record: AppendixRecord, data: AggregatedAppendices) -> None:
@@ -275,29 +287,20 @@ def _global_status(statuses: list[AnalyzerStatus]) -> AnalyzerStatus:
 
 
 def _render_detected_inputs(lines: list[str], detected_inputs: dict[str, list[Path]]) -> None:
-    lines.extend(["", "Detected inputs"])
-    if detected_inputs:
-        for alias in sorted(detected_inputs):
-            for path in detected_inputs[alias]:
-                lines.append(f"- {alias}: {_to_file_uri(path)}")
+    if not detected_inputs:
         return
-    lines.append("- -")
+    lines.extend(["", "Detected inputs"])
+    for alias in sorted(detected_inputs):
+        for path in detected_inputs[alias]:
+            lines.append(f"- {alias}: {_format_path(path)}")
 
 
 def _render_ignored_inputs(lines: list[str], ignored_inputs: list[tuple[Path, str]]) -> None:
-    lines.extend(["", "Ignored inputs"])
-    if ignored_inputs:
-        for path, reason in ignored_inputs:
-            lines.append(f"- {_to_file_uri(path)}: {reason}")
+    if not ignored_inputs:
         return
-    lines.append("- -")
-
-
-def _results_by_alias(analyzer_results: list[TaxAnalysisResult]) -> dict[str, list[TaxAnalysisResult]]:
-    grouped: dict[str, list[TaxAnalysisResult]] = defaultdict(list)
-    for result in analyzer_results:
-        grouped[result.analyzer_alias].append(result)
-    return grouped
+    lines.extend(["", "Ignored inputs"])
+    for path, reason in ignored_inputs:
+        lines.append(f"- {_format_path(path)}: {reason}")
 
 
 def _merge_status(base: AnalyzerStatus, incoming: AnalyzerStatus) -> AnalyzerStatus:
@@ -313,62 +316,103 @@ def _merge_status(base: AnalyzerStatus, incoming: AnalyzerStatus) -> AnalyzerSta
 def _render_per_analyzer_status(
     lines: list[str],
     *,
-    statuses: dict[str, AnalyzerStatus],
-    detected_inputs: dict[str, list[Path]],
-    analyzer_results: list[TaxAnalysisResult],
-    analyzer_errors: dict[str, list[str]],
+    run_statuses: list[AnalyzerRunStatus],
 ) -> None:
-    lines.extend(["", "Per-analyzer status"])
-    all_aliases = sorted(set(statuses) | set(detected_inputs))
-    results_by_alias = _results_by_alias(analyzer_results)
-    for alias in all_aliases:
-        status = statuses.get(alias, "ERROR")
-        lines.append(f"- {alias}: {status}")
-        alias_errors = analyzer_errors.get(alias, [])
-        for error in alias_errors:
-            lines.append(f"  error: {error}")
-        alias_results = results_by_alias.get(alias, [])
-        declaration_paths = [
-            result.output_paths["declaration_txt"]
-            for result in alias_results
-            if "declaration_txt" in result.output_paths
-        ]
-        for declaration_path in declaration_paths:
-            lines.append(f"  declaration: {_to_file_uri(declaration_path)}")
-
-
-def _collect_diagnostics(
-    analyzer_results: list[TaxAnalysisResult],
-    analyzer_errors: dict[str, list[str]],
-) -> dict[str, list[str]]:
-    diagnostics_by_severity: dict[str, list[str]] = defaultdict(list)
-    for result in analyzer_results:
-        for diagnostic in result.diagnostics:
-            if diagnostic.severity == "INFO":
-                continue
-            diagnostics_by_severity[diagnostic.severity].append(
-                f"{diagnostic.analyzer_alias}: {diagnostic.message}"
-            )
-    for alias, errors in sorted(analyzer_errors.items()):
-        for error in errors:
-            diagnostics_by_severity["ERROR"].append(f"{alias}: {error}")
-    return diagnostics_by_severity
-
-
-def _render_diagnostics_summary(
-    lines: list[str],
-    diagnostics_by_severity: dict[str, list[str]],
-) -> None:
-    if not diagnostics_by_severity:
+    if not run_statuses:
         return
-    lines.extend(["", "Warnings/Errors summary"])
-    for severity in ("ERROR", "MANUAL_REVIEW", "WARNING"):
-        entries = diagnostics_by_severity.get(severity, [])
-        if not entries:
+    lines.extend(["", "Per-analyzer status"])
+    grouped: dict[str, list[AnalyzerRunStatus]] = defaultdict(list)
+    for status in run_statuses:
+        grouped[status.analyzer_alias].append(status)
+    for alias in sorted(grouped):
+        lines.append(alias)
+        for run_status in grouped[alias]:
+            lines.append(f"- {run_status.status}")
+            if run_status.source_path:
+                lines.append(f"  source: {_format_path_value(run_status.source_path)}")
+            if run_status.declaration_path:
+                lines.append(f"  declaration: {_format_path_value(run_status.declaration_path)}")
+            if run_status.reason:
+                lines.append(f"  reason: {run_status.reason}")
+
+
+def _format_path_value(path: Path | str) -> str:
+    if isinstance(path, Path):
+        return _format_path(path)
+    return str(path)
+
+
+def _short_reason_for_diagnostic(diagnostic: AnalysisDiagnostic) -> str:
+    if diagnostic.code == "MISSING_REQUIRED_COLUMNS":
+        return "missing required columns"
+    if diagnostic.code == "SPB8_MISSING_VALUES":
+        return "missing SPB-8 values"
+    if diagnostic.code == "FOREX_ROWS_IGNORED":
+        return "forex rows ignored"
+    if diagnostic.code == "UNSUPPORTED_TRADES_ROWS":
+        return "unsupported Trades rows skipped"
+    if diagnostic.code == "UNKNOWN_DIVIDEND_ROWS":
+        return "unknown dividend/payment-in-lieu rows"
+    if diagnostic.code in {"UNCLASSIFIED_WARNING_GROUP", "UNCLASSIFIED_MANUAL_REVIEW_GROUP"}:
+        examples = diagnostic.params.get("examples")
+        if isinstance(examples, list) and examples:
+            return str(examples[0]).splitlines()[0][:100]
+        return diagnostic.code.lower().replace("_", " ")
+    message = diagnostic.message.strip()
+    if message.startswith("reporting year in PDF (") and "differs from requested tax year" in message:
+        return "reporting year mismatch"
+    if diagnostic.code:
+        return diagnostic.code.lower().replace("_", " ")
+    return message.splitlines()[0][:100]
+
+
+def _run_statuses_from_results(
+    analyzer_results: list[TaxAnalysisResult],
+    analyzer_errors: dict[str, list[str]],
+    analyzer_error_diagnostics: list[AnalysisDiagnostic],
+) -> list[AnalyzerRunStatus]:
+    run_statuses: list[AnalyzerRunStatus] = []
+    for result in analyzer_results:
+        diagnostics = normalize_diagnostics(result.diagnostics)
+        run_statuses.append(
+            AnalyzerRunStatus(
+                analyzer_alias=result.analyzer_alias,
+                status=result.status,
+                source_path=result.input_path,
+                declaration_path=result.output_paths.get("declaration_txt"),
+                reason=_short_reason_for_diagnostic(diagnostics[0]) if result.status != "OK" and diagnostics else "",
+            )
+        )
+    for diagnostic in analyzer_error_diagnostics:
+        source_path = diagnostic.params.get("path") or diagnostic.params.get("source_file") or diagnostic.params.get("filename")
+        run_statuses.append(
+            AnalyzerRunStatus(
+                analyzer_alias=diagnostic.analyzer_alias,
+                status="ERROR",
+                source_path=str(source_path) if source_path else None,
+                reason=_short_reason_for_diagnostic(diagnostic),
+            )
+        )
+    for alias, errors in analyzer_errors.items():
+        if any(diagnostic.analyzer_alias == alias for diagnostic in analyzer_error_diagnostics):
             continue
-        lines.append(f"- {severity}: {len(entries)}")
-        for entry in entries:
-            lines.append(f"  {entry}")
+        for error in errors:
+            run_statuses.append(
+                AnalyzerRunStatus(
+                    analyzer_alias=alias,
+                    status="ERROR",
+                    reason=error.split(":", 1)[0] if ":" in error else "analyzer error",
+                )
+            )
+    return sorted(
+        run_statuses,
+        key=lambda item: (
+            item.analyzer_alias,
+            str(item.source_path or ""),
+            str(item.declaration_path or ""),
+            item.status,
+        ),
+    )
 
 
 def _status_reason_lines(
@@ -546,6 +590,7 @@ def render_aggregated_report(
     ignored_inputs: list[tuple[Path, str]],
     analyzer_results: list[TaxAnalysisResult],
     analyzer_errors: dict[str, list[str]],
+    analyzer_error_diagnostics: list[AnalysisDiagnostic] | None = None,
     display_currency: str = "EUR",
     cache_dir: str | Path | None = None,
     spb8_rows: list[SPB8Row] | None = None,
@@ -613,12 +658,8 @@ def render_aggregated_report(
     _render_ignored_inputs(technical_lines, ignored_inputs)
     _render_per_analyzer_status(
         technical_lines,
-        statuses=statuses,
-        detected_inputs=detected_inputs,
-        analyzer_results=analyzer_results,
-        analyzer_errors=analyzer_errors,
+        run_statuses=_run_statuses_from_results(analyzer_results, analyzer_errors, analyzer_error_diagnostics or []),
     )
-    _render_diagnostics_summary(technical_lines, _collect_diagnostics(analyzer_results, analyzer_errors))
 
     append_technical_details(lines, technical_lines)
     return "\n".join(lines).rstrip() + "\n"

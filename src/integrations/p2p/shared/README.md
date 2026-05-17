@@ -58,9 +58,9 @@ Renderer guarantees:
 - stable ordering of sections and rows
 - deterministic decimal formatting for money values
 - identical field labels across P2P providers
-- manual-check block is shown only when warning-level issues exist
-- tax-result clarifications are rendered in Bulgarian sections (`Информативни`, `Бележки по обработката`)
-- extracted technical/audit context is rendered in English under `Technical Details` -> `Audit Data`
+- warning/manual-review diagnostics are returned as structured analyzer diagnostics for the shared TXT envelope
+- tax-result clarifications that are not actionable are rendered in Bulgarian informational sections
+- extracted technical/audit context is rendered in English/mixed text in the sibling diagnostics TXT file
 
 ## Mode handling
 

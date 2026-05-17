@@ -1,0 +1,34 @@
+Technical Details
+
+Aggregated tax report diagnostics
+- status: OK
+- output_dir: <OUTPUT>
+- detected_inputs_count: 2
+- ignored_inputs_count: 1
+
+Analyzer technical details
+Aggregated Report
+- tax year: 2025
+- global status: OK
+- Display currency: BGN
+- Calculations currency: EUR
+- Display FX source: BNB
+- Display FX date: 2025-12-31
+- Display FX pair: EUR/BGN
+
+Detected inputs
+- ibkr: <REPO>/examples/inputs/ibkr_activity_statement_sample_sanitized.csv
+- kraken: <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv
+
+Ignored inputs
+- <REPO>/examples/inputs/spb8-input-file.csv: no analyzer alias matched
+
+Per-analyzer status
+ibkr
+- OK
+  source: <REPO>/examples/inputs/ibkr_activity_statement_sample_sanitized.csv
+  declaration: <OUTPUT>/ibkr/ibkr_activity_declaration_2025.txt
+kraken
+- OK
+  source: <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv
+  declaration: <OUTPUT>/kraken/kraken_report_since_inception_sample_sanitized_declaration.txt

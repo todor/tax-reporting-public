@@ -530,14 +530,22 @@ Display currency rule (all analyzers, single + aggregate):
 - `--display-currency BGN` converts declaration-facing TXT monetary values from EUR to BGN
 - conversion is rendering-only (no calculation/aggregation changes)
 - conversion uses `services.bnb_fx` on `31 Dec` of the selected tax year
-- technical metadata for this conversion is shown under `Technical Details`
+- technical metadata for this conversion is shown in the sibling diagnostics TXT file
+
+TXT output boundary:
+
+- main TXT reports are Bulgarian and taxpayer/accountant-facing
+- main TXT reports contain declaration sections, deduplicated actionable errors/warnings/manual-review items near the top, assumptions, and what to do next
+- diagnostics TXT reports contain sorted technical/audit/debug details, raw parser messages, normal filesystem paths, and tracebacks when useful
+- stdout is intentionally short: status, main report path, diagnostics path, and summary counts
 
 Aggregate output:
 
 - per-analyzer subfolders under `<output-dir>/<alias>/...`
 - `aggregated_tax_report_<tax_year>.txt` at `<output-dir>/`
-- aggregate TXT starts with a top status banner (`OK` / `WARNING` / `NEEDS_REVIEW` / `ERROR`)
-- output file paths inside aggregate TXT are rendered as URL-encoded `file://` links for clickability in terminals/editors that support file URIs
+- `aggregated_tax_report_<tax_year>.diagnostics.txt` at `<output-dir>/`
+- aggregate TXT starts with a Bulgarian top status banner
+- individual analyzer outputs also have sibling `*.diagnostics.txt` files
 
 ## BNB FX (`services.bnb_fx`)
 
@@ -822,7 +830,7 @@ IBKR appendix credit math note:
   - open-world mode (default): unmapped venues stay review-worthy
   - closed-world mode (activated by `--eu-regulated-exchange` or `--closed-world`): built-in EU regulated + CLI overrides become the effective regulated universe for this run
   - in closed-world mode, readable normalized venues are forced to non-regulated classification unless explicitly regulated (only invalid/garbled values remain review-worthy)
-- IBKR declaration output includes `Audit Data` with encountered venue categories and active classification mode.
+- IBKR diagnostics output includes `Audit Data` with encountered venue categories and active classification mode.
 - In `listed_symbol` mode, execution exchange is documented once as a global informational note (no per-row informational noise).
 
 ### Coinbase report analyzer

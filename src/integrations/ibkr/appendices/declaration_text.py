@@ -594,6 +594,19 @@ def _append_proof_section(
     lines.append(f"- processed trades (in tax year): {summary.processed_trades_in_tax_year}")
     lines.append(f"- trades outside tax year: {summary.trades_outside_tax_year}")
     lines.append(f"- ignored rows without token C: {summary.ignored_non_closing_trade_rows}")
+    if summary.unsupported_trade_asset_categories:
+        lines.append(
+            "- unsupported Trades asset categories skipped: "
+            f"{', '.join(sorted(summary.unsupported_trade_asset_categories))}"
+        )
+        lines.append(
+            "- unsupported Trades rows skipped: "
+            f"{summary.unsupported_trade_asset_category_rows}"
+        )
+    if summary.report_date_format_label:
+        lines.append(f"- IBKR report date format: {summary.report_date_format_label}")
+    if summary.report_date_format_reason:
+        lines.append(f"- IBKR report date format reason: {summary.report_date_format_reason}")
     lines.append(f"- review overrides (TAXABLE/NON-TAXABLE): {summary.review_status_overrides_rows}")
     lines.append(f"- unknown Review Status rows: {summary.unknown_review_status_rows}")
     if summary.unknown_review_status_values:

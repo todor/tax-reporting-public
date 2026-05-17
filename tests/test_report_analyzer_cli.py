@@ -20,6 +20,7 @@ from integrations.shared.contracts import (
 )
 from integrations.shared.cli_helpers import CliMode
 from integrations.shared.registry import AnalyzerRegistry
+from integrations.shared.reporting import render_action_items, render_diagnostics_report
 from integrations.shared.rendering.common import TECHNICAL_DETAILS_SEPARATOR
 from integrations.shared.spb8 import SPB8Row
 
@@ -129,6 +130,264 @@ def test_single_analyzer_mode_runs_selected_analyzer(
     assert len(run_capture.contexts) == 1
     assert run_capture.contexts[0].input_path == input_file.resolve()
     assert run_capture.contexts[0].options["display_currency"] == "EUR"
+    output_path = tmp_path / "out" / "ibkr_declaration.txt"
+    diagnostics_path = tmp_path / "out" / "ibkr_declaration.diagnostics.txt"
+    assert output_path.exists()
+    assert diagnostics_path.exists()
+    declaration = output_path.read_text(encoding="utf-8")
+    diagnostics = diagnostics_path.read_text(encoding="utf-8")
+    assert "!!! СТАТУС: УСПЕШЕН !!!" in declaration
+    assert "Данъчна година: 2025" in declaration
+    assert "Бележки и допускания" not in declaration
+    assert "Изчисления и визуализация" in declaration
+    assert "Диагностика" in declaration
+    assert TECHNICAL_DETAILS_SEPARATOR not in declaration
+    assert "Technical Details" in diagnostics
+
+
+def test_single_analyzer_report_strips_duplicate_legacy_review_blocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+
+    def add_arguments(parser, mode: CliMode):  # noqa: ANN001
+        _ = parser
+        _ = mode
+
+    def build_options(args, mode: CliMode, group_options):  # noqa: ANN001
+        _ = args
+        _ = mode
+        _ = group_options
+        return {}
+
+    def run(context: AnalyzerRunContext) -> TaxAnalysisResult:
+        run_capture.contexts.append(context)
+        output_path = context.output_dir / "lendermarket_declaration.txt"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            "\n".join(
+                [
+                    "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!",
+                    "- old duplicate",
+                    "",
+                    "Бележки по обработката",
+                    "- reporting year in PDF (2023) differs from requested tax year (2025)",
+                    "",
+                    "Приложение 6",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return TaxAnalysisResult(
+            analyzer_alias="lendermarket",
+            input_path=context.input_path,
+            tax_year=context.tax_year,
+            output_paths={"declaration_txt": output_path},
+            appendices=[],
+            diagnostics=[
+                AnalysisDiagnostic(
+                    severity="MANUAL_REVIEW",
+                    message="reporting year in PDF (2023) differs from requested tax year (2025)",
+                    analyzer_alias="lendermarket",
+                )
+            ],
+        )
+
+    definition = AnalyzerDefinition(
+        alias="lendermarket",
+        group="p2p",
+        aliases=(),
+        description="lendermarket fake analyzer",
+        default_output_dir=tmp_path / "lendermarket",
+        input_suffixes=(".csv",),
+        detection_token_sets=(("lendermarket",),),
+        add_arguments=add_arguments,
+        build_options=build_options,
+        run=run,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(definition))
+    input_file = tmp_path / "lendermarket.csv"
+    input_file.write_text("x\n", encoding="utf-8")
+
+    code = report_analyzer.main(
+        [
+            "lendermarket",
+            "--input",
+            str(input_file),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    assert code == 0
+    report = (tmp_path / "out" / "lendermarket_declaration.txt").read_text(encoding="utf-8")
+    assert report.startswith("!!! СТАТУС: ИЗИСКВА РЪЧЕН ПРЕГЛЕД !!!\nДанъчна година: 2025")
+    assert "Бележки по обработката" not in report
+    assert "old duplicate" not in report
+    assert report.count("отчетната година в PDF (2023)") == 1
+    assert "Приложение 6" in report
+
+
+def test_diagnostics_report_renders_common_fields_readably() -> None:
+    rendered = render_diagnostics_report(
+        title="Test diagnostics",
+        status="ERROR",
+        raw_declaration_text="",
+        diagnostics=[
+            AnalysisDiagnostic(
+                severity="WARNING",
+                message="extra context",
+                analyzer_alias="coinbase",
+                params={"analyzer": "coinbase", "foo": {"items": ["a", "b"]}},
+            ),
+            AnalysisDiagnostic(
+                severity="ERROR",
+                message="missing required columns",
+                analyzer_alias="binance_futures",
+                code="MISSING_REQUIRED_COLUMNS",
+                params={
+                    "path": "/tmp/Binance-Futures-Trade-History.csv",
+                    "filename": "Binance-Futures-Trade-History.csv",
+                    "columns": ["User ID", "Account", "Operation"],
+                },
+            ),
+            AnalysisDiagnostic(
+                severity="MANUAL_REVIEW",
+                message="reporting year in PDF (2023) differs from requested tax year (2025)",
+                analyzer_alias="lendermarket",
+                params={
+                    "source_file": "/tmp/Lendermarket_v1_report_2023.pdf",
+                    "report_path": "/tmp/lendermarket_v1_report_2023_declaration.txt",
+                },
+            ),
+            AnalysisDiagnostic(
+                severity="MANUAL_REVIEW",
+                message="SPB-8 required values are missing.",
+                analyzer_alias="spb8",
+                code="SPB8_MISSING_VALUES",
+                params={
+                    "missing_values": [
+                        {
+                            "platform": "binance_futures",
+                            "country": "Франция",
+                            "currency": "EUR",
+                            "type": "03",
+                            "missing": ["start_amount", "end_amount"],
+                        }
+                    ]
+                },
+            ),
+        ],
+    )
+
+    assert "Structured diagnostics" not in rendered
+    assert "Diagnostics\n[ERROR] [binance_futures] MISSING_REQUIRED_COLUMNS" in rendered
+    assert "message: missing required columns" in rendered
+    assert "file: /tmp/Binance-Futures-Trade-History.csv" in rendered
+    assert "filename: Binance-Futures-Trade-History.csv" not in rendered
+    assert "missing columns:\n  - User ID\n  - Account\n  - Operation" in rendered
+    assert "params:" not in rendered
+    assert "\n\n[MANUAL_REVIEW] [lendermarket]" in rendered
+    assert "source file: /tmp/Lendermarket_v1_report_2023.pdf" in rendered
+    assert "report: /tmp/lendermarket_v1_report_2023_declaration.txt" in rendered
+    assert "missing values:\n  - platform: binance_futures" in rendered
+    assert "    country: Франция" in rendered
+    assert "    missing:\n      - start_amount\n      - end_amount" in rendered
+    assert "context:\n  foo:" in rendered
+    assert rendered.index("[ERROR]") < rendered.index("[MANUAL_REVIEW]") < rendered.index("[WARNING]")
+
+
+def test_ibkr_row_level_diagnostics_are_grouped_for_main_report() -> None:
+    diagnostics = [
+        AnalysisDiagnostic(
+            severity="WARNING",
+            message=(
+                "row 6691: Forex ignored: missing Review Status (taxable forex not supported) "
+                "(symbol=EUR.USD, execution_exchange=IDEALFX)"
+            ),
+            analyzer_alias="ibkr",
+        ),
+        AnalysisDiagnostic(
+            severity="WARNING",
+            message=(
+                "row 6692: Forex ignored: missing Review Status (taxable forex not supported) "
+                "(symbol=EUR.USD, execution_exchange=IDEALFX)"
+            ),
+            analyzer_alias="ibkr",
+        ),
+        AnalysisDiagnostic(
+            severity="WARNING",
+            message=(
+                "row 6606: unsupported Trades Asset Category 'Futures' was skipped; "
+                "unsupported Trades schema was not parsed"
+            ),
+            analyzer_alias="ibkr",
+        ),
+        AnalysisDiagnostic(
+            severity="MANUAL_REVIEW",
+            message="има 3 записа с изисквана ръчна проверка",
+            analyzer_alias="ibkr",
+        ),
+    ]
+
+    rendered = "\n".join(render_action_items(diagnostics))
+
+    assert "Предупреждение за ibkr" not in rendered
+    assert "IBKR: има 2 Forex реда, които не са включени автоматично." in rendered
+    assert "Засегнати редове: 6691, 6692" in rendered
+    assert "IBKR: има 1 реда от неподдържани Trades категории, които са пропуснати." in rendered
+    assert "има 3 реда с изисквана ръчна проверка" not in rendered
+
+
+def test_ibkr_grouped_diagnostics_are_technical_and_structured() -> None:
+    rendered = render_diagnostics_report(
+        title="IBKR diagnostics",
+        status="WARNING",
+        raw_declaration_text="",
+        diagnostics=[
+            AnalysisDiagnostic(
+                severity="MANUAL_REVIEW",
+                message="има 17 Forex записа (TAXABLE/липсващ/непознат Review Status), които са изключени",
+                analyzer_alias="ibkr",
+            ),
+            AnalysisDiagnostic(
+                severity="WARNING",
+                message=(
+                    "row 6691: Forex ignored: missing Review Status (taxable forex not supported) "
+                    "(symbol=EUR.USD, execution_exchange=IDEALFX)"
+                ),
+                analyzer_alias="ibkr",
+            ),
+            AnalysisDiagnostic(
+                severity="WARNING",
+                message=(
+                    "row 6692: Forex ignored: missing Review Status (taxable forex not supported) "
+                    "(symbol=EUR.USD, execution_exchange=IDEALFX)"
+                ),
+                analyzer_alias="ibkr",
+            ),
+            AnalysisDiagnostic(
+                severity="WARNING",
+                message=(
+                    "row 6763: unknown dividend description requires manual review "
+                    "(description='ECCC(US2698097035) Payment in Lieu of Dividend (Ordinary Dividend)')"
+                ),
+                analyzer_alias="ibkr",
+            ),
+        ],
+    )
+
+    assert rendered.count("FOREX_ROWS_IGNORED") == 1
+    assert "[MANUAL_REVIEW] [ibkr] FOREX_ROWS_IGNORED" in rendered
+    assert "message: Forex rows were ignored because taxable forex is not supported" in rendered
+    assert "count: 17" in rendered
+    assert "rows:\n  -\n    execution_exchange: IDEALFX" in rendered
+    assert "[WARNING] [ibkr] UNKNOWN_DIVIDEND_ROWS" in rendered
+    assert "message: има 17 Forex" not in rendered
+    assert "Payment in Lieu of Dividend" in rendered
 
 
 def test_list_analyzers_outputs_builtin_aliases(capsys: pytest.CaptureFixture[str]) -> None:
@@ -593,14 +852,78 @@ def test_aggregate_mode_continues_on_partial_failure(
 
     assert code == 2
     stdout = capsys.readouterr().out
-    assert "ERROR details:" in stdout
-    assert "- kraken: kraken.csv: boom" in stdout
+    assert "STATUS: ERROR" in stdout
+    assert "Diagnostics:" in stdout
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
-    assert "Причина за ERROR:" in report
-    assert "- kraken: kraken.csv: boom" in report
-    assert "coinbase: OK" in report
-    assert "kraken: ERROR" in report
-    assert "boom" in report
+    diagnostics = (out_dir / "aggregated_tax_report_2025.diagnostics.txt").read_text(encoding="utf-8")
+    assert "!!! СТАТУС: ГРЕШКА !!!" in report
+    assert "възникна проблем при обработката с анализатора kraken" in report
+    assert "boom" not in report
+    assert "Per-analyzer status\ncoinbase\n- OK" in diagnostics
+    assert "kraken\n- ERROR" in diagnostics
+    assert "reason: generic analyzer error" in diagnostics
+    assert "[ERROR] [kraken] GENERIC_ANALYZER_ERROR" in diagnostics
+    assert "boom" in diagnostics
+    assert "code: -" not in diagnostics
+
+
+def test_known_missing_columns_error_is_actionable_in_main_report(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+
+    def failing_run(_: AnalyzerRunContext) -> TaxAnalysisResult:
+        raise RuntimeError("missing required columns: ['User ID', 'Account', 'Operation']")
+
+    failing = _make_fake_definition(
+        alias="binance_futures",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+    )
+    failing = AnalyzerDefinition(
+        alias=failing.alias,
+        group=failing.group,
+        aliases=failing.aliases,
+        description=failing.description,
+        default_output_dir=failing.default_output_dir,
+        input_suffixes=failing.input_suffixes,
+        detection_token_sets=failing.detection_token_sets,
+        add_arguments=failing.add_arguments,
+        build_options=failing.build_options,
+        run=failing_run,
+    )
+    registry = _make_registry(failing)
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: registry)
+    (tmp_path / "binance_futures.csv").write_text("x\n", encoding="utf-8")
+
+    out_dir = tmp_path / "out"
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(out_dir),
+            "--analyzer-input",
+            f"binance_futures={tmp_path / 'binance_futures.csv'}",
+        ]
+    )
+
+    assert code == 2
+    report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
+    diagnostics = (out_dir / "aggregated_tax_report_2025.diagnostics.txt").read_text(encoding="utf-8")
+    assert "няма задължителни колони" in report
+    assert "- User ID" in report
+    assert "- Account" in report
+    assert "- Operation" in report
+    assert "missing required columns" not in report
+    assert "missing required columns" in diagnostics
+    assert "missing columns:\n  - User ID\n  - Account\n  - Operation" in diagnostics
+    assert "columns:" not in diagnostics.replace("missing columns:", "")
+    assert "params:" not in diagnostics
 
 
 def test_manual_review_rows_are_excluded_from_totals(
@@ -667,9 +990,13 @@ def test_manual_review_rows_are_excluded_from_totals(
 
     assert code == 0
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
-    assert "- global status: NEEDS_REVIEW" in report
+    diagnostics = (out_dir / "aggregated_tax_report_2025.diagnostics.txt").read_text(encoding="utf-8")
+    assert "!!! СТАТУС: ИЗИСКВА РЪЧЕН ПРЕГЛЕД !!!" in report
     assert "  Продажна цена: 5.00 EUR" in report
-    assert "manual row excluded" in report
+    assert "Kraken: има ред, изключен от декларационните суми" in report
+    assert report.count("има ред, изключен от декларационните суми") == 1
+    assert "manual row excluded" not in report
+    assert "manual row excluded" in diagnostics
 
 
 def test_render_aggregated_report_snapshot() -> None:
@@ -709,7 +1036,7 @@ def test_render_aggregated_report_snapshot() -> None:
     assert "  Продажна цена: 11.00 EUR" in rendered
     assert "------------------------------ Technical Details ------------------------------" in rendered
     assert "- global status: OK" in rendered
-    assert f"declaration: {output_path.resolve().as_uri()}" in rendered
+    assert f"declaration: {output_path.resolve()}" in rendered
 
 
 def test_render_aggregated_report_suppresses_zero_only_appendix_sections() -> None:
@@ -735,8 +1062,8 @@ def test_render_aggregated_report_suppresses_zero_only_appendix_sections() -> No
         analyzer_errors={},
     )
 
-    assert "Warnings/Errors summary" in rendered
-    assert "fx fallback used" in rendered
+    assert "Warnings/Errors summary" not in rendered
+    assert "reason: fx fallback used" in rendered
     assert "Приложение 5" not in rendered
     assert "Приложение 13" not in rendered
     assert "Приложение 6" not in rendered
@@ -917,8 +1244,8 @@ def test_aggregate_mode_generates_spb8_template_from_detected_inputs(
     stdout = capsys.readouterr().out
 
     assert code == 0
-    assert "STATUS: NEEDS_REVIEW" in stdout
-    assert "SPB-8 input file generated based on detected data sources" in stdout
+    assert "STATUS: MANUAL CHECK REQUIRED" in stdout
+    assert "SPB-8 input file:" in stdout
     template = out_dir / "spb8-input-file.csv"
     assert template.read_text(encoding="utf-8").splitlines() == [
         "account name,platform,type,country,ISIN,currency,start amount,end amount",
@@ -927,11 +1254,14 @@ def test_aggregate_mode_generates_spb8_template_from_detected_inputs(
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
     assert "Третирането на крипто активи за СПБ-8" not in report
     assert "Използвана интерпретация за този отчет: крипто платформите са включени" in report
-    assert "Причина за ръчна проверка:" in report
-    assert "СПБ-8: липсва стойност за start amount" in report
+    assert "Какво трябва да направите" in report
+    assert "СПБ-8: липсват начални/крайни стойности" in report
+    assert "kraken / Ирландия / EUR / тип 03" in report
     assert "Тип на вземането" not in report
-    assert "Забележки за СПБ-8" in report
-    assert "Входен SPB-8 CSV файл не е предоставен" in report
+    assert "Забележки за СПБ-8" not in report
+    assert "Бележки и допускания" not in report
+    assert "СПБ-8\n-" in report
+    assert "Стартирайте отново с --spb8-input-file <path>" in report
     assert "SPB-8 input file was not provided" not in report
 
 
@@ -1015,13 +1345,15 @@ def test_aggregate_mode_generates_spb8_template_rows_for_ibkr_analyzer_data(
     ]
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
     assert "СПБ-8" in report
-    assert "Забележки за СПБ-8" in report
-    assert report.index("СПБ-8") < report.index(TECHNICAL_DETAILS_SEPARATOR)
+    assert "Забележки за СПБ-8" not in report
+    assert "Бележки и допускания" not in report
+    assert TECHNICAL_DETAILS_SEPARATOR not in report
     assert "Размер в началото на отчетната година (в хиляди валутни единици): 3.00" in report
     assert "Размер в края на отчетната година (в хиляди валутни единици): 6.00" in report
     declaration = next((out_dir / "ibkr").rglob("ibkr_declaration.txt"))
     declaration_text = declaration.read_text(encoding="utf-8")
-    assert declaration_text.index("СПБ-8") < declaration_text.index(TECHNICAL_DETAILS_SEPARATOR)
+    assert "СПБ-8" in declaration_text
+    assert TECHNICAL_DETAILS_SEPARATOR not in declaration_text
 
 
 def test_no_spb8_disables_template_and_sections(
@@ -1155,12 +1487,15 @@ def test_spb8_input_file_renders_aggregate_and_individual_sections(
     assert "СПБ-8" in report
     assert "Размер в началото на отчетната година (в хиляди валутни единици): 1.00" in report
     assert "Размер в края на отчетната година (в хиляди валутни единици): 2.00" in report
-    assert "Забележки за СПБ-8" in report
+    assert "Забележки за СПБ-8" not in report
+    assert "Бележки и допускания" not in report
     declaration = next((out_dir / "kraken").rglob("kraken_declaration.txt"))
     declaration_text = declaration.read_text(encoding="utf-8")
     assert "СПБ-8" in declaration_text
-    assert declaration_text.index("Забележки за СПБ-8") > declaration_text.index("Тип на вземането")
-    assert "Забележки за СПБ-8" in declaration_text
+    assert "Забележки за СПБ-8" not in declaration_text
+    assert "Бележки и допускания" not in declaration_text
+    assert declaration_text.index("Диагностика") > declaration_text.index("Тип на вземането")
+    assert "СПБ-8\n-" in declaration_text
 
 
 def test_spb8_input_type04_override_falls_back_to_analyzer_and_resolves_corporate_action_note(
@@ -1321,12 +1656,12 @@ def test_spb8_corporate_actions_with_missing_start_quantity_warns_for_manual_com
     stdout = capsys.readouterr().out
 
     assert code == 0
-    assert "STATUS: NEEDS_REVIEW" in stdout
+    assert "STATUS: MANUAL CHECK REQUIRED" in stdout
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
     assert "Тип на вземането" not in report
     assert "Попълнете липсващите начални количества" in report
-    assert "ISIN=IE00BK5BQT80" in report
-    assert "Входен SPB-8 CSV файл не е предоставен" in report
+    assert "ISIN IE00BK5BQT80" in report
+    assert "Стартирайте отново с --spb8-input-file <path>" in report
     assert (out_dir / "spb8-input-file.csv").read_text(encoding="utf-8").splitlines() == [
         "account name,platform,type,country,ISIN,currency,start amount,end amount",
         "ibkr analyzer,ibkr,04,Ирландия,IE00BK5BQT80,-,,15",

@@ -150,12 +150,19 @@ jobs:
             --display-currency BGN \
             --output-dir output/examples
           test -f output/examples/aggregated_tax_report_2025.txt
+          test -f output/examples/aggregated_tax_report_2025.diagnostics.txt
           uv run python scripts/normalize_example_report.py \
             output/examples/aggregated_tax_report_2025.txt \
             output/examples/aggregated_tax_report_2025.normalized.txt
+          uv run python scripts/normalize_example_report.py \
+            output/examples/aggregated_tax_report_2025.diagnostics.txt \
+            output/examples/aggregated_tax_report_2025.diagnostics.normalized.txt
           git diff --no-index --exit-code \
             examples/expected/aggregated_tax_report_2025.normalized.txt \
             output/examples/aggregated_tax_report_2025.normalized.txt
+          git diff --no-index --exit-code \
+            examples/expected/aggregated_tax_report_2025.diagnostics.normalized.txt \
+            output/examples/aggregated_tax_report_2025.diagnostics.normalized.txt
 
       - name: Validate binary with aggregate example
         if: runner.os == 'Windows'
@@ -170,12 +177,24 @@ jobs:
           if (!(Test-Path output\examples\aggregated_tax_report_2025.txt)) {
             throw "Missing output\examples\aggregated_tax_report_2025.txt"
           }
+          if (!(Test-Path output\examples\aggregated_tax_report_2025.diagnostics.txt)) {
+            throw "Missing output\examples\aggregated_tax_report_2025.diagnostics.txt"
+          }
           uv run python scripts/normalize_example_report.py `
             output\examples\aggregated_tax_report_2025.txt `
             output\examples\aggregated_tax_report_2025.normalized.txt
+          uv run python scripts/normalize_example_report.py `
+            output\examples\aggregated_tax_report_2025.diagnostics.txt `
+            output\examples\aggregated_tax_report_2025.diagnostics.normalized.txt
           git diff --no-index --exit-code `
             examples\expected\aggregated_tax_report_2025.normalized.txt `
             output\examples\aggregated_tax_report_2025.normalized.txt
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+          git diff --no-index --exit-code `
+            examples\expected\aggregated_tax_report_2025.diagnostics.normalized.txt `
+            output\examples\aggregated_tax_report_2025.diagnostics.normalized.txt
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }

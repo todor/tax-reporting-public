@@ -36,6 +36,34 @@ def test_interest_scoped_headers_are_resolved_from_active_header(tmp_path: Path)
     assert result.summary.interest_taxable_rows == 2
     assert result.summary.appendix_6_code_603_eur == Decimal("11")
 
+def test_interest_us_slash_date_uses_report_date_format(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [
+            ["Interest", "Data", "EUR", "10/3/2024", "EUR Credit Interest for Oct-2024", "10"],
+        ]
+    )
+    rows[8][5] = "9/13/2024"
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.interest_processed_rows == 1
+    assert result.summary.report_date_format_label == "M/D/YYYY"
+    assert result.summary.report_date_format_reason == "found unambiguous slash date '9/13/2024'"
+
+def test_invalid_interest_slash_date_reports_detected_format(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [
+            ["Interest", "Data", "EUR", "13/40/2025", "EUR Credit Interest for Bad-Date", "10"],
+        ]
+    )
+    rows[8][5] = "9/13/2024"
+
+    with pytest.raises(
+        IbkrAnalyzerError,
+        match=r"row \d+: invalid Interest date format: '13/40/2025' with detected IBKR report date format M/D/YYYY",
+    ):
+        _run(tmp_path, rows, mode="listed_symbol")
+
 def test_interest_total_rows_are_skipped(tmp_path: Path) -> None:
     rows = _rows_with_interest(
         [

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
@@ -9,6 +10,16 @@ from services.bnb_fx import get_exchange_rate
 
 from .constants import REVIEW_STATUS_NON_TAXABLE, ZERO, FxRateProvider
 from .models import CsvStructureError, FxConversionError, IbkrAnalyzerError, _ActiveHeader
+
+
+@dataclass(frozen=True, slots=True)
+class IbkrReportDateFormat:
+    label: str
+    strptime_format: str
+    reason: str
+
+
+ClosedLotDateFormatInference = IbkrReportDateFormat
 
 
 def _activate_header(section: str, row: list[str], *, row_number: int) -> _ActiveHeader:
@@ -115,22 +126,116 @@ def _parse_trade_datetime(raw: str, *, row_number: int) -> datetime:
     raise IbkrAnalyzerError(f"row {row_number}: invalid Trade date/time format: {raw!r}")
 
 
-def _parse_closedlot_date(raw: str, *, row_number: int) -> date:
-    text = raw.strip()
-    try:
-        return datetime.strptime(text, "%Y-%m-%d").date()
-    except ValueError as exc:
-        raise IbkrAnalyzerError(f"row {row_number}: invalid ClosedLot date format: {raw!r}") from exc
+def _infer_ibkr_slash_date_format(values: list[str]) -> IbkrReportDateFormat:
+    saw_slash_date = False
+    for raw in values:
+        text = raw.strip()
+        match = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", text)
+        if match is None:
+            continue
+        saw_slash_date = True
+        first = int(match.group(1))
+        second = int(match.group(2))
+        if second > 12:
+            return IbkrReportDateFormat(
+                label="M/D/YYYY",
+                strptime_format="%m/%d/%Y",
+                reason=f"found unambiguous slash date {text!r}",
+            )
+        if first > 12:
+            return IbkrReportDateFormat(
+                label="D/M/YYYY",
+                strptime_format="%d/%m/%Y",
+                reason=f"found unambiguous slash date {text!r}",
+            )
+    reason = (
+        "all slash dates were ambiguous; defaulted to IBKR M/D/YYYY"
+        if saw_slash_date
+        else "no slash date values found; defaulted to IBKR M/D/YYYY"
+    )
+    return IbkrReportDateFormat(label="M/D/YYYY", strptime_format="%m/%d/%Y", reason=reason)
 
 
-def _parse_interest_date(raw: str, *, row_number: int) -> date:
+def _infer_closedlot_slash_date_format(values: list[str]) -> ClosedLotDateFormatInference:
+    return _infer_ibkr_slash_date_format(values)
+
+
+def _infer_ibkr_report_date_format(
+    rows: list[list[str]],
+    active_headers: dict[int, _ActiveHeader],
+) -> IbkrReportDateFormat:
+    values: list[str] = []
+    for row_idx, row in enumerate(rows):
+        if len(row) < 2 or row[1] != "Data":
+            continue
+        active_header = active_headers.get(row_idx)
+        if active_header is None:
+            continue
+        base_len = 2 + len(active_header.headers)
+        data = (row + [""] * (base_len - len(row)))[2 : 2 + len(active_header.headers)]
+        for header_idx, header in enumerate(active_header.headers):
+            if header.strip() not in {"Date", "Date/Time"}:
+                continue
+            if header_idx < len(data):
+                values.append(data[header_idx])
+    return _infer_ibkr_slash_date_format(values)
+
+
+def _parse_ibkr_date(
+    raw: str,
+    *,
+    row_number: int,
+    field_name: str,
+    report_date_format: IbkrReportDateFormat | None = None,
+) -> date:
     text = raw.strip()
     for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d, %H:%M:%S"):
         try:
             return datetime.strptime(text, fmt).date()
         except ValueError:
             continue
-    raise IbkrAnalyzerError(f"row {row_number}: invalid Interest date format: {raw!r}")
+    detected = report_date_format or _infer_ibkr_slash_date_format([text])
+    if "/" in text:
+        try:
+            return datetime.strptime(text, detected.strptime_format).date()
+        except ValueError as exc:
+            raise IbkrAnalyzerError(
+                f"row {row_number}: invalid {field_name} format: {raw!r} "
+                f"with detected IBKR report date format {detected.label}"
+            ) from exc
+    raise IbkrAnalyzerError(
+        f"row {row_number}: invalid {field_name} format: {raw!r} "
+        f"with detected IBKR report date format {detected.label}"
+    )
+
+
+def _parse_closedlot_date(
+    raw: str,
+    *,
+    row_number: int,
+    slash_format: ClosedLotDateFormatInference | None = None,
+) -> date:
+    return _parse_ibkr_date(
+        raw,
+        row_number=row_number,
+        field_name="ClosedLot date",
+        report_date_format=slash_format,
+    )
+
+
+def _parse_interest_date(
+    raw: str,
+    *,
+    row_number: int,
+    report_date_format: IbkrReportDateFormat | None = None,
+    field_name: str = "Interest date",
+) -> date:
+    return _parse_ibkr_date(
+        raw,
+        row_number=row_number,
+        field_name=field_name,
+        report_date_format=report_date_format,
+    )
 
 
 def _try_parse_decimal(raw: str) -> Decimal | None:

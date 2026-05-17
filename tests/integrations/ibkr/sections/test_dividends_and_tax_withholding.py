@@ -76,6 +76,29 @@ def test_dividends_scoped_headers_are_resolved_from_active_header(tmp_path: Path
     assert ie_row["Amount (EUR)"] == "2.00000000"
     assert ie_row["Country"] == "Ireland"
 
+def test_ambiguous_slash_dates_use_default_ibkr_report_format_across_sections(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [["Dividends", "Data", "USD", "1/2/2025", "TPR(US8760301072) Cash Dividend USD 0.35 per Share", "10"]],
+        [["Withholding Tax", "Data", "USD", "1/2/2025", "TPR(US8760301072) Cash Dividend USD 0.35 per Share - US Tax", "-2", ""]],
+    )
+    rows.extend(
+        [
+            ["Interest", "Header", "Currency", "Date", "Description", "Amount"],
+            ["Interest", "Data", "USD", "1/2/2025", "USD Credit Interest for Jan-2025", "5"],
+            ["Mark-to-Market Performance Summary", "Header", "Asset Category", "Mark-to-Market P/L Total"],
+            ["Mark-to-Market Performance Summary", "Data", "Withholding on Interest Received", "-1"],
+        ]
+    )
+    rows[8][5] = "1/2/2024"
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.report_date_format_label == "M/D/YYYY"
+    assert result.summary.report_date_format_reason == "all slash dates were ambiguous; defaulted to IBKR M/D/YYYY"
+    assert result.summary.interest_processed_rows == 1
+    assert result.summary.dividends_processed_rows == 1
+    assert result.summary.withholding_processed_rows == 1
+
 def test_dividend_total_rows_are_skipped(tmp_path: Path) -> None:
     rows = _rows_with_dividends_and_withholding(
         [

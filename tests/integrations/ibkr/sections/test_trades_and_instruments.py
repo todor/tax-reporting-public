@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
+from integrations.ibkr.activity_statement_analyzer import analyze_ibkr_activity_statement
 from tests.integrations.ibkr import support as h
 
 EXCHANGE_CLASS_EU_NON_REGULATED = h.EXCHANGE_CLASS_EU_NON_REGULATED
@@ -338,6 +340,57 @@ def test_prior_year_closedlot_is_used_for_basis(tmp_path: Path) -> None:
     # BMW: proceeds=100*0.9=90, basis=30*0.9=27, pnl=63
     assert result.summary.appendix_13.wins_eur == Decimal("63")
 
+def test_closedlot_us_slash_date_is_supported_and_reported(tmp_path: Path) -> None:
+    rows = _base_rows()
+    rows[8][5] = "9/13/2024"
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.appendix_13.wins_eur == Decimal("63")
+    assert result.summary.report_date_format_label == "M/D/YYYY"
+    assert result.summary.report_date_format_reason == "found unambiguous slash date '9/13/2024'"
+    declaration = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "IBKR report date format: M/D/YYYY" in declaration
+    assert "found unambiguous slash date '9/13/2024'" in declaration
+
+def test_ambiguous_closedlot_slash_dates_default_to_ibkr_us_format(tmp_path: Path) -> None:
+    rows = _base_rows()
+    rows[8][5] = "1/2/2024"
+    input_csv = tmp_path / "input.csv"
+    _write_rows(input_csv, rows)
+
+    def dated_fx_provider(currency: str, on_date: date) -> Decimal:  # noqa: ARG001
+        if on_date == date(2024, 1, 2):
+            return Decimal("2")
+        if on_date == date(2024, 2, 1):
+            return Decimal("3")
+        return Decimal("1")
+
+    result = analyze_ibkr_activity_statement(
+        input_csv=input_csv,
+        tax_year=2025,
+        tax_exempt_mode="listed_symbol",
+        output_dir=tmp_path / "out",
+        fx_rate_provider=dated_fx_provider,
+    )
+
+    assert result.summary.appendix_13.wins_eur == Decimal("40")
+    assert result.summary.report_date_format_label == "M/D/YYYY"
+    assert (
+        result.summary.report_date_format_reason
+        == "all slash dates were ambiguous; defaulted to IBKR M/D/YYYY"
+    )
+
+def test_existing_closedlot_iso_date_format_still_passes(tmp_path: Path) -> None:
+    result = _run(tmp_path, _base_rows(), mode="listed_symbol")
+
+    assert result.summary.appendix_13.wins_eur == Decimal("63")
+    assert result.summary.report_date_format_label == "M/D/YYYY"
+    assert (
+        result.summary.report_date_format_reason
+        == "no slash date values found; defaulted to IBKR M/D/YYYY"
+    )
+
 def test_fx_logic_eur_rate_identity(tmp_path: Path) -> None:
     rows = _base_rows()
     rows[7][3] = "EUR"
@@ -439,11 +492,47 @@ def test_no_closedlot_fails(tmp_path: Path) -> None:
     with pytest.raises(IbkrAnalyzerError, match="no ClosedLot rows attached"):
         _ = _run(tmp_path, rows, mode="listed_symbol")
 
-def test_unsupported_asset_category_fails(tmp_path: Path) -> None:
+def test_unsupported_asset_category_is_skipped_with_warning(tmp_path: Path) -> None:
     rows = _base_rows()
     rows[7][2] = "Options"
-    with pytest.raises(IbkrAnalyzerError, match="Unsupported Asset Category encountered"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+    rows[8][2] = "Options"
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.appendix_13.rows == 0
+    assert result.summary.appendix_5.rows == 1
+    assert result.summary.unsupported_trade_asset_categories == {"Options"}
+    assert result.summary.unsupported_trade_asset_category_rows == 2
+    assert any("unsupported Trades Asset Category 'Options' was skipped" in warning for warning in result.summary.warnings)
+
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "unsupported Trades asset categories skipped: Options" in text
+    assert "unsupported Trades rows skipped: 2" in text
+
+
+def test_unsupported_asset_category_with_different_header_is_skipped(tmp_path: Path) -> None:
+    rows = _base_rows()
+    rows.extend(
+        [
+            [
+                "Trades",
+                "Header",
+                "Asset Category",
+                "Symbol",
+                "Date/Time",
+                "Quantity",
+                "DataDiscriminator",
+            ],
+            ["Trades", "Data", "Options", "BMW 202501 C", "2025-03-10, 12:00:00", "1", "Trade"],
+        ]
+    )
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.appendix_13.rows == 1
+    assert result.summary.appendix_5.rows == 1
+    assert result.summary.unsupported_trade_asset_categories == {"Options"}
+    assert result.summary.unsupported_trade_asset_category_rows == 1
 
 def test_trades_data_before_header_fails(tmp_path: Path) -> None:
     rows = _base_rows()
@@ -474,6 +563,24 @@ def test_trades_missing_required_column_in_active_header_fails(tmp_path: Path) -
         "DataDiscriminator",
     ]  # Basis missing
     with pytest.raises(IbkrAnalyzerError, match="missing required column"):
+        _ = _run(tmp_path, rows, mode="listed_symbol")
+
+def test_supported_trades_missing_required_column_still_fails(tmp_path: Path) -> None:
+    rows = _base_rows()
+    rows[6] = [
+        "Trades",
+        "Header",
+        "Asset Category",
+        "Currency",
+        "Symbol",
+        "Date/Time",
+        "Exchange",
+        "Code",
+        "DataDiscriminator",
+        "Basis",
+    ]  # Proceeds missing
+
+    with pytest.raises(IbkrAnalyzerError, match="missing required column.*Proceeds"):
         _ = _run(tmp_path, rows, mode="listed_symbol")
 
 def test_financial_instrument_missing_required_column_in_active_header_fails(tmp_path: Path) -> None:
@@ -590,6 +697,73 @@ def test_commission_is_applied_for_short_closing_trade(tmp_path: Path) -> None:
     ]
     result = _run(tmp_path, rows, mode="listed_symbol")
     assert result.summary.appendix_13.losses_eur == Decimal("72.9")
+
+def test_mixed_close_open_trade_prorates_proceeds_and_commission_to_closed_quantity(tmp_path: Path) -> None:
+    rows = [
+        ["Statement", "Header", "Field", "Value"],
+        ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch"],
+        ["Financial Instrument Information", "Data", "Stocks", "SF PRD", "NASDAQ"],
+        [
+            "Trades",
+            "Header",
+            "DataDiscriminator",
+            "Asset Category",
+            "Currency",
+            "Symbol",
+            "Date/Time",
+            "Exchange",
+            "Quantity",
+            "T. Price",
+            "C. Price",
+            "Proceeds",
+            "Comm/Fee",
+            "Basis",
+            "Realized P/L",
+            "MTM P/L",
+            "Code",
+        ],
+        [
+            "Trades",
+            "Data",
+            "Trade",
+            "Stocks",
+            "USD",
+            "SF PRD",
+            "2024-10-03, 11:55:12",
+            "DARK",
+            "739",
+            "21.555",
+            "21.54",
+            "-15929.145",
+            "-2.789409078",
+            "12364.99171",
+            "-9.744892",
+            "-11.085",
+            "C;O;P",
+        ],
+        ["Trades", "Data", "ClosedLot", "Stocks", "USD", "SF PRD", "10/2/2024", "", "-362", "21.52206964", "", "", "", "-7790.989209", "-13.287186", "", "ST"],
+        ["Trades", "Data", "ClosedLot", "Stocks", "USD", "SF PRD", "10/3/2024", "", "-200", "21.57702464", "", "", "", "-4315.404927", "3.650013", "", "ST"],
+        ["Trades", "Data", "ClosedLot", "Stocks", "USD", "SF PRD", "10/3/2024", "", "-12", "21.549798", "", "", "", "-258.597576", "-0.107719", "", "ST"],
+    ]
+
+    input_csv = tmp_path / "input.csv"
+    _write_rows(input_csv, rows)
+    result = analyze_ibkr_activity_statement(
+        input_csv=input_csv,
+        tax_year=2024,
+        tax_exempt_mode="listed_symbol",
+        output_dir=tmp_path / "out",
+        fx_rate_provider=_fx_provider,
+        skip_period_validation=True,
+    )
+
+    assert result.summary.appendix_5.losses_eur == Decimal("8.770403353849526387009472260")
+    out_rows = _read_rows(result.output_csv_path)
+    header, data = _trades_header_and_data(out_rows)
+    idx = {c: i for i, c in enumerate(header[2:])}
+    trade = next(r for r in data if r[2 + idx["DataDiscriminator"]] == "Trade")
+    assert Decimal(trade[2 + idx["Proceeds (EUR)"]]) == Decimal("-11135.31300000")
+    assert Decimal(trade[2 + idx["Realized P/L (EUR)"]]) == Decimal("-8.77040335")
 
 def test_standalone_cli_is_not_user_facing(
 ) -> None:

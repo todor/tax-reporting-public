@@ -32,6 +32,7 @@ from ..models import (
     _ActiveHeader,
 )
 from ..shared import (
+    IbkrReportDateFormat,
     _code_has_closing_token,
     _fmt,
     _index_for,
@@ -69,6 +70,7 @@ class _TradeFieldIndexes:
     symbol: int
     date_time: int
     exchange: int | None
+    quantity: int | None
     code: int
     proceeds: int
     basis: int | None
@@ -90,6 +92,7 @@ class _TradeRowContext:
     currency: str
     code: str
     is_closing_trade: bool
+    quantity: Decimal
     proceeds: Decimal
     commission: Decimal
     trade_basis: Decimal | None
@@ -113,6 +116,7 @@ def _trade_indexes(active_header: _ActiveHeader) -> _TradeFieldIndexes:
         symbol=_index_for(active_header.headers, "Symbol", section_name=section_name),
         date_time=_index_for(active_header.headers, "Date/Time", section_name=section_name),
         exchange=_optional_index(active_header.headers, "Exchange", "Exch", "Execution Exchange"),
+        quantity=_optional_index(active_header.headers, "Quantity", "Qty"),
         code=_index_for(active_header.headers, "Code", section_name=section_name),
         proceeds=_index_for(active_header.headers, "Proceeds", section_name=section_name),
         basis=_optional_index(active_header.headers, "Basis", "Cost Basis", "CostBasis"),
@@ -120,6 +124,48 @@ def _trade_indexes(active_header: _ActiveHeader) -> _TradeFieldIndexes:
         commission=_optional_index(active_header.headers, "Comm/Fee", "Commission"),
         review_status=_optional_index(active_header.headers, "Review Status"),
     )
+
+
+def _trade_data(
+    row: list[str],
+    *,
+    active_header: _ActiveHeader,
+    row_base_len: dict[int, int],
+    row_idx: int,
+) -> list[str]:
+    row_base_len[row_idx] = 2 + len(active_header.headers)
+    padded = row + [""] * (row_base_len[row_idx] - len(row))
+    return padded[2 : 2 + len(active_header.headers)]
+
+
+def _trade_value(
+    data: list[str],
+    active_header: _ActiveHeader,
+    *names: str,
+) -> str:
+    index = _optional_index(active_header.headers, *names)
+    if index is None or index >= len(data):
+        return ""
+    return data[index].strip()
+
+
+def _record_unsupported_trade_asset_category(
+    summary: AnalysisSummary,
+    *,
+    row_number: int,
+    asset_category: str,
+) -> None:
+    category = asset_category or "<EMPTY>"
+    summary.unsupported_trade_asset_category_rows += 1
+    if category in summary.unsupported_trade_asset_categories:
+        return
+    summary.unsupported_trade_asset_categories.add(category)
+    warning = (
+        f"row {row_number}: unsupported Trades Asset Category {category!r} was skipped; "
+        "unsupported Trades schema was not parsed"
+    )
+    summary.warnings.append(warning)
+    logger.debug("%s", warning)
 
 
 def _set_trade_extras(
@@ -154,6 +200,11 @@ def _parse_trade_context(
     currency = data[field_idx.currency].strip().upper()
     code = data[field_idx.code].strip()
     is_closing_trade = _code_has_closing_token(code)
+    quantity = (
+        _parse_decimal(data[field_idx.quantity], row_number=row_number, field_name="Quantity")
+        if field_idx.quantity is not None
+        else ZERO
+    )
     proceeds = _parse_decimal(data[field_idx.proceeds], row_number=row_number, field_name="Proceeds")
     commission = (
         _parse_decimal_or_zero(data[field_idx.commission], row_number=row_number, field_name="Comm/Fee")
@@ -232,6 +283,7 @@ def _parse_trade_context(
         currency=currency,
         code=code,
         is_closing_trade=is_closing_trade,
+        quantity=quantity,
         proceeds=proceeds,
         commission=commission,
         trade_basis=trade_basis,
@@ -264,11 +316,13 @@ def _find_attached_closedlot_indices(
         scan_header = active_headers.get(scan_idx)
         if scan_header is None:
             raise CsvStructureError(f"row {scan_idx + 1}: Trades Data row encountered before Trades Header")
-        row_base_len[scan_idx] = 2 + len(scan_header.headers)
-        scan_idxes = _trade_indexes(scan_header)
-        padded_scan = scan_row + [""] * (row_base_len[scan_idx] - len(scan_row))
-        scan_data = padded_scan[2 : 2 + len(scan_header.headers)]
-        scan_discriminator = scan_data[scan_idxes.discriminator].strip()
+        scan_data = _trade_data(
+            scan_row,
+            active_header=scan_header,
+            row_base_len=row_base_len,
+            row_idx=scan_idx,
+        )
+        scan_discriminator = _trade_value(scan_data, scan_header, "DataDiscriminator")
         if scan_discriminator.lower() != "closedlot":
             break
         closedlot_indices.append(scan_idx)
@@ -371,7 +425,7 @@ def _set_non_closing_trade_extras(
     _set_trade_extras(row_extras, row_idx=ctx.row_idx, values=values)
 
 
-def _sum_closedlot_basis_eur(
+def _sum_closedlot_basis_and_quantity_eur(
     *,
     rows: list[list[str]],
     active_headers: dict[int, _ActiveHeader],
@@ -381,8 +435,10 @@ def _sum_closedlot_basis_eur(
     consumed_closedlots: set[int],
     fx_provider: FxRateProvider,
     fallback_currency: str,
-) -> Decimal:
+    report_date_format: IbkrReportDateFormat,
+) -> tuple[Decimal, Decimal | None]:
     closedlot_basis_eur_sum = ZERO
+    closedlot_abs_quantity_sum: Decimal | None = ZERO
     for closed_idx in closedlot_indices:
         closed_row_number = closed_idx + 1
         closed_row = rows[closed_idx]
@@ -400,7 +456,20 @@ def _sum_closedlot_basis_eur(
             )
         closed_basis_raw = closed_data[closed_idxes.basis]
         closed_basis = _parse_decimal(closed_basis_raw, row_number=closed_row_number, field_name="Basis")
-        closed_dt = _parse_closedlot_date(closed_data[closed_idxes.date_time], row_number=closed_row_number)
+        closed_quantity = (
+            _parse_decimal(
+                closed_data[closed_idxes.quantity],
+                row_number=closed_row_number,
+                field_name="Quantity",
+            )
+            if closed_idxes.quantity is not None
+            else None
+        )
+        closed_dt = _parse_closedlot_date(
+            closed_data[closed_idxes.date_time],
+            row_number=closed_row_number,
+            slash_format=report_date_format,
+        )
         closed_currency = closed_data[closed_idxes.currency].strip().upper() or fallback_currency
         closed_basis_eur, closed_fx_rate = _to_eur(
             closed_basis,
@@ -410,6 +479,11 @@ def _sum_closedlot_basis_eur(
             row_number=closed_row_number,
         )
         closedlot_basis_eur_sum += closed_basis_eur
+        if closedlot_abs_quantity_sum is not None:
+            if closed_quantity is None:
+                closedlot_abs_quantity_sum = None
+            else:
+                closedlot_abs_quantity_sum += abs(closed_quantity)
         consumed_closedlots.add(closed_idx)
         _set_trade_extras(
             row_extras,
@@ -419,7 +493,7 @@ def _sum_closedlot_basis_eur(
                 "Basis (EUR)": _fmt(closed_basis_eur, quant=DECIMAL_EIGHT),
             },
         )
-    return closedlot_basis_eur_sum
+    return closedlot_basis_eur_sum, closedlot_abs_quantity_sum
 
 
 def _apply_review_override(
@@ -467,8 +541,9 @@ def _process_closing_trade_row(
     row_base_len: dict[int, int],
     consumed_closedlots: set[int],
     closedlot_indices: list[int],
+    report_date_format: IbkrReportDateFormat,
 ) -> None:
-    closedlot_basis_eur_sum = _sum_closedlot_basis_eur(
+    closedlot_basis_eur_sum, closedlot_abs_quantity = _sum_closedlot_basis_and_quantity_eur(
         rows=rows,
         active_headers=active_headers,
         row_base_len=row_base_len,
@@ -477,17 +552,28 @@ def _process_closing_trade_row(
         consumed_closedlots=consumed_closedlots,
         fx_provider=fx_provider,
         fallback_currency=ctx.currency,
+        report_date_format=report_date_format,
     )
     trade_basis_eur = -closedlot_basis_eur_sum
+    trade_abs_quantity = abs(ctx.quantity)
+    closing_fraction = (
+        closedlot_abs_quantity / trade_abs_quantity
+        if closedlot_abs_quantity is not None
+        and trade_abs_quantity != ZERO
+        and closedlot_abs_quantity != trade_abs_quantity
+        else Decimal("1")
+    )
+    closing_proceeds_eur = ctx.proceeds_eur * closing_fraction
+    closing_commission_eur = ctx.commission_eur * closing_fraction
 
-    cash_leg_eur = ctx.proceeds_eur + ctx.commission_eur
+    cash_leg_eur = closing_proceeds_eur + closing_commission_eur
     if cash_leg_eur >= ZERO:
         sale_price_component_eur = abs(cash_leg_eur)
         purchase_component_eur = abs(trade_basis_eur)
     else:
         sale_price_component_eur = abs(trade_basis_eur)
         purchase_component_eur = abs(cash_leg_eur)
-    pnl_eur = ctx.proceeds_eur + trade_basis_eur + ctx.commission_eur
+    pnl_eur = closing_proceeds_eur + trade_basis_eur + closing_commission_eur
 
     pnl_win = pnl_eur if pnl_eur > 0 else ZERO
     pnl_loss = -pnl_eur if pnl_eur < 0 else ZERO
@@ -603,7 +689,7 @@ def _process_closing_trade_row(
                     listing_exchange=listing_exchange or "<MISSING>",
                     execution_exchange=ctx.execution_exchange_norm or "<EMPTY>",
                     reason=reason,
-                    proceeds_eur=ctx.proceeds_eur,
+                    proceeds_eur=closing_proceeds_eur,
                     basis_eur=trade_basis_eur,
                     pnl_eur=pnl_eur,
                 )
@@ -620,8 +706,8 @@ def _process_closing_trade_row(
         row_idx=ctx.row_idx,
         values={
             "Fx Rate": _fmt(ctx.trade_fx_rate, quant=DECIMAL_EIGHT),
-            "Comm/Fee (EUR)": _fmt(ctx.commission_eur, quant=DECIMAL_EIGHT),
-            "Proceeds (EUR)": _fmt(ctx.proceeds_eur, quant=DECIMAL_EIGHT),
+            "Comm/Fee (EUR)": _fmt(closing_commission_eur, quant=DECIMAL_EIGHT),
+            "Proceeds (EUR)": _fmt(closing_proceeds_eur, quant=DECIMAL_EIGHT),
             "Basis (EUR)": _fmt(trade_basis_eur, quant=DECIMAL_EIGHT),
             "Sale Price (EUR)": _fmt(sale_price_component_eur, quant=DECIMAL_EIGHT),
             "Purchase Price (EUR)": _fmt(purchase_component_eur, quant=DECIMAL_EIGHT),
@@ -654,6 +740,7 @@ def process_trades_section(
     tax_exempt_mode: Literal["listed_symbol", "execution_exchange"],
     eu_regulated_exchange_overrides: set[str],
     closed_world_mode: bool,
+    report_date_format: IbkrReportDateFormat,
 ) -> TradesSectionResult:
     row_extras: dict[int, list[str]] = {}
     row_base_len: dict[int, int] = {}
@@ -661,7 +748,6 @@ def process_trades_section(
     current_trades_header: _ActiveHeader | None = None
     seen_trades_header = False
     found_trade_section_data = False
-
     for row_idx, row in enumerate(rows):
         row_number = row_idx + 1
 
@@ -686,14 +772,17 @@ def process_trades_section(
         if active_trades_header is None:
             raise CsvStructureError(f"row {row_number}: Trades Data row encountered before Trades Header")
         current_trades_header = active_trades_header
-        row_base_len[row_idx] = 2 + len(active_trades_header.headers)
-        field_idx = _trade_indexes(active_trades_header)
 
         found_trade_section_data = True
         summary.trades_data_rows_total += 1
-        padded = row + [""] * (row_base_len[row_idx] - len(row))
-        data = padded[2 : 2 + len(active_trades_header.headers)]
-        lowered = data[field_idx.discriminator].strip().lower()
+        data = _trade_data(
+            row,
+            active_header=active_trades_header,
+            row_base_len=row_base_len,
+            row_idx=row_idx,
+        )
+        asset_category = _trade_value(data, active_trades_header, "Asset Category")
+        lowered = _trade_value(data, active_trades_header, "DataDiscriminator").lower()
         if lowered == "trade":
             summary.trade_discriminator_rows += 1
         elif lowered == "closedlot":
@@ -704,6 +793,15 @@ def process_trades_section(
         if row_idx in consumed_closedlots:
             continue
 
+        if not _is_forex_asset(asset_category) and not _is_supported_asset(asset_category):
+            _record_unsupported_trade_asset_category(
+                summary,
+                row_number=row_number,
+                asset_category=asset_category,
+            )
+            continue
+
+        field_idx = _trade_indexes(active_trades_header)
         if lowered == "closedlot":
             raise IbkrAnalyzerError(
                 f"row {row_number}: orphan ClosedLot row detected (must immediately follow a Trade row)"
@@ -758,11 +856,6 @@ def process_trades_section(
             )
             continue
 
-        if not _is_supported_asset(ctx.asset_category):
-            raise IbkrAnalyzerError(
-                f"Unsupported Asset Category encountered: {ctx.asset_category}. Review required before using analyzer."
-            )
-
         if not ctx.is_closing_trade:
             summary.ignored_non_closing_trade_rows += 1
             _set_non_closing_trade_extras(
@@ -790,6 +883,7 @@ def process_trades_section(
             row_base_len=row_base_len,
             consumed_closedlots=consumed_closedlots,
             closedlot_indices=closedlot_indices,
+            report_date_format=report_date_format,
         )
 
     if not seen_trades_header:
@@ -850,17 +944,21 @@ def _aggregate_trade_rows(
         active_trades_header = active_headers.get(row_idx)
         if active_trades_header is None:
             continue
-        field_idx = _trade_indexes(active_trades_header)
-        base_len = 2 + len(active_trades_header.headers)
-        padded = row + [""] * (base_len - len(row))
-        data = padded[2 : 2 + len(active_trades_header.headers)]
-        if data[field_idx.discriminator].strip().lower() != "trade":
+        row_base_len: dict[int, int] = {}
+        data = _trade_data(
+            row,
+            active_header=active_trades_header,
+            row_base_len=row_base_len,
+            row_idx=row_idx,
+        )
+        if _trade_value(data, active_trades_header, "DataDiscriminator").lower() != "trade":
             continue
 
-        asset_category = data[field_idx.asset].strip()
+        asset_category = _trade_value(data, active_trades_header, "Asset Category")
         if _is_forex_asset(asset_category) or not _is_supported_asset(asset_category):
             continue
 
+        field_idx = _trade_indexes(active_trades_header)
         extras = trades_row_extras.get(row_idx)
         if extras is None:
             continue
@@ -925,14 +1023,18 @@ def _collect_aggregate_rows(
         active_trades_header = active_headers.get(row_idx)
         if active_trades_header is None:
             continue
-        field_idx = _trade_indexes(active_trades_header)
-        base_len = 2 + len(active_trades_header.headers)
-        padded = row + [""] * (base_len - len(row))
-        data = padded[2 : 2 + len(active_trades_header.headers)]
+        row_base_len: dict[int, int] = {}
+        data = _trade_data(
+            row,
+            active_header=active_trades_header,
+            row_base_len=row_base_len,
+            row_idx=row_idx,
+        )
 
-        asset_category = data[field_idx.asset].strip()
+        asset_category = _trade_value(data, active_trades_header, "Asset Category")
         if _is_forex_asset(asset_category) or not _is_supported_asset(asset_category):
             continue
+        field_idx = _trade_indexes(active_trades_header)
         currency = data[field_idx.currency].strip().upper()
         symbol_raw = data[field_idx.symbol].strip()
         symbol_upper = symbol_raw.upper()

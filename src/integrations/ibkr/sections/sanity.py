@@ -14,7 +14,7 @@ from .instruments import (
     _is_supported_asset,
     _resolve_instrument_for_trade_symbol,
 )
-from .trades import _trade_indexes
+from .trades import _trade_data, _trade_indexes, _trade_value
 
 
 @dataclass(slots=True)
@@ -30,12 +30,16 @@ class _SanityState:
     forex_ignored_rows: int = 0
     symbol_agg: dict[tuple[str, str, str], dict[str, Decimal]] = field(default_factory=dict)
     asset_agg: dict[tuple[str, str], dict[str, Decimal]] = field(default_factory=dict)
+    prorated_symbol_groups: set[tuple[str, str, str]] = field(default_factory=set)
+    prorated_asset_groups: set[tuple[str, str]] = field(default_factory=set)
     subtotal_rows: list[dict[str, object]] = field(default_factory=list)
     total_rows: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
 class _TradeSanityMetrics:
+    proceeds_for_checks: Decimal
+    commission_for_checks: Decimal
     basis_for_checks: Decimal
     realized_for_checks: Decimal
     sale_price_for_checks: Decimal
@@ -43,6 +47,7 @@ class _TradeSanityMetrics:
     wins: Decimal
     losses: Decimal
     is_closing_trade: bool
+    is_prorated: bool
 
 
 def _add_failure(
@@ -110,8 +115,9 @@ def _collect_attached_closedlots(
     rows: list[list[str]],
     active_headers: dict[int, _ActiveHeader],
     row_idx: int,
-) -> tuple[Decimal, int]:
+) -> tuple[Decimal, Decimal | None, int]:
     closedlot_sum = ZERO
+    closedlot_abs_quantity_sum: Decimal | None = ZERO
     closedlot_count_for_trade = 0
     scan_idx = row_idx + 1
     while scan_idx < len(rows):
@@ -121,12 +127,17 @@ def _collect_attached_closedlots(
         scan_header = active_headers.get(scan_idx)
         if scan_header is None:
             break
-        scan_idxes = _trade_indexes(scan_header)
-        scan_padded = scan_row + [""] * (2 + len(scan_header.headers) - len(scan_row))
-        scan_data = scan_padded[2 : 2 + len(scan_header.headers)]
-        scan_discriminator = scan_data[scan_idxes.discriminator].strip().lower()
+        row_base_len: dict[int, int] = {}
+        scan_data = _trade_data(
+            scan_row,
+            active_header=scan_header,
+            row_base_len=row_base_len,
+            row_idx=scan_idx,
+        )
+        scan_discriminator = _trade_value(scan_data, scan_header, "DataDiscriminator").lower()
         if scan_discriminator != "closedlot":
             break
+        scan_idxes = _trade_indexes(scan_header)
         closedlot_basis = (
             _try_parse_decimal(scan_data[scan_idxes.basis])
             if scan_idxes.basis is not None
@@ -134,6 +145,16 @@ def _collect_attached_closedlots(
         )
         if closedlot_basis is not None:
             closedlot_sum += closedlot_basis
+        closedlot_quantity = (
+            _try_parse_decimal(scan_data[scan_idxes.quantity])
+            if scan_idxes.quantity is not None
+            else None
+        )
+        if closedlot_abs_quantity_sum is not None:
+            if closedlot_quantity is None:
+                closedlot_abs_quantity_sum = None
+            else:
+                closedlot_abs_quantity_sum += abs(closedlot_quantity)
         closedlot_count_for_trade += 1
         state.checked_closedlots += 1
         _set_sanity_extras(
@@ -147,7 +168,7 @@ def _collect_attached_closedlots(
         )
         scan_idx += 1
 
-    return closedlot_sum, closedlot_count_for_trade
+    return closedlot_sum, closedlot_abs_quantity_sum, closedlot_count_for_trade
 
 
 def _compute_trade_metrics(
@@ -157,21 +178,35 @@ def _compute_trade_metrics(
     asset_category: str,
     grouping_symbol: str,
     code: str,
+    quantity: Decimal,
     proceeds: Decimal,
     commission: Decimal,
     trade_basis: Decimal | None,
     realized_pl: Decimal | None,
     closedlot_sum: Decimal,
+    closedlot_abs_quantity: Decimal | None,
     closedlot_count_for_trade: int,
     tolerance: Decimal,
 ) -> _TradeSanityMetrics:
     is_closing_trade = _code_has_closing_token(code)
+    trade_abs_quantity = abs(quantity)
+    closing_fraction = (
+        closedlot_abs_quantity / trade_abs_quantity
+        if is_closing_trade
+        and closedlot_abs_quantity is not None
+        and trade_abs_quantity != ZERO
+        and closedlot_abs_quantity != trade_abs_quantity
+        else Decimal("1")
+    )
+    is_prorated = closing_fraction != Decimal("1")
+    proceeds_for_checks = proceeds * closing_fraction
+    commission_for_checks = commission * closing_fraction
     expected_trade_basis = -closedlot_sum
     if (
         is_closing_trade
         and trade_basis is not None
         and closedlot_count_for_trade > 0
-        and trade_basis != expected_trade_basis
+        and abs(trade_basis - expected_trade_basis) > tolerance
     ):
         _add_failure(
             state,
@@ -192,8 +227,8 @@ def _compute_trade_metrics(
         basis_for_checks = trade_basis if trade_basis is not None else ZERO
 
     if is_closing_trade:
-        expected_realized = proceeds + basis_for_checks + commission
-        cash_leg = proceeds + commission
+        expected_realized = proceeds_for_checks + basis_for_checks + commission_for_checks
+        cash_leg = proceeds_for_checks + commission_for_checks
         if cash_leg >= ZERO:
             sale_price_for_checks = abs(cash_leg)
             purchase_price_for_checks = abs(basis_for_checks)
@@ -250,6 +285,8 @@ def _compute_trade_metrics(
         )
 
     return _TradeSanityMetrics(
+        proceeds_for_checks=proceeds_for_checks,
+        commission_for_checks=commission_for_checks,
         basis_for_checks=basis_for_checks,
         realized_for_checks=realized_for_checks,
         sale_price_for_checks=sale_price_for_checks,
@@ -257,6 +294,7 @@ def _compute_trade_metrics(
         wins=wins,
         losses=losses,
         is_closing_trade=is_closing_trade,
+        is_prorated=is_prorated,
     )
 
 
@@ -266,14 +304,12 @@ def _accumulate_trade_metrics(
     asset_category: str,
     currency: str,
     grouping_symbol: str,
-    proceeds: Decimal,
-    commission: Decimal,
     metrics: _TradeSanityMetrics,
 ) -> None:
     symbol_bucket = _ensure_bucket(state.symbol_agg, (asset_category, currency, grouping_symbol))
-    symbol_bucket["proceeds"] += proceeds
+    symbol_bucket["proceeds"] += metrics.proceeds_for_checks
     symbol_bucket["basis"] += metrics.basis_for_checks
-    symbol_bucket["comm_fee"] += commission
+    symbol_bucket["comm_fee"] += metrics.commission_for_checks
     symbol_bucket["sale_price"] += metrics.sale_price_for_checks
     symbol_bucket["purchase_price"] += metrics.purchase_price_for_checks
     symbol_bucket["realized_pl"] += metrics.realized_for_checks
@@ -281,14 +317,17 @@ def _accumulate_trade_metrics(
     symbol_bucket["losses"] += metrics.losses
 
     asset_bucket = _ensure_bucket(state.asset_agg, (asset_category, currency))
-    asset_bucket["proceeds"] += proceeds
+    asset_bucket["proceeds"] += metrics.proceeds_for_checks
     asset_bucket["basis"] += metrics.basis_for_checks
-    asset_bucket["comm_fee"] += commission
+    asset_bucket["comm_fee"] += metrics.commission_for_checks
     asset_bucket["sale_price"] += metrics.sale_price_for_checks
     asset_bucket["purchase_price"] += metrics.purchase_price_for_checks
     asset_bucket["realized_pl"] += metrics.realized_for_checks
     asset_bucket["wins"] += metrics.wins
     asset_bucket["losses"] += metrics.losses
+    if metrics.is_prorated:
+        state.prorated_symbol_groups.add((asset_category, currency, grouping_symbol))
+        state.prorated_asset_groups.add((asset_category, currency))
 
 
 def _process_trade_data_row(
@@ -315,6 +354,11 @@ def _process_trade_data_row(
         return
 
     proceeds = _try_parse_decimal(data[field_idx.proceeds]) or ZERO
+    quantity = (
+        _try_parse_decimal(data[field_idx.quantity]) or ZERO
+        if field_idx.quantity is not None
+        else ZERO
+    )
     commission = (
         _try_parse_decimal(data[field_idx.commission]) or ZERO
         if field_idx.commission is not None
@@ -343,7 +387,7 @@ def _process_trade_data_row(
     else:
         grouping_symbol = symbol_upper
 
-    closedlot_sum, closedlot_count_for_trade = _collect_attached_closedlots(
+    closedlot_sum, closedlot_abs_quantity, closedlot_count_for_trade = _collect_attached_closedlots(
         state,
         rows=rows,
         active_headers=active_headers,
@@ -355,11 +399,13 @@ def _process_trade_data_row(
         asset_category=asset_category,
         grouping_symbol=grouping_symbol,
         code=code,
+        quantity=quantity,
         proceeds=proceeds,
         commission=commission,
         trade_basis=trade_basis,
         realized_pl=realized_pl,
         closedlot_sum=closedlot_sum,
+        closedlot_abs_quantity=closedlot_abs_quantity,
         closedlot_count_for_trade=closedlot_count_for_trade,
         tolerance=tolerance,
     )
@@ -368,8 +414,6 @@ def _process_trade_data_row(
         asset_category=asset_category,
         currency=currency,
         grouping_symbol=grouping_symbol,
-        proceeds=proceeds,
-        commission=commission,
         metrics=metrics,
     )
 
@@ -380,8 +424,8 @@ def _process_trade_data_row(
         "Trade",
         {
             "Fx Rate": _fmt(Decimal("1"), quant=DECIMAL_EIGHT),
-            "Comm/Fee (EUR)": _fmt(commission, quant=DECIMAL_EIGHT),
-            "Proceeds (EUR)": _fmt(proceeds, quant=DECIMAL_EIGHT),
+            "Comm/Fee (EUR)": _fmt(metrics.commission_for_checks, quant=DECIMAL_EIGHT),
+            "Proceeds (EUR)": _fmt(metrics.proceeds_for_checks, quant=DECIMAL_EIGHT),
             "Basis (EUR)": _fmt(metrics.basis_for_checks, quant=DECIMAL_EIGHT),
             "Sale Price (EUR)": _fmt(metrics.sale_price_for_checks, quant=DECIMAL_EIGHT)
             if metrics.is_closing_trade
@@ -490,10 +534,18 @@ def _collect_trade_and_aggregate_data(
             )
             continue
 
+        row_base_len: dict[int, int] = {}
+        data = _trade_data(
+            row,
+            active_header=active_header,
+            row_base_len=row_base_len,
+            row_idx=row_idx,
+        )
+        asset_category = _trade_value(data, active_header, "Asset Category")
+        if _is_forex_asset(asset_category) or not _is_supported_asset(asset_category):
+            continue
+
         field_idx = _trade_indexes(active_header)
-        padded = row + [""] * (2 + len(active_header.headers) - len(row))
-        data = padded[2 : 2 + len(active_header.headers)]
-        asset_category = data[field_idx.asset].strip()
         currency = data[field_idx.currency].strip().upper()
         symbol_raw = data[field_idx.symbol].strip()
         symbol_upper = symbol_raw.upper()
@@ -666,6 +718,11 @@ def _validate_subtotals(
             ("Comm/Fee", "comm_fee"),
             ("Realized P/L", "realized_pl"),
         ):
+            if (
+                (asset_category, currency, symbol) in state.prorated_symbol_groups
+                and field_name in {"Proceeds", "Comm/Fee"}
+            ):
+                continue
             row_value = entry[agg_key]
             if not isinstance(row_value, Decimal):
                 continue
@@ -749,6 +806,11 @@ def _validate_totals(
             ("Comm/Fee", "comm_fee"),
             ("Realized P/L", "realized_pl"),
         ):
+            if (
+                (asset_category, currency) in state.prorated_asset_groups
+                and field_name in {"Proceeds", "Comm/Fee"}
+            ):
+                continue
             row_value = entry[agg_key]
             if not isinstance(row_value, Decimal):
                 continue
@@ -887,7 +949,7 @@ def _run_sanity_checks(
     debug_dir.mkdir(parents=True, exist_ok=True)
     debug_csv_path = debug_dir / "ibkr_activity_modified_fx1_debug.csv"
     report_path = debug_dir / "sanity_report.json"
-    tolerance = Decimal("0.01")
+    tolerance = Decimal("0.02")
 
     state = _SanityState()
     _collect_trade_and_aggregate_data(

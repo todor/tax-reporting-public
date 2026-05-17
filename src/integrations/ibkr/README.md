@@ -225,7 +225,7 @@ Scope/limits:
 - non-EU-listed symbol -> Приложение 5
 - execution exchange is informational only
 - no per-row informational warnings are emitted for execution exchange in this mode
-- a single global note is printed in `Audit Data`: `In listed_symbol mode, execution exchange does not participate in classification and is informational only.`
+- a single global note is printed in diagnostics `Audit Data`: `In listed_symbol mode, execution exchange does not participate in classification and is informational only.`
 - in open-world classification mode, unmapped listing venues still trigger manual review
 - in closed-world classification mode, unmapped listing venues are treated as non-EU/non-regulated
 
@@ -735,17 +735,17 @@ The declaration text includes:
   - Част III, ред 1.N (`company` mode by default, optional `country` mode)
 - Приложение 9 (interest-only withholding credit flow)
 - optional manual-check block when review is required
-- sanity-check section (`PASS`/`FAIL` + artifact paths)
+- sanity-check details (`PASS`/`FAIL` + artifact paths) in diagnostics
 - conditional Forex warning section (shown only when Forex rows require manual check)
-- evidence section (counts and diagnostics)
-- `Audit Data` section with encountered venue groups:
+- diagnostics evidence section (counts and technical details)
+- diagnostics `Audit Data` section with encountered venue groups:
   - EU-регулирани пазари, открити в отчета
   - EU нерегулирани пазари, открити в отчета
   - Не-EU пазари, открити в отчета
   - Неразпознати пазари, открити в отчета
   - Невалидни/нечетими стойности за пазар, открити в отчета
   - active classification mode + CLI exchange overrides used in the run
-  - in `listed_symbol` mode, `Audit Data` contains a single global note that execution exchange is informational-only
+  - in `listed_symbol` mode, diagnostics `Audit Data` contains a single global note that execution exchange is informational-only
   - venue scope is limited to in-tax-year closing `Trades` rows (Forex, non-closing rows, and Open Positions are excluded)
   - `listed_symbol` mode: only listing venues are included (execution venues are not used for routing)
   - `execution_exchange` mode: listing venues are always included; execution venues are included only for rows where listing is `EU_REGULATED` or `UNMAPPED`

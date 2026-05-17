@@ -23,8 +23,8 @@ This package contains cross-integration shared orchestration pieces used by the 
   - declaration aggregation from structured appendix records
   - rendering of `aggregated_tax_report_<year>.txt`
   - delegates appendix Bulgarian declaration sections to shared canonical renderers in `integrations.shared.rendering`
-- `rendering/common.py` and `rendering/display_currency.py`
-  - shared TXT document helpers for Technical Details, manual-review banners, and display-only currency context
+- `rendering/common.py`, `rendering/display_currency.py`, and `reporting.py`
+  - shared TXT document helpers for diagnostics splitting, standardized report envelopes, and display-only currency context
 
 ## Unified CLI Behavior (Shared Layer)
 
@@ -42,22 +42,23 @@ Aggregate mode:
 
 ## Aggregate TXT Output Contract
 
-`aggregation.py` renders one unified file:
+The unified CLI writes:
 
 - `<output-dir>/aggregated_tax_report_<year>.txt`
+- `<output-dir>/aggregated_tax_report_<year>.diagnostics.txt`
 
 Top-level output behavior:
 
-- top status banner: `OK` / `WARNING` / `NEEDS_REVIEW` / `ERROR`
-- per-analyzer status summary
+- Bulgarian top status banner in the main report
+- review summary and deduplicated actionable "what to do" guidance in the main report
 - aggregated appendix totals from structured records (not text parsing)
-- output paths rendered as URL-encoded `file://` URIs for clickable local navigation in supported tools
+- per-run analyzer status, normal filesystem paths, readable `Diagnostics` entries, display-currency metadata, and audit/debug details in diagnostics
 - manual-review rows are excluded from declaration totals but reflected in status/diagnostic sections
-- when `--display-currency BGN` is used, declaration-facing monetary lines are rendered in BGN using `bnb_fx` at tax-year end; technical FX metadata is shown under `Technical Details`
+- when `--display-currency BGN` is used, declaration-facing monetary lines are rendered in BGN using `bnb_fx` at tax-year end; technical FX metadata is shown in diagnostics
 
 ## Design Notes
 
 - Aggregation is based on structured appendix records, never by parsing analyzer text outputs.
 - Analyzer business logic stays in integration modules; this shared layer only orchestrates and aggregates.
-- Manual-review diagnostics are surfaced in aggregate status and summary, while declaration totals come only from structured, non-review appendix records emitted by analyzers.
+- Manual-review diagnostics are surfaced in aggregate status and the Bulgarian main report, while declaration totals come only from structured, non-review appendix records emitted by analyzers.
 - Appendix-facing declaration formatting is centralized in `integrations.shared.rendering` and reused by both individual analyzer outputs and aggregated output to avoid drift.

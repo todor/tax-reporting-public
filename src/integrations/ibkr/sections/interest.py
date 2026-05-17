@@ -23,6 +23,7 @@ from ..models import (
     _CountryCreditComponent,
 )
 from ..shared import (
+    IbkrReportDateFormat,
     _activate_header,
     _fmt,
     _index_for,
@@ -75,6 +76,7 @@ def process_interest_section(
     summary: AnalysisSummary,
     fx_provider,
     tax_year: int,
+    report_date_format: IbkrReportDateFormat,
 ) -> InterestSectionResult:
     interest_row_extras: dict[int, list[str]] = {}
     interest_row_base_len: dict[int, int] = {}
@@ -132,7 +134,12 @@ def process_interest_section(
             continue
 
         summary.interest_processed_rows += 1
-        interest_date = _parse_interest_date(data[field_idx.date], row_number=row_number)
+        interest_date = _parse_interest_date(
+            data[field_idx.date],
+            row_number=row_number,
+            report_date_format=report_date_format,
+            field_name="Interest date",
+        )
         description = data[field_idx.description].strip()
         amount = _parse_decimal(data[field_idx.amount], row_number=row_number, field_name="Amount")
         normalized_type = _normalize_interest_type(description, currency=currency)

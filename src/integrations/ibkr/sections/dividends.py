@@ -24,6 +24,7 @@ from ..models import (
     _ActiveHeader,
 )
 from ..shared import (
+    IbkrReportDateFormat,
     _activate_header,
     _fmt,
     _index_for,
@@ -350,6 +351,7 @@ def process_dividends_section(
     summary: AnalysisSummary,
     fx_provider,
     tax_year: int,
+    report_date_format: IbkrReportDateFormat,
 ) -> DividendsSectionResult:
     row_extras: dict[int, dict[str, str]] = {}
     row_base_len: dict[int, int] = {}
@@ -394,7 +396,12 @@ def process_dividends_section(
             continue
 
         summary.dividends_processed_rows += 1
-        dividend_date = _parse_interest_date(data[field_idx.date], row_number=row_number)
+        dividend_date = _parse_interest_date(
+            data[field_idx.date],
+            row_number=row_number,
+            report_date_format=report_date_format,
+            field_name="Dividends date",
+        )
         description = data[field_idx.description].strip()
         amount = _parse_decimal(data[field_idx.amount], row_number=row_number, field_name="Amount")
         auto_appendix = _classify_dividend_description(description)

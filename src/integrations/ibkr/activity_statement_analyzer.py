@@ -68,7 +68,13 @@ from .sections.trades import (
     populate_trade_aggregate_extras,
     process_trades_section,
 )
-from .shared import _build_active_headers, _default_fx_provider, _normalize_report_alias
+from .shared import (
+    IbkrReportDateFormat,
+    _build_active_headers,
+    _default_fx_provider,
+    _infer_ibkr_report_date_format,
+    _normalize_report_alias,
+)
 from .spb8 import extract_ibkr_spb8_rows
 
 SUPPORTED_IBKR_SECTIONS = {
@@ -175,6 +181,7 @@ def _process_sections(
     tax_exempt_mode: str,
     eu_regulated_exchange_overrides: set[str],
     closed_world_mode: bool,
+    report_date_format: IbkrReportDateFormat,
 ) -> _ProcessedSections:
     trades = process_trades_section(
         rows=rows,
@@ -186,6 +193,7 @@ def _process_sections(
         tax_exempt_mode=tax_exempt_mode,  # type: ignore[arg-type]
         eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
         closed_world_mode=closed_world_mode,
+        report_date_format=report_date_format,
     )
     interest = process_interest_section(
         rows=rows,
@@ -193,6 +201,7 @@ def _process_sections(
         summary=summary,
         fx_provider=fx_provider,
         tax_year=tax_year,
+        report_date_format=report_date_format,
     )
     dividends = process_dividends_section(
         rows=rows,
@@ -201,6 +210,7 @@ def _process_sections(
         summary=summary,
         fx_provider=fx_provider,
         tax_year=tax_year,
+        report_date_format=report_date_format,
     )
     withholding = process_withholding_section(
         rows=rows,
@@ -209,6 +219,7 @@ def _process_sections(
         summary=summary,
         fx_provider=fx_provider,
         tax_year=tax_year,
+        report_date_format=report_date_format,
     )
     open_positions = process_open_positions_section(
         rows=rows,
@@ -480,6 +491,11 @@ def analyze_ibkr_activity_statement(
     summary.cli_eu_regulated_overrides = set(eu_regulated_exchange_overrides)
 
     active_headers, seen_headers = _build_active_headers(rows)
+    report_date_format = _infer_ibkr_report_date_format(rows, active_headers)
+    summary.report_date_format_label = report_date_format.label
+    summary.report_date_format_reason = report_date_format.reason
+    summary.closedlot_date_format_label = report_date_format.label
+    summary.closedlot_date_format_reason = report_date_format.reason
     listings = parse_instrument_listings_with_headers(
         rows,
         active_headers=active_headers,
@@ -506,6 +522,7 @@ def analyze_ibkr_activity_statement(
         tax_exempt_mode=tax_exempt_mode,
         eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
         closed_world_mode=closed_world_mode,
+        report_date_format=report_date_format,
     )
     appendix9_components = processed.interest.components_by_country
 

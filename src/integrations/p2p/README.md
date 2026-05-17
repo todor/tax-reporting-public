@@ -71,9 +71,8 @@ All P2P integrations should produce:
 - `Част II`
 - `Част III`
 - `Информативни`
-- `Бележки по обработката` (when applicable)
-- `!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!` (when applicable)
-- `Technical Details` (English technical/audit details only)
+- shared top-level warning/manual-review summary in the unified TXT envelope (when applicable)
+- sibling diagnostics TXT file (English/mixed technical/audit details only)
 
 And should expose in normalized result:
 
