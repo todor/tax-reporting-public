@@ -129,6 +129,8 @@ class FundAnalysisSummary:
     rows_ignored_before_or_equal_opening_state_year: int = 0
     rows_ignored_after_tax_year: int = 0
     unsupported_transaction_rows: int = 0
+    # Deprecated compatibility channel. Do not add new expected analyzer issues here;
+    # emit AnalysisDiagnostic with a structured code from result_builders/reporting instead.
     warnings: list[str] = field(default_factory=list)
     unknown_transaction_types: set[str] = field(default_factory=set)
     appendix_5: FundBucketTotals = field(default_factory=FundBucketTotals)

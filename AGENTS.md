@@ -54,8 +54,16 @@ This repo contains tax analyzers (IBKR, Binance, etc.) that produce Bulgarian ta
 ## Result contract
 Each analyzer should return structured output containing:
 - appendix data
-- warnings / review-required items
+- diagnostics for warnings / review-required items
 - audit/debug data (if applicable)
+
+Expected analyzer issues must be structured diagnostics, not free-form warning strings:
+- add a stable diagnostic code
+- pass structured params/context and raw evidence
+- render Bulgarian user-facing text centrally from code + params
+- render English technical diagnostics centrally from code + params/raw evidence
+
+Do not add new expected issues to legacy `warnings: list[str]` or `manual_check_reasons` fields. Those are compatibility inputs only and should normalize to structured diagnostics in the shared result/reporting layer.
 
 ---
 
@@ -71,6 +79,10 @@ Each analyzer should return structured output containing:
 - Render normal filesystem paths in reports and diagnostics, not `file://` URLs.
 - Technical Details belong in diagnostics, not embedded in the main report.
 - Prefer shared report/rendering helpers over analyzer-specific formatting at the output boundary.
+- Do not render analyzer-specific warning/manual-review sections such as `Бележки по обработката`, custom `Какво трябва да направите`, or duplicate manual-review banners inside analyzers.
+- A main report must have exactly one status banner at the top.
+- If a new analyzer warning is expected/user-actionable, add a diagnostic code and shared renderer/diagnostics mapping before using it in reports.
+- `UNCLASSIFIED_*` diagnostics are defensive fallback only. Normal analyzer tests and golden examples should use known structured diagnostic codes.
 
 ---
 

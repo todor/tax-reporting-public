@@ -514,25 +514,14 @@ def _append_forex_section(
     summary: AnalysisSummary,
     money_context: MoneyRenderContext | None = None,
 ) -> None:
-    if summary.forex_review_required_rows <= 0:
+    _ = money_context
+    if summary.forex_ignored_rows <= 0:
         return
 
-    lines.append("ВНИМАНИЕ: FOREX ОПЕРАЦИИ")
-    lines.append("- Forex сделки (конвертиране на валута или търговия) НЕ са включени в изчисленията за Приложение 5 и Приложение 13")
-    lines.append("- Тези операции са игнорирани от анализатора в тази версия")
-    lines.append("- Forex ред с Review Status=NON-TAXABLE е обработен като нетаксируем и не изисква ръчна проверка")
-    lines.append("- Forex ред с Review Status=TAXABLE, празен или непознат статус изисква ръчна проверка")
-    lines.append(f"- брой Forex записи (общо): {summary.forex_ignored_rows}")
-    lines.append(f"- брой Forex записи с NON-TAXABLE: {summary.forex_non_taxable_ignored_rows}")
-    lines.append(f"- брой Forex записи с изисквана ръчна проверка: {summary.forex_review_required_rows}")
-    lines.append(
-        render_money_line(
-            "- общ обем",
-            Money(summary.forex_ignored_abs_proceeds_eur, "EUR"),
-            quant=DECIMAL_TWO,
-            context=money_context,
-        )
-    )
+    lines.append("Forex операции")
+    lines.append("- Forex сделки (конвертиране на валута или търговия) не се включват автоматично в Приложение 5/13 в тази версия.")
+    lines.append("- Forex редове с Review Status=NON-TAXABLE се третират като нетаксируеми.")
+    lines.append("- Forex редове с Review Status=TAXABLE, празен или непознат статус изискват ръчен преглед.")
     lines.append("")
 
 

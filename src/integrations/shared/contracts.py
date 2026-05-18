@@ -16,6 +16,12 @@ AppendixValue = Decimal | int | str
 
 @dataclass(slots=True)
 class AnalysisDiagnostic:
+    """Structured analyzer diagnostic rendered by the shared report boundary.
+
+    Expected analyzer issues should always set `code` and structured `params`.
+    Free-form messages without a code are treated as defensive legacy fallback.
+    """
+
     severity: DiagnosticSeverity
     message: str
     analyzer_alias: str

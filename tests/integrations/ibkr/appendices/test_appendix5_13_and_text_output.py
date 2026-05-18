@@ -75,8 +75,11 @@ def test_forex_rows_are_ignored_with_warning_in_text(tmp_path: Path) -> None:
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" in text
     assert "Forex сделки" in text
-    assert text.index("!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!") < text.index("ВНИМАНИЕ: FOREX ОПЕРАЦИИ")
-    assert text.index("ВНИМАНИЕ: FOREX ОПЕРАЦИИ") < text.index("Приложение 5")
+    assert "ВНИМАНИЕ: FOREX ОПЕРАЦИИ" not in text
+    assert "брой Forex записи" not in text
+    assert "общ обем" not in text
+    assert text.index("!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!") < text.index("Forex операции")
+    assert text.index("Forex операции") < text.index("Приложение 5")
 
 
 def test_forex_non_taxable_review_status_does_not_require_manual_check(tmp_path: Path) -> None:

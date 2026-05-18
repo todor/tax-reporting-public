@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from pathlib import Path
 
@@ -10,6 +11,13 @@ from integrations.ibkr.models import AnalysisSummary as IbkrAnalysisSummary
 from integrations.p2p.shared.appendix6_models import P2PAppendix6Result
 
 from .contracts import AnalysisDiagnostic, AppendixRecord, TaxAnalysisResult
+from .reporting import normalize_diagnostics
+
+
+_ROW_RE = re.compile(r"row (?P<row>\d+)")
+_P2P_YEAR_RE = re.compile(
+    r"reporting year in PDF \((?P<report_year>[^)]+)\) differs from requested tax year \((?P<tax_year>[^)]+)\)"
+)
 
 
 def _output_paths_to_path_map(paths: dict[str, str | Path]) -> dict[str, Path]:
@@ -17,6 +25,232 @@ def _output_paths_to_path_map(paths: dict[str, str | Path]) -> dict[str, Path]:
         key: (value if isinstance(value, Path) else Path(value)).expanduser().resolve()
         for key, value in paths.items()
     }
+
+
+def _row_from_message(message: str) -> str:
+    match = _ROW_RE.search(message)
+    return match.group("row") if match else ""
+
+
+def _diagnostic(
+    *,
+    severity: str,
+    analyzer_alias: str,
+    code: str,
+    message: str,
+    params: dict[str, object] | None = None,
+    technical_message_en: str | None = None,
+) -> AnalysisDiagnostic:
+    return AnalysisDiagnostic(
+        severity=severity,  # type: ignore[arg-type]
+        analyzer_alias=analyzer_alias,
+        code=code,
+        message=message,
+        params=params or {},
+        technical_message_en=technical_message_en,
+    )
+
+
+def _crypto_warning_diagnostic(*, analyzer_alias: str, warning: str) -> AnalysisDiagnostic:
+    row = _row_from_message(warning)
+    params: dict[str, object] = {"items": [{"row": row, "raw_detail": warning}]} if row else {"raw_detail": warning}
+    if "unsupported Transaction Type" in warning or "unsupported Kraken combination" in warning:
+        return _diagnostic(
+            severity="MANUAL_REVIEW",
+            analyzer_alias=analyzer_alias,
+            code="CRYPTO_UNSUPPORTED_TRANSACTION_TYPE",
+            message="Unsupported crypto transaction types were excluded from tax calculations.",
+            params=params,
+        )
+    if "missing Cost Basis" in warning or "invalid Cost Basis" in warning or "Cost Basis" in warning:
+        return _diagnostic(
+            severity="MANUAL_REVIEW",
+            analyzer_alias=analyzer_alias,
+            code="CRYPTO_MISSING_COST_BASIS",
+            message="Crypto rows require cost-basis review.",
+            params=params,
+        )
+    if "Review Status" in warning:
+        return _diagnostic(
+            severity="MANUAL_REVIEW",
+            analyzer_alias=analyzer_alias,
+            code="CRYPTO_ROW_REQUIRES_REVIEW",
+            message="Crypto rows require manual review.",
+            params=params,
+        )
+    return _diagnostic(
+        severity="WARNING",
+        analyzer_alias=analyzer_alias,
+        code="CRYPTO_ROW_REQUIRES_REVIEW",
+        message="Crypto rows require review.",
+        params=params,
+    )
+
+
+def _crypto_summary_diagnostics(*, analyzer_alias: str, summary: IrAnalysisSummary) -> list[AnalysisDiagnostic]:
+    diagnostics = [_crypto_warning_diagnostic(analyzer_alias=analyzer_alias, warning=warning) for warning in summary.warnings]
+    if not diagnostics and summary.unsupported_transaction_rows > 0:
+        diagnostics.append(
+            _diagnostic(
+                severity="MANUAL_REVIEW",
+                analyzer_alias=analyzer_alias,
+                code="CRYPTO_UNSUPPORTED_TRANSACTION_TYPE",
+                message="Unsupported crypto transaction types were excluded from tax calculations.",
+                params={
+                    "count": summary.unsupported_transaction_rows,
+                    "transaction_types": sorted(summary.unknown_transaction_types),
+                },
+            )
+        )
+    if not any(item.code == "CRYPTO_ROW_REQUIRES_REVIEW" for item in diagnostics) and summary.invalid_send_review_rows > 0:
+        diagnostics.append(
+            _diagnostic(
+                severity="MANUAL_REVIEW",
+                analyzer_alias=analyzer_alias,
+                code="CRYPTO_ROW_REQUIRES_REVIEW",
+                message="Crypto rows require manual review.",
+                params={
+                    "count": summary.invalid_send_review_rows,
+                    "review_statuses": sorted(summary.unknown_send_review_statuses),
+                },
+            )
+        )
+    return diagnostics
+
+
+def _fund_warning_diagnostic(*, analyzer_alias: str, warning: str) -> AnalysisDiagnostic:
+    row = _row_from_message(warning)
+    params: dict[str, object] = {"items": [{"row": row, "raw_detail": warning}]} if row else {"raw_detail": warning}
+    if "unsupported Type=" in warning or "unsupported" in warning:
+        return _diagnostic(
+            severity="MANUAL_REVIEW",
+            analyzer_alias=analyzer_alias,
+            code="FUND_UNSUPPORTED_ROW_TYPE",
+            message="Unsupported fund rows were excluded from tax calculations.",
+            params=params,
+        )
+    if "FX fallback" in warning or "fallback" in warning:
+        return _diagnostic(
+            severity="WARNING",
+            analyzer_alias=analyzer_alias,
+            code="FUND_FX_LOOKUP_FALLBACK",
+            message="FX fallback was used for fund rows.",
+            params=params,
+        )
+    return _diagnostic(
+        severity="MANUAL_REVIEW",
+        analyzer_alias=analyzer_alias,
+        code="FUND_ROW_REQUIRES_REVIEW",
+        message="Fund rows require manual review.",
+        params=params,
+    )
+
+
+def _fund_summary_diagnostics(*, analyzer_alias: str, summary: FundAnalysisSummary) -> list[AnalysisDiagnostic]:
+    diagnostics = [_fund_warning_diagnostic(analyzer_alias=analyzer_alias, warning=warning) for warning in summary.warnings]
+    if not diagnostics and summary.unsupported_transaction_rows > 0:
+        diagnostics.append(
+            _diagnostic(
+                severity="MANUAL_REVIEW",
+                analyzer_alias=analyzer_alias,
+                code="FUND_UNSUPPORTED_ROW_TYPE",
+                message="Unsupported fund rows were excluded from tax calculations.",
+                params={
+                    "count": summary.unsupported_transaction_rows,
+                    "transaction_types": sorted(summary.unknown_transaction_types),
+                },
+            )
+        )
+    return diagnostics
+
+
+def _p2p_warning_diagnostic(*, analyzer_alias: str, warning: str) -> AnalysisDiagnostic:
+    year_match = _P2P_YEAR_RE.search(warning)
+    if year_match:
+        return _diagnostic(
+            severity="MANUAL_REVIEW",
+            analyzer_alias=analyzer_alias,
+            code="P2P_REPORTING_YEAR_MISMATCH",
+            message="P2P report year differs from requested tax year.",
+            params=year_match.groupdict(),
+        )
+    if "Appendix total row mismatch vs parsed detail rows" in warning:
+        return _diagnostic(
+            severity="WARNING",
+            analyzer_alias=analyzer_alias,
+            code="P2P_TOTAL_ROW_MISMATCH",
+            message="P2P appendix total row does not match parsed detail rows.",
+            params={"raw_detail": warning},
+        )
+    if "secondary market" in warning.lower():
+        return _diagnostic(
+            severity="MANUAL_REVIEW",
+            analyzer_alias=analyzer_alias,
+            code="P2P_SECONDARY_MARKET_REVIEW_REQUIRED",
+            message="Secondary market amount requires manual review.",
+            params={"raw_detail": warning},
+        )
+    if "negative" in warning and "not included" in warning:
+        return _diagnostic(
+            severity="WARNING",
+            analyzer_alias=analyzer_alias,
+            code="P2P_AMOUNT_OMITTED",
+            message="P2P amount was omitted from Appendix 6 because it was negative or unsupported.",
+            params={"raw_detail": warning},
+        )
+    if "normalized as a negative value" in warning:
+        return _diagnostic(
+            severity="WARNING",
+            analyzer_alias=analyzer_alias,
+            code="P2P_AMOUNT_NORMALIZED",
+            message="P2P amount sign was normalized.",
+            params={"raw_detail": warning},
+        )
+    return _diagnostic(
+        severity="MANUAL_REVIEW",
+        analyzer_alias=analyzer_alias,
+        code="P2P_ROW_REQUIRES_REVIEW",
+        message="P2P row requires manual review.",
+        params={"raw_detail": warning},
+    )
+
+
+def _p2p_info_diagnostic(*, analyzer_alias: str, note: str) -> AnalysisDiagnostic:
+    code = "P2P_AMOUNT_OMITTED" if "omitted" in note.lower() else "P2P_PROCESSING_INFO"
+    message = (
+        "P2P amount was omitted from Appendix 6 because it was not positive or not mappable."
+        if code == "P2P_AMOUNT_OMITTED"
+        else "P2P processing information."
+    )
+    return _diagnostic(
+        severity="INFO",
+        analyzer_alias=analyzer_alias,
+        code=code,
+        message=message,
+        params={"raw_detail": note},
+    )
+
+
+def _binance_futures_warning_diagnostic(*, analyzer_alias: str, warning: str) -> AnalysisDiagnostic:
+    row = _row_from_message(warning)
+    params: dict[str, object] = {"items": [{"row": row, "raw_detail": warning}]} if row else {"raw_detail": warning}
+    lowered = warning.lower()
+    if "funding fee" in lowered:
+        code = "BINANCE_FUTURES_FUNDING_FEE_REVIEW_REQUIRED"
+        message = "Binance futures funding fee row requires review."
+    elif "unsupported" in lowered and "income" in lowered:
+        code = "BINANCE_FUTURES_UNSUPPORTED_INCOME_TYPE"
+        message = "Unsupported income type in Binance futures report."
+    else:
+        code = "BINANCE_FUTURES_UNSUPPORTED_INCOME_TYPE"
+        message = "Binance futures row requires review."
+    return _diagnostic(
+        severity="WARNING",
+        analyzer_alias=analyzer_alias,
+        code=code,
+        message=message,
+        params=params,
+    )
 
 
 def build_crypto_result(
@@ -28,15 +262,7 @@ def build_crypto_result(
     summary: IrAnalysisSummary,
     declaration_code: str = "5082",
 ) -> TaxAnalysisResult:
-    diagnostics: list[AnalysisDiagnostic] = []
-    diagnostics.extend(
-        AnalysisDiagnostic(severity="WARNING", message=warning, analyzer_alias=analyzer_alias)
-        for warning in summary.warnings
-    )
-    diagnostics.extend(
-        AnalysisDiagnostic(severity="MANUAL_REVIEW", message=reason, analyzer_alias=analyzer_alias)
-        for reason in summary.manual_check_reasons
-    )
+    diagnostics = _crypto_summary_diagnostics(analyzer_alias=analyzer_alias, summary=summary)
 
     bucket = summary.appendix_5
     appendices = [
@@ -74,15 +300,7 @@ def build_fund_result(
     summary: FundAnalysisSummary,
     declaration_code: str,
 ) -> TaxAnalysisResult:
-    diagnostics: list[AnalysisDiagnostic] = []
-    diagnostics.extend(
-        AnalysisDiagnostic(severity="WARNING", message=warning, analyzer_alias=analyzer_alias)
-        for warning in summary.warnings
-    )
-    diagnostics.extend(
-        AnalysisDiagnostic(severity="MANUAL_REVIEW", message=reason, analyzer_alias=analyzer_alias)
-        for reason in summary.manual_check_reasons
-    )
+    diagnostics = _fund_summary_diagnostics(analyzer_alias=analyzer_alias, summary=summary)
 
     bucket = summary.appendix_5
     appendices = [
@@ -125,7 +343,7 @@ def build_binance_futures_result(
     warnings: list[str] | None = None,
 ) -> TaxAnalysisResult:
     diagnostics = [
-        AnalysisDiagnostic(severity="WARNING", message=warning, analyzer_alias=analyzer_alias)
+        _binance_futures_warning_diagnostic(analyzer_alias=analyzer_alias, warning=warning)
         for warning in (warnings or [])
     ]
     appendices = [
@@ -164,11 +382,11 @@ def build_p2p_result(
 ) -> TaxAnalysisResult:
     diagnostics: list[AnalysisDiagnostic] = []
     diagnostics.extend(
-        AnalysisDiagnostic(severity="MANUAL_REVIEW", message=warning, analyzer_alias=analyzer_alias)
+        _p2p_warning_diagnostic(analyzer_alias=analyzer_alias, warning=warning)
         for warning in result.warnings
     )
     diagnostics.extend(
-        AnalysisDiagnostic(severity="INFO", message=note, analyzer_alias=analyzer_alias)
+        _p2p_info_diagnostic(analyzer_alias=analyzer_alias, note=note)
         for note in result.informational_messages
     )
 
@@ -247,15 +465,16 @@ def build_ibkr_result(
     output_paths: dict[str, str | Path],
     summary: IbkrAnalysisSummary,
 ) -> TaxAnalysisResult:
-    diagnostics: list[AnalysisDiagnostic] = []
-    diagnostics.extend(
+    legacy_diagnostics: list[AnalysisDiagnostic] = []
+    legacy_diagnostics.extend(
         AnalysisDiagnostic(severity="WARNING", message=warning, analyzer_alias=analyzer_alias)
         for warning in summary.warnings
     )
-    diagnostics.extend(
+    legacy_diagnostics.extend(
         AnalysisDiagnostic(severity="MANUAL_REVIEW", message=reason, analyzer_alias=analyzer_alias)
         for reason in _build_manual_check_reasons(summary)
     )
+    diagnostics = normalize_diagnostics(legacy_diagnostics)
 
     appendices: list[AppendixRecord] = []
 

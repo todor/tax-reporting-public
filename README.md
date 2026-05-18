@@ -538,6 +538,8 @@ TXT output boundary:
 - main TXT reports contain declaration sections, deduplicated actionable errors/warnings/manual-review items near the top, assumptions, and what to do next
 - diagnostics TXT reports contain sorted technical/audit/debug details, raw parser messages, normal filesystem paths, and tracebacks when useful
 - stdout is intentionally short: status, main report path, diagnostics path, and summary counts
+- expected analyzer issues use structured diagnostic codes; free-form warnings are only a defensive fallback and should not appear in normal reports for known conditions
+- analyzer-specific warning/manual-review sections are normalized into the shared report structure instead of being rendered as duplicate body sections
 
 Aggregate output:
 

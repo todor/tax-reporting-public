@@ -19,6 +19,7 @@ This package contains cross-integration shared orchestration pieces used by the 
   - when multiple files are mapped to the same alias, all files are processed (no single-file restriction per analyzer)
 - `result_builders.py`
   - adapters from existing analyzer-native summaries/results into `TaxAnalysisResult`
+  - normalizes legacy analyzer warning lists into structured diagnostics
 - `aggregation.py`
   - declaration aggregation from structured appendix records
   - rendering of `aggregated_tax_report_<year>.txt`
@@ -55,6 +56,23 @@ Top-level output behavior:
 - per-run analyzer status, normal filesystem paths, readable `Diagnostics` entries, display-currency metadata, and audit/debug details in diagnostics
 - manual-review rows are excluded from declaration totals but reflected in status/diagnostic sections
 - when `--display-currency BGN` is used, declaration-facing monetary lines are rendered in BGN using `bnb_fx` at tax-year end; technical FX metadata is shown in diagnostics
+
+## Diagnostic Contract
+
+Expected analyzer warnings/errors/manual-review items must be structured diagnostics:
+
+- stable `code`
+- `severity`
+- analyzer alias
+- structured `params`/raw evidence
+- English technical message for diagnostics
+
+Bulgarian user-facing text is rendered centrally by `reporting.py` from `code + params`.
+Do not add new expected issues as free-form strings in analyzer text output or legacy
+`warnings: list[str]` fields. Those fields are compatibility inputs only.
+
+`UNCLASSIFIED_*` diagnostics are defensive fallback for unexpected legacy/free-form
+messages. Normal analyzer tests and golden examples should use known structured codes.
 
 ## Design Notes
 

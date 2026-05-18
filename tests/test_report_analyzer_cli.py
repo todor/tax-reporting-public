@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 import report_analyzer
+from integrations.crypto.shared.crypto_ir_models import IrAnalysisSummary
+from integrations.fund.shared.fund_ir_models import FundAnalysisSummary
 from integrations.shared.aggregation import render_aggregated_report
 from integrations.shared.autodetect import InputDetectionError, detect_analyzer_inputs
 from integrations.shared.contracts import (
@@ -20,9 +22,16 @@ from integrations.shared.contracts import (
 )
 from integrations.shared.cli_helpers import CliMode
 from integrations.shared.registry import AnalyzerRegistry
-from integrations.shared.reporting import render_action_items, render_diagnostics_report
+from integrations.shared.result_builders import (
+    build_binance_futures_result,
+    build_crypto_result,
+    build_fund_result,
+    build_p2p_result,
+)
+from integrations.shared.reporting import render_action_items, render_diagnostics_report, render_main_report
 from integrations.shared.rendering.common import TECHNICAL_DETAILS_SEPARATOR
 from integrations.shared.spb8 import SPB8Row
+from integrations.p2p.shared.appendix6_models import P2PAppendix6Result
 
 
 @dataclass(slots=True)
@@ -388,6 +397,158 @@ def test_ibkr_grouped_diagnostics_are_technical_and_structured() -> None:
     assert "[WARNING] [ibkr] UNKNOWN_DIVIDEND_ROWS" in rendered
     assert "message: има 17 Forex" not in rendered
     assert "Payment in Lieu of Dividend" in rendered
+
+
+def test_forex_policy_note_does_not_duplicate_actionable_diagnostic() -> None:
+    raw_text = "\n".join(
+        [
+            "Forex операции",
+            "- Forex сделки (конвертиране на валута или търговия) не се включват автоматично в Приложение 5/13 в тази версия.",
+            "- Forex редове с Review Status=NON-TAXABLE се третират като нетаксируеми.",
+            "- Forex редове с Review Status=TAXABLE, празен или непознат статус изискват ръчен преглед.",
+            "",
+            "Приложение 5",
+            "Таблица 2",
+            "- Код 508",
+        ]
+    )
+    rendered = render_main_report(
+        status="NEEDS_REVIEW",
+        tax_year=2025,
+        raw_declaration_text=raw_text,
+        diagnostics_path=Path("/tmp/ibkr.diagnostics.txt"),
+        diagnostics=[
+            AnalysisDiagnostic(
+                severity="MANUAL_REVIEW",
+                message=(
+                    "row 6691: Forex ignored: missing Review Status (taxable forex not supported) "
+                    "(symbol=EUR.USD, execution_exchange=IDEALFX)"
+                ),
+                analyzer_alias="ibkr",
+            )
+        ],
+    )
+
+    assert "ВНИМАНИЕ: FOREX ОПЕРАЦИИ" not in rendered
+    assert rendered.count("Forex реда, които не са включени автоматично") == 1
+    assert "Засегнати редове: 6691" in rendered
+    assert rendered.index("Какво трябва да направите") < rendered.index("Приложение 5")
+    assert rendered.index("Приложение 5") < rendered.index("Forex операции")
+    assert "брой Forex записи" not in rendered
+    assert "общ обем" not in rendered
+    assert "Forex редове с Review Status=NON-TAXABLE се третират като нетаксируеми." in rendered
+
+
+def test_known_family_warnings_use_structured_diagnostics_not_unclassified(tmp_path: Path) -> None:
+    crypto_summary = IrAnalysisSummary()
+    crypto_summary.warnings.extend(
+        [
+            "row 7: unsupported Transaction Type='Airdrop'; excluded from tax calculations",
+            "row 7: unsupported Transaction Type='Airdrop'; excluded from tax calculations",
+        ]
+    )
+    crypto_result = build_crypto_result(
+        analyzer_alias="kraken",
+        input_path=tmp_path / "kraken.csv",
+        tax_year=2025,
+        output_paths={"declaration_txt": tmp_path / "kraken.txt"},
+        summary=crypto_summary,
+    )
+
+    fund_summary = FundAnalysisSummary()
+    fund_summary.warnings.append("row 12: unsupported Type='Bonus'; excluded from tax calculations (amount=10)")
+    fund_result = build_fund_result(
+        analyzer_alias="finexify",
+        input_path=tmp_path / "finexify.csv",
+        tax_year=2025,
+        output_paths={"declaration_txt": tmp_path / "finexify.txt"},
+        summary=fund_summary,
+        declaration_code="5082",
+    )
+
+    p2p_result = build_p2p_result(
+        analyzer_alias="lendermarket",
+        input_path=tmp_path / "lendermarket.pdf",
+        tax_year=2025,
+        output_paths={"declaration_txt": tmp_path / "lendermarket.txt"},
+        result=P2PAppendix6Result(
+            platform="lendermarket",
+            tax_year=2025,
+            part1_rows=[],
+            aggregate_code_603=Decimal("0"),
+            aggregate_code_606=Decimal("0"),
+            taxable_code_603=Decimal("0"),
+            taxable_code_606=Decimal("0"),
+            withheld_tax=Decimal("0"),
+            warnings=["secondary market amount requires manual review for loan L-42"],
+        ),
+    )
+
+    binance_result = build_binance_futures_result(
+        analyzer_alias="binance_futures",
+        input_path=tmp_path / "binance.csv",
+        tax_year=2025,
+        output_paths={"declaration_txt": tmp_path / "binance.txt"},
+        sale_value_eur=Decimal("0"),
+        acquisition_value_eur=Decimal("0"),
+        profit_eur=Decimal("0"),
+        loss_eur=Decimal("0"),
+        trade_count=0,
+        warnings=["row 7: unsupported income type=funding fee"],
+    )
+
+    diagnostics = [
+        *crypto_result.diagnostics,
+        *fund_result.diagnostics,
+        *p2p_result.diagnostics,
+        *binance_result.diagnostics,
+    ]
+    main = "\n".join(render_action_items(diagnostics))
+    technical = render_diagnostics_report(
+        title="family diagnostics",
+        status="NEEDS_REVIEW",
+        raw_declaration_text="",
+        diagnostics=diagnostics,
+    )
+
+    assert "UNCLASSIFIED" not in technical
+    assert "unsupported Transaction Type='Airdrop'" not in main
+    assert "unsupported Type='Bonus'" not in main
+    assert "secondary market amount requires manual review" not in main
+    assert "unsupported income type=funding fee" not in main
+    assert "Kraken: има 1 неподдържани крипто транзакции" in main
+    assert "Finexify: има 1 неподдържани fund реда" in main
+    assert "Lendermarket: има 1 запис от вторичен пазар" in main
+    assert "Binance Futures: има 1 Binance Futures funding fee реда" in main
+    assert "[MANUAL_REVIEW] [kraken] CRYPTO_UNSUPPORTED_TRANSACTION_TYPE" in technical
+    assert "[MANUAL_REVIEW] [finexify] FUND_UNSUPPORTED_ROW_TYPE" in technical
+    assert "[MANUAL_REVIEW] [lendermarket] P2P_SECONDARY_MARKET_REVIEW_REQUIRED" in technical
+    assert "[WARNING] [binance_futures] BINANCE_FUTURES_FUNDING_FEE_REVIEW_REQUIRED" in technical
+    assert "unsupported Transaction Type='Airdrop'" in technical
+    assert "secondary market amount requires manual review for loan L-42" in technical
+
+
+def test_unclassified_fallback_keeps_raw_details_only_in_diagnostics() -> None:
+    diagnostics = [
+        AnalysisDiagnostic(
+            severity="WARNING",
+            message="unexpected raw English warning that has no structured code",
+            analyzer_alias="coinbase",
+        )
+    ]
+
+    main = "\n".join(render_action_items(diagnostics))
+    technical = render_diagnostics_report(
+        title="fallback diagnostics",
+        status="WARNING",
+        raw_declaration_text="",
+        diagnostics=diagnostics,
+    )
+
+    assert "unexpected raw English warning" not in main
+    assert "Coinbase: има 1 предупреждения, които изискват преглед." in main
+    assert "[WARNING] [coinbase] UNCLASSIFIED_WARNING_GROUP" in technical
+    assert "unexpected raw English warning that has no structured code" in technical
 
 
 def test_list_analyzers_outputs_builtin_aliases(capsys: pytest.CaptureFixture[str]) -> None:

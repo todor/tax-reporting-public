@@ -353,6 +353,28 @@ def _short_reason_for_diagnostic(diagnostic: AnalysisDiagnostic) -> str:
         return "unsupported Trades rows skipped"
     if diagnostic.code == "UNKNOWN_DIVIDEND_ROWS":
         return "unknown dividend/payment-in-lieu rows"
+    if diagnostic.code == "CRYPTO_UNSUPPORTED_TRANSACTION_TYPE":
+        return "unsupported crypto transaction types"
+    if diagnostic.code == "CRYPTO_MISSING_COST_BASIS":
+        return "crypto cost basis review"
+    if diagnostic.code == "CRYPTO_ROW_REQUIRES_REVIEW":
+        return "crypto rows require review"
+    if diagnostic.code == "FUND_UNSUPPORTED_ROW_TYPE":
+        return "unsupported fund rows"
+    if diagnostic.code == "FUND_FX_LOOKUP_FALLBACK":
+        return "fund FX fallback used"
+    if diagnostic.code == "P2P_REPORTING_YEAR_MISMATCH":
+        return "reporting year mismatch"
+    if diagnostic.code == "P2P_SECONDARY_MARKET_REVIEW_REQUIRED":
+        return "secondary market review required"
+    if diagnostic.code == "P2P_AMOUNT_OMITTED":
+        return "P2P amount omitted"
+    if diagnostic.code == "BINANCE_FUTURES_UNSUPPORTED_INCOME_TYPE":
+        return "unsupported Binance futures income type"
+    if diagnostic.code == "BINANCE_FUTURES_FUNDING_FEE_REVIEW_REQUIRED":
+        return "Binance futures funding fee review"
+    if diagnostic.code == "IBKR_SPB8_REVIEW_REQUIRED":
+        return "IBKR SPB-8 review required"
     if diagnostic.code in {"UNCLASSIFIED_WARNING_GROUP", "UNCLASSIFIED_MANUAL_REVIEW_GROUP"}:
         examples = diagnostic.params.get("examples")
         if isinstance(examples, list) and examples:

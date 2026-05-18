@@ -51,6 +51,8 @@ class P2PAppendix6Result:
     taxable_code_606: Decimal
     withheld_tax: Decimal
     informative_rows: list[InformativeRow] = field(default_factory=list)
+    # Deprecated compatibility channels. New expected analyzer issues should use
+    # structured AnalysisDiagnostic codes via the shared result builder/reporting layer.
     warnings: list[str] = field(default_factory=list)
     informational_messages: list[str] = field(default_factory=list)
 

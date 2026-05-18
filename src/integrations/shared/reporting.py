@@ -48,17 +48,48 @@ _UNKNOWN_DIVIDEND_RE = re.compile(
 _IBKR_COUNT_RE = re.compile(r"има (?P<count>\d+)")
 
 _GROUPABLE_CODES = {
+    "BINANCE_FUTURES_FUNDING_FEE_REVIEW_REQUIRED",
+    "BINANCE_FUTURES_UNSUPPORTED_INCOME_TYPE",
+    "CRYPTO_MISSING_COST_BASIS",
+    "CRYPTO_PRICE_LOOKUP_FALLBACK",
+    "CRYPTO_ROW_REQUIRES_REVIEW",
+    "CRYPTO_UNSUPPORTED_TRANSACTION_TYPE",
+    "FUND_DIVIDEND_REVIEW_REQUIRED",
+    "FUND_FX_LOOKUP_FALLBACK",
+    "FUND_ROW_REQUIRES_REVIEW",
+    "FUND_UNSUPPORTED_ROW_TYPE",
     "FOREX_ROWS_IGNORED",
     "UNSUPPORTED_TRADES_ROWS",
     "UNKNOWN_DIVIDEND_ROWS",
     "IBKR_MANUAL_REVIEW_ROWS",
+    "IBKR_SPB8_REVIEW_REQUIRED",
     "IBKR_SANITY_CHECK_FAILURES",
     "IBKR_UNKNOWN_INTEREST_ROWS",
     "IBKR_DIVIDEND_COUNTRY_ERRORS",
     "IBKR_WITHHOLDING_COUNTRY_ERRORS",
     "IBKR_UNKNOWN_REVIEW_STATUS_ROWS",
+    "P2P_AMOUNT_NORMALIZED",
+    "P2P_AMOUNT_OMITTED",
+    "P2P_PROCESSING_INFO",
+    "P2P_REPORTING_YEAR_MISMATCH",
+    "P2P_ROW_REQUIRES_REVIEW",
+    "P2P_SECONDARY_MARKET_REVIEW_REQUIRED",
+    "P2P_TOTAL_ROW_MISMATCH",
+    "P2P_UNMAPPED_WITHHELD_TAX",
     "UNCLASSIFIED_MANUAL_REVIEW_GROUP",
     "UNCLASSIFIED_WARNING_GROUP",
+}
+
+_KNOWN_DIAGNOSTIC_CODES = {
+    *_GROUPABLE_CODES,
+    "EMPTY_INPUT_FILE",
+    "GENERIC_ANALYZER_ERROR",
+    "INPUT_FILE_MISSING",
+    "INVALID_TAX_YEAR",
+    "MISSING_CSV_HEADER",
+    "MISSING_REQUIRED_COLUMNS",
+    "SPB8_INPUT_ERROR",
+    "SPB8_MISSING_VALUES",
 }
 
 
@@ -132,6 +163,7 @@ def clean_declaration_body(raw_declaration: str) -> str:
 @dataclass(slots=True)
 class MainReportNotes:
     spb8: list[str] = field(default_factory=list)
+    forex: list[str] = field(default_factory=list)
     appendix8: list[str] = field(default_factory=list)
     general: list[str] = field(default_factory=list)
 
@@ -178,6 +210,7 @@ def _extract_note_block(
 def extract_main_report_notes(body: str) -> tuple[str, MainReportNotes]:
     lines = body.splitlines()
     lines, spb8_notes = _extract_note_block(lines, title="Забележки за СПБ-8", bullet_lines=True)
+    lines, forex_notes = _extract_note_block(lines, title="Forex операции", bullet_lines=True)
     lines, appendix8_notes = _extract_note_block(lines, title="Забележка:", bullet_lines=False)
     general_notes: list[str] = []
     appendix8_specific_notes: list[str] = []
@@ -188,7 +221,12 @@ def extract_main_report_notes(body: str) -> tuple[str, MainReportNotes]:
             appendix8_specific_notes.append(note)
     return (
         "\n".join(lines).strip(),
-        MainReportNotes(spb8=spb8_notes, appendix8=appendix8_specific_notes, general=general_notes),
+        MainReportNotes(
+            spb8=spb8_notes,
+            forex=forex_notes,
+            appendix8=appendix8_specific_notes,
+            general=general_notes,
+        ),
     )
 
 
@@ -243,6 +281,12 @@ def _diagnostic_count(diagnostic: AnalysisDiagnostic) -> int:
     rows = diagnostic.params.get("rows")
     if isinstance(rows, list) and rows:
         return len(rows)
+    items = diagnostic.params.get("items")
+    if isinstance(items, list) and items:
+        return len(items)
+    count = diagnostic.params.get("count")
+    if isinstance(count, str) and count.isdigit():
+        return int(count)
     return 1
 
 
@@ -312,6 +356,24 @@ def _canonicalize_diagnostic(diagnostic: AnalysisDiagnostic) -> AnalysisDiagnost
         return _canonicalize_bulgarian_summary(diagnostic, params=params, message=message)
 
     if diagnostic.code:
+        if diagnostic.code not in _KNOWN_DIAGNOSTIC_CODES:
+            code = (
+                f"UNCLASSIFIED_{diagnostic.severity}_GROUP"
+                if diagnostic.severity in {"WARNING", "MANUAL_REVIEW"}
+                else "GENERIC_ANALYZER_ERROR"
+            )
+            params.update({"count": 1, "raw_code": diagnostic.code, "examples": [message] if message else []})
+            return replace(
+                diagnostic,
+                code=code,
+                message=(
+                    "Analyzer warnings require review."
+                    if diagnostic.severity == "WARNING"
+                    else "Analyzer diagnostic requires review."
+                ),
+                params=params,
+                technical_message_en=None,
+            )
         return diagnostic
 
     if _has_builtin_main_translation(message):
@@ -385,6 +447,9 @@ def _canonicalize_bulgarian_summary(
     elif "непознат Review Status" in message:
         code = "IBKR_UNKNOWN_REVIEW_STATUS_ROWS"
         english_message = "Rows have unknown Review Status values."
+    elif message.startswith("СПБ-8") or message.startswith("⚠️"):
+        code = "IBKR_SPB8_REVIEW_REQUIRED"
+        english_message = "IBKR SPB-8 data requires review."
 
     if not code:
         code = f"UNCLASSIFIED_{diagnostic.severity}_GROUP"
@@ -427,15 +492,21 @@ def _merge_diagnostics(
         list(params.get("rows") or []),
         list(incoming_params.get("rows") or []),
     )
+    items = _merge_unique_dict_rows(
+        list(params.get("items") or []),
+        list(incoming_params.get("items") or []),
+    )
     examples = _merge_unique_texts(
         list(params.get("examples") or []),
         list(incoming_params.get("examples") or []),
     )
-    count = max(_diagnostic_count(current), _diagnostic_count(incoming), len(rows), len(examples), 1)
+    count = max(_diagnostic_count(current), _diagnostic_count(incoming), len(rows), len(items), len(examples), 1)
     params.update({key: value for key, value in incoming_params.items() if key not in params})
     params["count"] = count
     if rows:
         params["rows"] = rows
+    if items:
+        params["items"] = items
     if examples:
         params["examples"] = examples
     severity = (
@@ -657,6 +728,87 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
         )
         return lines
 
+    if diagnostic.code and diagnostic.code.startswith("CRYPTO_"):
+        return _structured_family_message_bg(
+            diagnostic,
+            analyzer=analyzer,
+            summaries={
+                "CRYPTO_PRICE_LOOKUP_FALLBACK": "използвана е резервна цена за {count} крипто записа.",
+                "CRYPTO_MISSING_COST_BASIS": "има {count} крипто записа с липсваща или невалидна цена на придобиване.",
+                "CRYPTO_UNSUPPORTED_TRANSACTION_TYPE": "има {count} неподдържани крипто транзакции, които са изключени.",
+                "CRYPTO_ROW_REQUIRES_REVIEW": "има {count} крипто записа, които изискват ръчен преглед.",
+            },
+            actions=[
+                "- Проверете засегнатите крипто редове в диагностичния файл.",
+                "- Ако имат данъчно значение, коригирайте входните данни или ги обработете ръчно.",
+            ],
+        )
+
+    if diagnostic.code and diagnostic.code.startswith("FUND_"):
+        return _structured_family_message_bg(
+            diagnostic,
+            analyzer=analyzer,
+            summaries={
+                "FUND_FX_LOOKUP_FALLBACK": "използван е резервен валутен курс за {count} реда.",
+                "FUND_UNSUPPORTED_ROW_TYPE": "има {count} неподдържани fund реда, които са изключени.",
+                "FUND_ROW_REQUIRES_REVIEW": "има {count} fund реда, които изискват ръчен преглед.",
+                "FUND_DIVIDEND_REVIEW_REQUIRED": "има {count} dividend реда, които изискват ръчен преглед.",
+            },
+            actions=[
+                "- Проверете засегнатите fund редове в диагностичния файл.",
+                "- Ако имат данъчно значение, коригирайте входните данни или ги обработете ръчно.",
+            ],
+        )
+
+    if diagnostic.code and diagnostic.code.startswith("P2P_"):
+        if diagnostic.code == "P2P_REPORTING_YEAR_MISMATCH":
+            report_year = params.get("report_year", "-")
+            tax_year = params.get("tax_year", "-")
+            return [
+                f"{_display_analyzer_name(analyzer)}: отчетната година в отчета ({report_year}) "
+                f"се различава от избраната данъчна година ({tax_year}).",
+                "Какво да направите:",
+                "- Проверете дали този файл трябва да участва в отчета за избраната данъчна година.",
+                "- Ако не трябва, премахнете го от входната директория или филтрирайте входовете.",
+            ]
+        return _structured_family_message_bg(
+            diagnostic,
+            analyzer=analyzer,
+            summaries={
+                "P2P_AMOUNT_NORMALIZED": "има {count} P2P суми с нормализиран знак.",
+                "P2P_AMOUNT_OMITTED": "има {count} P2P суми, които не са включени автоматично.",
+                "P2P_PROCESSING_INFO": "има {count} информационни бележки за P2P обработката.",
+                "P2P_ROW_REQUIRES_REVIEW": "има {count} P2P реда, които изискват ръчен преглед.",
+                "P2P_SECONDARY_MARKET_REVIEW_REQUIRED": (
+                    "има {count} запис от вторичен пазар, който изисква ръчен преглед."
+                ),
+                "P2P_TOTAL_ROW_MISMATCH": "има несъответствие между P2P общия ред и детайлните редове.",
+                "P2P_UNMAPPED_WITHHELD_TAX": "има удържан P2P данък без достатъчен контекст за автоматично отразяване.",
+            },
+            actions=[
+                "- Проверете засегнатите P2P редове в диагностичния файл.",
+                "- Потвърдете данъчното третиране с вашия счетоводител при съмнение.",
+            ],
+        )
+
+    if diagnostic.code and diagnostic.code.startswith("BINANCE_FUTURES_"):
+        return _structured_family_message_bg(
+            diagnostic,
+            analyzer=analyzer,
+            summaries={
+                "BINANCE_FUTURES_FUNDING_FEE_REVIEW_REQUIRED": (
+                    "има {count} Binance Futures funding fee реда, които изискват преглед."
+                ),
+                "BINANCE_FUTURES_UNSUPPORTED_INCOME_TYPE": (
+                    "има {count} Binance Futures реда с неподдържан тип доход."
+                ),
+            },
+            actions=[
+                "- Проверете засегнатите Binance Futures редове в диагностичния файл.",
+                "- Ако имат данъчно значение, обработете ги ръчно или добавете поддръжка в анализатора.",
+            ],
+        )
+
     if diagnostic.code == "FOREX_ROWS_IGNORED":
         count = _diagnostic_count(diagnostic)
         lines = [
@@ -732,10 +884,6 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
         count = _diagnostic_count(diagnostic)
         kind = "предупреждения" if diagnostic.severity == "WARNING" else "сигнала за ръчен преглед"
         lines = [f"{_display_analyzer_name(analyzer)}: има {count} {kind}, които изискват преглед."]
-        examples = [str(item) for item in params.get("examples", []) if str(item).strip()]
-        if examples:
-            lines.append("Примери:")
-            lines.extend(f"- {example}" for example in examples[:3])
         lines.extend(
             [
                 "Какво да направите:",
@@ -798,8 +946,26 @@ def _missing_value_label_bg(value: str) -> str:
     return value
 
 
+def _structured_family_message_bg(
+    diagnostic: AnalysisDiagnostic,
+    *,
+    analyzer: str,
+    summaries: dict[str, str],
+    actions: list[str],
+) -> list[str]:
+    count = _diagnostic_count(diagnostic)
+    template = summaries.get(diagnostic.code or "", "има {count} случая, които изискват преглед.")
+    lines = [f"{_display_analyzer_name(analyzer)}: {template.format(count=count)}"]
+    row_numbers = _diagnostic_row_numbers(diagnostic.params)
+    if row_numbers:
+        lines.append(f"Засегнати редове: {row_numbers}")
+    lines.append("Какво да направите:")
+    lines.extend(actions)
+    return lines
+
+
 def _diagnostic_row_numbers(params: dict[str, Any]) -> str:
-    rows = params.get("rows")
+    rows = params.get("rows") or params.get("items")
     if not isinstance(rows, list):
         return ""
     numbers = [
@@ -835,6 +1001,7 @@ def _ibkr_code_summary_bg(diagnostic: AnalysisDiagnostic) -> str:
         "IBKR_DIVIDEND_COUNTRY_ERRORS": f"има {count} дивидентни реда с невалиден ISIN/държава.",
         "IBKR_WITHHOLDING_COUNTRY_ERRORS": f"има {count} реда удържан данък с невалиден ISIN/държава.",
         "IBKR_UNKNOWN_REVIEW_STATUS_ROWS": f"има {count} реда с непознат Review Status.",
+        "IBKR_SPB8_REVIEW_REQUIRED": f"има {count} СПБ-8 предупреждения, които изискват преглед.",
     }
     return summaries.get(diagnostic.code or "", f"има {count} случая, които изискват преглед.")
 
@@ -947,6 +1114,7 @@ def _join_sections(sections: list[list[str]]) -> list[str]:
 def render_assumptions_section(*, notes: MainReportNotes, diagnostics_path: Path) -> list[str]:
     sections = [
         _notes_subsection("СПБ-8", notes.spb8),
+        _notes_subsection("Forex операции", notes.forex),
         _notes_subsection("Приложение 8", notes.appendix8),
         _notes_subsection(
             "Изчисления и визуализация",
@@ -1105,6 +1273,10 @@ def _render_known_diagnostic_fields(
     if rows:
         lines.append("rows:")
         _append_structured_value(lines, list(rows), indent=2)
+    items = remaining.pop("items", None)
+    if items:
+        lines.append("items:")
+        _append_structured_value(lines, list(items), indent=2)
     examples = remaining.pop("examples", None)
     if examples:
         lines.append("examples:")

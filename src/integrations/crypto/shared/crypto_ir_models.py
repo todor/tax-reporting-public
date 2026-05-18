@@ -169,6 +169,8 @@ class IrAnalysisSummary:
     taxable_send_rows: int = 0
     non_taxable_send_rows: int = 0
     invalid_send_review_rows: int = 0
+    # Deprecated compatibility channel. Do not add new expected analyzer issues here;
+    # emit AnalysisDiagnostic with a structured code from result_builders/reporting instead.
     warnings: list[str] = field(default_factory=list)
     unknown_transaction_types: set[str] = field(default_factory=set)
     unknown_send_review_statuses: set[str] = field(default_factory=set)
