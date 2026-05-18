@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import logging
 import shutil
 from dataclasses import replace
@@ -88,7 +89,10 @@ def _add_spb8_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--spb8-input-file",
         type=Path,
-        help="External SPB-8 input CSV with platform NAV values",
+        help=(
+            "External SPB-8 input CSV with platform NAV values. "
+            "In aggregate mode this is optional when exactly one *spb8*.csv file exists in --input-dir."
+        ),
     )
     parser.add_argument(
         "--spb8-exclude-crypto",
@@ -140,6 +144,31 @@ def _load_spb8_input(path: Path) -> list[SPB8Row]:
         return read_spb8_csv(path)
     except SPB8Error as exc:
         raise InputDetectionError(str(exc)) from exc
+
+
+def _detect_spb8_input_candidates(input_dir: Path, *, include_pattern: str | None) -> list[Path]:
+    return sorted(
+        path
+        for path in input_dir.iterdir()
+        if path.is_file()
+        and path.suffix.lower() == ".csv"
+        and "spb8" in path.name.lower()
+        and (include_pattern is None or fnmatch.fnmatch(path.name, include_pattern))
+    )
+
+
+def _detect_spb8_input_file(input_dir: Path, *, include_pattern: str | None) -> Path | None:
+    candidates = _detect_spb8_input_candidates(input_dir, include_pattern=include_pattern)
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0].expanduser().resolve()
+    formatted = "\n".join(f"- {format_path(path)}" for path in candidates)
+    raise InputDetectionError(
+        "Multiple SPB-8 input CSV files were detected in --input-dir:\n"
+        f"{formatted}\n"
+        "Pass --spb8-input-file explicitly to choose which file to use."
+    )
 
 
 def _write_spb8_template(*, output_dir: Path, rows: list[SPB8Row]) -> Path:
@@ -586,12 +615,13 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
 
     _validate_tax_year(args.tax_year)
     _configure_logging(args.log_level)
+    input_dir = args.input_dir.expanduser().resolve()
     output_dir = _prepare_output_dir(output_dir=args.output_dir, clean_output=bool(args.clean_output))
 
     registry = args._registry
     overrides = parse_analyzer_input_overrides(args.analyzer_input, registry=registry)
     detection = detect_analyzer_inputs(
-        input_dir=args.input_dir.expanduser().resolve(),
+        input_dir=input_dir,
         include_pattern=args.include_pattern,
         registry=registry,
     )
@@ -599,6 +629,45 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
     detected = {alias: list(paths) for alias, paths in detection.detected.items()}
     ignored_items = list(detection.ignored_items)
     detected_items = list(detection.detected_items)
+    spb8_candidates = (
+        _detect_spb8_input_candidates(input_dir, include_pattern=args.include_pattern)
+        if _spb8_enabled(args)
+        else []
+    )
+    if args.spb8_input_file is not None:
+        spb8_input_file = args.spb8_input_file.expanduser().resolve()
+        spb8_detection_reason = "explicit --spb8-input-file"
+    else:
+        spb8_input_file = (
+            _detect_spb8_input_file(input_dir, include_pattern=args.include_pattern)
+            if _spb8_enabled(args)
+            else None
+        )
+        spb8_detection_reason = "auto-detected from filename tokens"
+    spb8_related_paths = {path.expanduser().resolve() for path in spb8_candidates}
+    if spb8_input_file is not None:
+        spb8_related_paths.add(spb8_input_file)
+    if spb8_related_paths:
+        ignored_items = [
+            item
+            for item in ignored_items
+            if item.path.expanduser().resolve() not in spb8_related_paths
+        ]
+    if args.spb8_input_file is not None:
+        for candidate in spb8_candidates:
+            candidate_path = candidate.expanduser().resolve()
+            if candidate_path == spb8_input_file:
+                continue
+            ignored_items.append(
+                DetectionItem(
+                    path=candidate_path,
+                    analyzer_alias=None,
+                    reason=(
+                        "SPB-8 candidate ignored because --spb8-input-file "
+                        f"selected {format_path(spb8_input_file)}"
+                    ),
+                )
+            )
 
     for alias, override_paths in overrides.items():
         previous = detected.get(alias, [])
@@ -622,6 +691,14 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
                 )
             )
 
+    detected_input_items_for_report = [
+        (item.path, item.analyzer_alias or "unknown", item.reason) for item in detected_items
+    ]
+    if spb8_input_file is not None:
+        detected_input_items_for_report.append(
+            (spb8_input_file, "spb8-input", spb8_detection_reason)
+        )
+
     if not detected or all(not paths for paths in detected.values()):
         raise InputDetectionError("no analyzer inputs detected")
 
@@ -632,24 +709,34 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
     }
     try:
         spb8_input_rows = (
-            _load_spb8_input(args.spb8_input_file)
-            if _spb8_enabled(args) and args.spb8_input_file is not None
+            _load_spb8_input(spb8_input_file)
+            if _spb8_enabled(args) and spb8_input_file is not None
             else []
         )
     except Exception as exc:  # noqa: BLE001
         aggregated_report_path = output_dir / f"aggregated_tax_report_{args.tax_year}.txt"
-        diagnostic = classify_exception(exc, analyzer_alias="spb8", input_path=args.spb8_input_file)
-        diagnostics = _with_report_context([diagnostic], source_file=args.spb8_input_file, report_path=aggregated_report_path)
+        diagnostic = classify_exception(exc, analyzer_alias="spb8", input_path=spb8_input_file)
+        diagnostics = _with_report_context([diagnostic], source_file=spb8_input_file, report_path=aggregated_report_path)
+        raw_report_text = render_aggregated_report(
+            tax_year=args.tax_year,
+            detected_inputs=detected,
+            ignored_inputs=[(item.path, item.reason) for item in ignored_items],
+            analyzer_results=[],
+            analyzer_errors={"spb8": [str(exc)]},
+            detected_input_items=detected_input_items_for_report,
+            display_currency=str(args.display_currency),
+            cache_dir=args.cache_dir,
+        )
         diagnostics_path = write_standardized_reports(
             main_report_path=aggregated_report_path,
-            raw_report_text="",
+            raw_report_text=raw_report_text,
             status="ERROR",
             tax_year=args.tax_year,
             diagnostics=diagnostics,
             diagnostics_title="Aggregated tax report diagnostics",
             diagnostics_extra_lines=[
                 f"- output_dir: {format_path(output_dir)}",
-                f"- spb8_input_file: {format_path(args.spb8_input_file)}",
+                f"- spb8_input_file: {format_path(spb8_input_file)}",
             ],
             exception=exc,
         )
@@ -712,7 +799,7 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
                     notes = _spb8_notes_for_result(
                         result,
                         rows=rows,
-                        input_file_provided=args.spb8_input_file is not None,
+                        input_file_provided=spb8_input_file is not None,
                         option_notes=option_notes,
                     )
                     result_spb8_needs_review = bool(missing_spb8_value_notes(rows))
@@ -766,7 +853,7 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
             else base_template_rows
         )
         template_path = _write_spb8_template(output_dir=output_dir, rows=template_rows)
-        if args.spb8_input_file is None:
+        if spb8_input_file is None:
             print(f"SPB-8 input file: {template_path}")
         base_report_rows = merge_external_platform_rows(resolved_spb8_rows, manual_template_rows)
         merged_rows = merge_external_platform_rows(base_report_rows, spb8_input_rows) if spb8_input_rows else base_report_rows
@@ -786,6 +873,7 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
         ignored_inputs=[(item.path, item.reason) for item in ignored_items],
         analyzer_results=analyzer_results,
         analyzer_errors=analyzer_errors,
+        detected_input_items=detected_input_items_for_report,
         analyzer_error_diagnostics=analyzer_error_diagnostics,
         display_currency=str(args.display_currency),
         cache_dir=args.cache_dir,
@@ -836,6 +924,7 @@ def main(argv: list[str] | None = None) -> int:
         return _run_aggregate_mode(args)
     except (AnalyzerRegistryError, InputDetectionError, DisplayCurrencyError, SPB8Error) as exc:
         logger.error("%s", exc)
+        print(f"ERROR: {exc}")
         print("STATUS: ERROR")
         return 2
 

@@ -231,6 +231,10 @@ uv run tax-reporting \
 CLI options:
 
 - `--spb8-input-file PATH` reads a completed SPB-8 CSV. Filled values override analyzer-derived values; empty values fall back to analyzer-derived values when available.
+  In aggregate mode this option is optional when exactly one `.csv` file with `spb8` in its filename exists in `--input-dir`.
+  If `--include-pattern` is used, automatic SPB-8 detection only considers files matching that pattern.
+  If multiple matching files are present, pass `--spb8-input-file` explicitly.
+  The diagnostics report lists the selected SPB-8 input file under `Detected inputs` as `spb8-input`.
 - `--no-spb8` disables SPB-8 generation.
 - `--spb8-exclude-crypto` excludes crypto platforms from SPB-8.
 

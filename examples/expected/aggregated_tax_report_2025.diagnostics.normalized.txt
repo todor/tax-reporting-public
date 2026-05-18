@@ -4,7 +4,7 @@ Aggregated tax report diagnostics
 - status: OK
 - output_dir: <OUTPUT>
 - detected_inputs_count: 2
-- ignored_inputs_count: 1
+- ignored_inputs_count: 0
 
 Analyzer technical details
 Aggregated Report
@@ -17,11 +17,9 @@ Aggregated Report
 - Display FX pair: EUR/BGN
 
 Detected inputs
-- ibkr: <REPO>/examples/inputs/ibkr_activity_statement_sample_sanitized.csv
-- kraken: <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv
-
-Ignored inputs
-- <REPO>/examples/inputs/spb8-input-file.csv: no analyzer alias matched
+- <REPO>/examples/inputs/ibkr_activity_statement_sample_sanitized.csv -> ibkr (auto-detected from filename tokens)
+- <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv -> kraken (auto-detected from filename tokens)
+- <REPO>/examples/inputs/spb8-input-file.csv -> spb8-input (auto-detected from filename tokens)
 
 Per-analyzer status
 ibkr

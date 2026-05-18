@@ -286,10 +286,21 @@ def _global_status(statuses: list[AnalyzerStatus]) -> AnalyzerStatus:
     return "OK"
 
 
-def _render_detected_inputs(lines: list[str], detected_inputs: dict[str, list[Path]]) -> None:
-    if not detected_inputs:
+DetectedInputDisplay = tuple[Path, str, str]
+
+
+def _render_detected_inputs(
+    lines: list[str],
+    detected_inputs: dict[str, list[Path]],
+    detected_input_items: list[DetectedInputDisplay] | None = None,
+) -> None:
+    if not detected_inputs and not detected_input_items:
         return
     lines.extend(["", "Detected inputs"])
+    if detected_input_items is not None:
+        for path, alias, reason in detected_input_items:
+            lines.append(f"- {_format_path(path)} -> {alias} ({reason})")
+        return
     for alias in sorted(detected_inputs):
         for path in detected_inputs[alias]:
             lines.append(f"- {alias}: {_format_path(path)}")
@@ -612,6 +623,7 @@ def render_aggregated_report(
     ignored_inputs: list[tuple[Path, str]],
     analyzer_results: list[TaxAnalysisResult],
     analyzer_errors: dict[str, list[str]],
+    detected_input_items: list[DetectedInputDisplay] | None = None,
     analyzer_error_diagnostics: list[AnalysisDiagnostic] | None = None,
     display_currency: str = "EUR",
     cache_dir: str | Path | None = None,
@@ -676,7 +688,7 @@ def render_aggregated_report(
         f"- global status: {global_status}",
     ]
     technical_lines.extend(f"- {line}" for line in display_currency_technical_lines(money_context))
-    _render_detected_inputs(technical_lines, detected_inputs)
+    _render_detected_inputs(technical_lines, detected_inputs, detected_input_items)
     _render_ignored_inputs(technical_lines, ignored_inputs)
     _render_per_analyzer_status(
         technical_lines,

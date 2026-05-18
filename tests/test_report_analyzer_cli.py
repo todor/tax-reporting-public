@@ -1426,6 +1426,217 @@ def test_aggregate_mode_generates_spb8_template_from_detected_inputs(
     assert "SPB-8 input file was not provided" not in report
 
 
+def _write_spb8_input(path: Path, *, platform: str = "kraken", start: str = "1000", end: str = "2000") -> None:
+    path.write_text(
+        "\n".join(
+            [
+                "account name,platform,type,country,ISIN,currency,start amount,end amount",
+                f"{platform} account,{platform},03,Ирландия,-,EUR,{start},{end}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_aggregate_mode_auto_detects_spb8_input_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    fake = _make_fake_definition(alias="kraken", group="crypto", tmp_path=tmp_path, run_capture=run_capture)
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+    (tmp_path / "kraken_report.csv").write_text("x\n", encoding="utf-8")
+    _write_spb8_input(tmp_path / "spb8-input-file.csv")
+
+    out_dir = tmp_path / "out"
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert code == 0
+    assert "SPB-8 input file:" not in stdout
+    report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
+    diagnostics = (out_dir / "aggregated_tax_report_2025.diagnostics.txt").read_text(encoding="utf-8")
+    assert "Размер в началото на отчетната година (в хиляди валутни единици): 1.00" in report
+    assert "Размер в края на отчетната година (в хиляди валутни единици): 2.00" in report
+    assert (
+        f"{tmp_path / 'spb8-input-file.csv'} -> spb8-input "
+        "(auto-detected from filename tokens)"
+    ) in diagnostics
+    assert "spb8-input-file.csv: no analyzer alias matched" not in diagnostics
+
+
+def test_aggregate_mode_auto_detects_spb8_input_file_case_insensitively(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    fake = _make_fake_definition(alias="kraken", group="crypto", tmp_path=tmp_path, run_capture=run_capture)
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+    (tmp_path / "kraken_report.csv").write_text("x\n", encoding="utf-8")
+    _write_spb8_input(tmp_path / "SPB8_INPUT_FILE.CSV")
+
+    out_dir = tmp_path / "out"
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert code == 0
+    report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
+    assert "Размер в началото на отчетната година (в хиляди валутни единици): 1.00" in report
+
+
+def test_aggregate_mode_spb8_auto_detection_respects_include_pattern(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    fake = _make_fake_definition(alias="kraken", group="crypto", tmp_path=tmp_path, run_capture=run_capture)
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+    (tmp_path / "[tax-analyzer] kraken_report.csv").write_text("x\n", encoding="utf-8")
+    _write_spb8_input(tmp_path / "spb8-input-file.csv")
+
+    out_dir = tmp_path / "out"
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--include-pattern",
+            "*[[]tax-analyzer[]]*",
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert code == 0
+    assert "SPB-8 input file:" in stdout
+    report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
+    diagnostics = (out_dir / "aggregated_tax_report_2025.diagnostics.txt").read_text(encoding="utf-8")
+    assert "spb8-input-file.csv -> spb8-input" not in diagnostics
+    assert "spb8-input-file.csv: does not match include-pattern" in diagnostics
+    assert "СПБ-8: липсват начални/крайни стойности" in report
+
+
+def test_aggregate_mode_explicit_spb8_input_file_wins_over_auto_detection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    fake = _make_fake_definition(alias="kraken", group="crypto", tmp_path=tmp_path, run_capture=run_capture)
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+    (tmp_path / "kraken_report.csv").write_text("x\n", encoding="utf-8")
+    _write_spb8_input(tmp_path / "spb8-auto.csv", start="1000", end="2000")
+    explicit = tmp_path / "manual.csv"
+    _write_spb8_input(explicit, start="3000", end="4000")
+
+    out_dir = tmp_path / "out"
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(out_dir),
+            "--spb8-input-file",
+            str(explicit),
+        ]
+    )
+
+    assert code == 0
+    report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
+    diagnostics = (out_dir / "aggregated_tax_report_2025.diagnostics.txt").read_text(encoding="utf-8")
+    assert "Размер в началото на отчетната година (в хиляди валутни единици): 3.00" in report
+    assert "Размер в края на отчетната година (в хиляди валутни единици): 4.00" in report
+    assert "Размер в началото на отчетната година (в хиляди валутни единици): 1.00" not in report
+    assert f"{explicit} -> spb8-input (explicit --spb8-input-file)" in diagnostics
+    assert "SPB-8 candidate ignored because --spb8-input-file selected" in diagnostics
+    assert str(tmp_path / "spb8-auto.csv") in diagnostics
+
+
+def test_aggregate_mode_fails_on_multiple_auto_detected_spb8_input_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    fake = _make_fake_definition(alias="kraken", group="crypto", tmp_path=tmp_path, run_capture=run_capture)
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+    (tmp_path / "kraken_report.csv").write_text("x\n", encoding="utf-8")
+    _write_spb8_input(tmp_path / "spb8-one.csv")
+    _write_spb8_input(tmp_path / "SPB8-two.csv")
+
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert code == 2
+    assert "Multiple SPB-8 input CSV files were detected" in stdout
+    assert "--spb8-input-file" in stdout
+    assert "spb8-one.csv" in stdout
+    assert "SPB8-two.csv" in stdout
+
+
+def test_aggregate_mode_auto_detected_spb8_parse_error_is_visible_in_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    fake = _make_fake_definition(alias="kraken", group="crypto", tmp_path=tmp_path, run_capture=run_capture)
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+    (tmp_path / "kraken_report.csv").write_text("x\n", encoding="utf-8")
+    (tmp_path / "spb8-input-file.csv").write_text("not,the,expected,header\n", encoding="utf-8")
+
+    out_dir = tmp_path / "out"
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert code == 2
+    diagnostics = (out_dir / "aggregated_tax_report_2025.diagnostics.txt").read_text(encoding="utf-8")
+    assert (
+        f"{tmp_path / 'spb8-input-file.csv'} -> spb8-input "
+        "(auto-detected from filename tokens)"
+    ) in diagnostics
+    assert "[ERROR] [spb8]" in diagnostics
+
+
 def test_aggregate_mode_generates_spb8_template_rows_for_ibkr_analyzer_data(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
