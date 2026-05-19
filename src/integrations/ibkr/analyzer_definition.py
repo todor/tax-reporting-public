@@ -10,6 +10,7 @@ from .activity_statement_analyzer import analyze_ibkr_activity_statement
 from .constants import (
     APPENDIX8_LIST_MODE_COMPANY,
     APPENDIX8_LIST_MODE_COUNTRY,
+    DEFAULT_TAX_EXEMPT_MODE,
     DEFAULT_OUTPUT_DIR,
     TAX_MODE_EXECUTION_EXCHANGE,
     TAX_MODE_LISTED_SYMBOL,
@@ -38,7 +39,6 @@ def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
         analyzer_alias="ibkr",
         single_flag="tax-exempt-mode",
         choices=sorted(_TAX_EXEMPT_MODE_ALIASES),
-        required=(mode == "single"),
         help="Tax exempt classification mode",
     )
     add_mode_argument(
@@ -97,7 +97,7 @@ def _build_options(
                 mode=mode,
                 single_attr="tax_exempt_mode",
                 aggregate_attr="ibkr_tax_exempt_mode",
-                default="listed_symbol",
+                default=DEFAULT_TAX_EXEMPT_MODE,
             )
         ),
         "appendix8_dividend_list_mode": option_value(

@@ -26,6 +26,8 @@ def test_declaration_text_contains_required_sections(tmp_path: Path) -> None:
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" not in text
     assert "Приложение 5" in text
+    assert "Настройки на анализа" in text
+    assert "Класификация на IBKR сделките за данъчно освобождаване: execution_exchange." in text
     assert "Приложение 13" not in text
     assert "РЪЧНА ПРОВЕРКА (ИЗКЛЮЧЕНИ ОТ АВТОМАТИЧНИТЕ ТАБЛИЦИ)" not in text
     assert "ВНИМАНИЕ: FOREX ОПЕРАЦИИ" not in text
@@ -33,6 +35,14 @@ def test_declaration_text_contains_required_sections(tmp_path: Path) -> None:
     assert text.index(TECHNICAL_DETAILS_SEPARATOR) > text.index("Приложение 5")
     assert text.index("Audit Data") > text.index(TECHNICAL_DETAILS_SEPARATOR)
     assert text.index("Sanity Check") > text.index("Audit Data")
+
+
+def test_declaration_text_contains_effective_listed_symbol_tax_exempt_mode(tmp_path: Path) -> None:
+    result = _run(tmp_path, _base_rows())
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+
+    assert "Класификация на IBKR сделките за данъчно освобождаване: listed_symbol." in text
+    assert "борсата на изпълнение е само информативна" in text
 
 
 def test_forex_rows_are_ignored_with_warning_in_text(tmp_path: Path) -> None:

@@ -306,7 +306,36 @@ def test_diagnostics_report_renders_common_fields_readably() -> None:
     assert "    country: Франция" in rendered
     assert "    missing:\n      - start_amount\n      - end_amount" in rendered
     assert "context:\n  foo:" in rendered
+    assert "items:\n      - a\n      - b" in rendered
     assert rendered.index("[ERROR]") < rendered.index("[MANUAL_REVIEW]") < rendered.index("[WARNING]")
+
+
+def test_diagnostics_report_renders_scalar_lists_compactly_with_samples() -> None:
+    rendered = render_diagnostics_report(
+        title="Test diagnostics",
+        status="ERROR",
+        raw_declaration_text="",
+        diagnostics=[
+            AnalysisDiagnostic(
+                severity="ERROR",
+                message="IBKR Activity Statement contains realized disposal activity but no ClosedLot rows.",
+                analyzer_alias="ibkr",
+                code="IBKR_INCOMPLETE_CLOSED_LOTS",
+                params={
+                    "closing_trade_count": 12,
+                    "closing_trade_rows": [222, 226, 231, 234, 235, 236, 239, 241, 244, 249, 252, 255],
+                    "realized_summary_count": 3,
+                    "realized_summary_rows": [223, 227, 232],
+                },
+            )
+        ],
+    )
+
+    assert "closing_trade_count: 12" in rendered
+    assert "closing_trade_rows_sample: [222, 226, 231, 234, 235, 236, 239, 241, 244, 249, ...]" in rendered
+    assert "realized_summary_count: 3" in rendered
+    assert "realized_summary_rows: [223, 227, 232]" in rendered
+    assert "closing_trade_rows:\n    - 222" not in rendered
 
 
 def test_ibkr_row_level_diagnostics_are_grouped_for_main_report() -> None:

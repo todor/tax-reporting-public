@@ -3,9 +3,11 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Literal
 
+from integrations.shared.contracts import UserFacingTaxError
 from integrations.shared.rendering.display_currency import build_render_context
 
 from .appendices.aggregations import (
@@ -26,6 +28,8 @@ from .constants import (
     DEFAULT_OUTPUT_DIR,
     DIVIDEND_TAX_RATE,
     FxRateProvider,
+    FOREX_ASSET_CATEGORY,
+    SUPPORTED_ASSET_CATEGORIES,
     TAX_MODE_EXECUTION_EXCHANGE,
     TAX_MODE_LISTED_SYMBOL,
     ZERO,
@@ -71,9 +75,11 @@ from .sections.trades import (
 from .shared import (
     IbkrReportDateFormat,
     _build_active_headers,
+    _code_has_closing_token,
     _default_fx_provider,
     _infer_ibkr_report_date_format,
     _normalize_report_alias,
+    _optional_index,
 )
 from .spb8 import extract_ibkr_spb8_rows
 
@@ -438,6 +444,109 @@ def _unsupported_section_warning(rows: list[list[str]]) -> str:
     )
 
 
+def _validate_required_closedlot_rows(
+    rows: list[list[str]],
+    *,
+    active_headers: dict[int, _ActiveHeader],
+) -> None:
+    closing_trade_rows: list[int] = []
+    realized_summary_rows: list[int] = []
+    closedlot_rows: list[int] = []
+
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        if len(row) < 2 or row[0] != "Trades":
+            continue
+        row_type = row[1]
+        if row_type == "Header":
+            continue
+        active_header = active_headers.get(row_idx)
+        if active_header is None:
+            raise CsvStructureError(f"row {row_number}: Trades row encountered before Trades Header")
+
+        padded = row + [""] * max(0, 2 + len(active_header.headers) - len(row))
+        data = padded[2 : 2 + len(active_header.headers)]
+        discriminator_idx = _optional_index(active_header.headers, "DataDiscriminator")
+        asset_idx = _optional_index(active_header.headers, "Asset Category")
+        if asset_idx is None:
+            continue
+        asset_category = data[asset_idx].strip()
+        if asset_category == FOREX_ASSET_CATEGORY or asset_category not in SUPPORTED_ASSET_CATEGORIES:
+            continue
+
+        if row_type == "Data":
+            if discriminator_idx is None:
+                continue
+            discriminator = data[discriminator_idx].strip().lower()
+            if discriminator == "closedlot":
+                closedlot_rows.append(row_number)
+                continue
+            if discriminator not in {"trade", "order"}:
+                continue
+            code_idx = _optional_index(active_header.headers, "Code")
+            if code_idx is not None and _code_has_closing_token(data[code_idx]):
+                closing_trade_rows.append(row_number)
+            continue
+
+        if row_type in {"SubTotal", "Total"} and _has_realized_disposal_amount(data, active_header):
+            realized_summary_rows.append(row_number)
+
+    if (closing_trade_rows or realized_summary_rows) and not closedlot_rows:
+        preview = ", ".join(str(row) for row in closing_trade_rows[:10])
+        if len(closing_trade_rows) > 10:
+            preview += ", ..."
+        summary_preview = ", ".join(str(row) for row in realized_summary_rows[:10])
+        if len(realized_summary_rows) > 10:
+            summary_preview += ", ..."
+        raise UserFacingTaxError(
+            code="IBKR_INCOMPLETE_CLOSED_LOTS",
+            params={
+                "closing_trade_rows": closing_trade_rows,
+                "closing_trade_count": len(closing_trade_rows),
+                "realized_summary_rows": realized_summary_rows,
+                "realized_summary_count": len(realized_summary_rows),
+                "closedlot_count": len(closedlot_rows),
+            },
+            technical_message_en=(
+                "IBKR Activity Statement contains realized disposal activity but no Trades/Data/ClosedLot rows. "
+                f"closing_trade_count={len(closing_trade_rows)} closing_trade_rows=[{preview}] "
+                f"realized_summary_count={len(realized_summary_rows)} realized_summary_rows=[{summary_preview}]"
+            ),
+        )
+
+
+def _has_realized_disposal_amount(data: list[str], active_header: _ActiveHeader) -> bool:
+    realized_idx = _optional_index(active_header.headers, "Realized P/L")
+    if realized_idx is not None and _is_nonzero_decimal_text(data[realized_idx]):
+        return True
+
+    quantity_idx = _optional_index(active_header.headers, "Quantity")
+    proceeds_idx = _optional_index(active_header.headers, "Proceeds")
+    basis_idx = _optional_index(active_header.headers, "Basis")
+    return (
+        quantity_idx is not None
+        and proceeds_idx is not None
+        and basis_idx is not None
+        and _is_zero_decimal_text(data[quantity_idx])
+        and _is_nonzero_decimal_text(data[proceeds_idx])
+        and _is_nonzero_decimal_text(data[basis_idx])
+    )
+
+
+def _is_zero_decimal_text(raw: str) -> bool:
+    try:
+        return Decimal(raw.strip().replace(",", "")) == ZERO
+    except InvalidOperation:
+        return False
+
+
+def _is_nonzero_decimal_text(raw: str) -> bool:
+    try:
+        return Decimal(raw.strip().replace(",", "")) != ZERO
+    except InvalidOperation:
+        return False
+
+
 def analyze_ibkr_activity_statement(
     *,
     input_csv: str | Path,
@@ -491,6 +600,7 @@ def analyze_ibkr_activity_statement(
     summary.cli_eu_regulated_overrides = set(eu_regulated_exchange_overrides)
 
     active_headers, seen_headers = _build_active_headers(rows)
+    _validate_required_closedlot_rows(rows, active_headers=active_headers)
     report_date_format = _infer_ibkr_report_date_format(rows, active_headers)
     summary.report_date_format_label = report_date_format.label
     summary.report_date_format_reason = report_date_format.reason

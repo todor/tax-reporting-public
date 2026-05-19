@@ -41,6 +41,74 @@ def test_cli_appendix8_dividend_mode_defaults_to_company(tmp_path: Path) -> None
     assert args.appendix8_dividend_list_mode == "company"
     assert args.skip_period_validation is True
 
+
+def test_cli_tax_exempt_mode_defaults_to_listed_symbol_for_single_mode(tmp_path: Path) -> None:
+    import report_analyzer
+    from integrations.ibkr.analyzer_definition import ANALYZER
+
+    input_csv = tmp_path / "input.csv"
+    _write_rows(input_csv, _base_rows())
+    parser = report_analyzer.build_parser()
+    args = parser.parse_args(
+        [
+            "ibkr",
+            "--input",
+            str(input_csv),
+            "--tax-year",
+            "2025",
+            "--skip-period-validation",
+        ]
+    )
+
+    options = ANALYZER.build_options(args, "single", {})
+
+    assert options["tax_exempt_mode"] == "listed_symbol"
+
+
+def test_cli_tax_exempt_mode_explicit_override_still_works_for_single_mode(tmp_path: Path) -> None:
+    import report_analyzer
+    from integrations.ibkr.analyzer_definition import ANALYZER
+
+    input_csv = tmp_path / "input.csv"
+    _write_rows(input_csv, _base_rows())
+    parser = report_analyzer.build_parser()
+    args = parser.parse_args(
+        [
+            "ibkr",
+            "--input",
+            str(input_csv),
+            "--tax-year",
+            "2025",
+            "--tax-exempt-mode",
+            "execution_exchange",
+            "--skip-period-validation",
+        ]
+    )
+
+    options = ANALYZER.build_options(args, "single", {})
+
+    assert options["tax_exempt_mode"] == "execution_exchange"
+
+
+def test_cli_tax_exempt_mode_defaults_to_listed_symbol_for_aggregate_mode() -> None:
+    import report_analyzer
+    from integrations.ibkr.analyzer_definition import ANALYZER
+
+    parser = report_analyzer.build_parser()
+    args = parser.parse_args(
+        [
+            "--input-dir",
+            "/tmp/tax-inputs",
+            "--tax-year",
+            "2025",
+        ]
+    )
+
+    options = ANALYZER.build_options(args, "aggregate", {})
+
+    assert options["tax_exempt_mode"] == "listed_symbol"
+
+
 def test_dividends_scoped_headers_are_resolved_from_active_header(tmp_path: Path) -> None:
     rows = _base_rows()
     rows.extend(

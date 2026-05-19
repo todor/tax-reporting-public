@@ -99,7 +99,7 @@ Important notes:
 
 - `--input`: IBKR Activity Statement CSV (required)
 - `--tax-year`: target tax year, for example `2025` (required)
-- `--tax-exempt-mode`: `listed_symbol` or `execution_exchange` (required)
+- `--tax-exempt-mode`: `listed_symbol` or `execution_exchange` (default: `listed_symbol`)
 - `--appendix8-dividend-list-mode`: `company` (default) or `country`
 - `--eu-regulated-exchange`: additional EU-regulated exchange code override; can be passed multiple times or comma-separated
 - `--closed-world`: force closed-world exchange classification even without `--eu-regulated-exchange`
@@ -786,6 +786,7 @@ Forex trades are excluded from Appendix 5/13 calculations in this implementation
 - FX conversion failures
 - unsupported asset categories (outside allowed set + Forex special handling)
 - closing trades without attached ClosedLot rows
+- incomplete Activity Statements with closing trades but no `Trades/Data/ClosedLot` rows at all; export a full IBKR Activity Statement with `Trades -> Closed Lots / Lot Details`
 - conflicting symbol mapping with different EU classification
 
 ## Output Paths

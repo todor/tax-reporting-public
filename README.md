@@ -523,6 +523,8 @@ Group/analyzer override options:
 - `--kraken-opening-state-json`
 - `--finexify-opening-state-json`
 
+`--ibkr-tax-exempt-mode` defaults to `listed_symbol` in aggregate mode.
+
 Naming rule:
 
 - single-analyzer mode uses base flags (for example `--opening-state-json`)
@@ -805,6 +807,7 @@ IBKR Activity Statement period requirements:
 - The analyzer validates the `Statement -> Period` row, for example `January 1, 2025 - December 31, 2025`.
 - Wrong or missing periods fail by default because tax reporting and SPB-8 can be incorrect.
 - `--skip-period-validation` exists only for development/testing with partial reports. Do not use it for real tax reporting.
+- `--tax-exempt-mode` defaults to `listed_symbol`; the effective mode is printed in the Bulgarian TXT report because it affects tax treatment.
 
 Optional venue override inputs (activates closed-world venue classification for this run):
 

@@ -384,6 +384,8 @@ def _short_reason_for_diagnostic(diagnostic: AnalysisDiagnostic) -> str:
         return "unsupported Binance futures income type"
     if diagnostic.code == "BINANCE_FUTURES_FUNDING_FEE_REVIEW_REQUIRED":
         return "Binance futures funding fee review"
+    if diagnostic.code == "IBKR_INCOMPLETE_CLOSED_LOTS":
+        return "incomplete IBKR statement missing ClosedLot rows"
     if diagnostic.code == "IBKR_SPB8_REVIEW_REQUIRED":
         return "IBKR SPB-8 review required"
     if diagnostic.code in {"UNCLASSIFIED_WARNING_GROUP", "UNCLASSIFIED_MANUAL_REVIEW_GROUP"}:

@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+import report_analyzer
+from integrations.shared.contracts import UserFacingTaxError
 from integrations.ibkr.activity_statement_analyzer import analyze_ibkr_activity_statement
 from tests.integrations.ibkr import support as h
 
@@ -491,6 +493,113 @@ def test_no_closedlot_fails(tmp_path: Path) -> None:
     rows.pop(8)
     with pytest.raises(IbkrAnalyzerError, match="no ClosedLot rows attached"):
         _ = _run(tmp_path, rows, mode="listed_symbol")
+
+
+def test_incomplete_statement_without_any_closedlot_rows_is_actionable_in_cli_main_report(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rows = [row for row in _base_rows() if len(row) < 10 or row[9] != "ClosedLot"]
+    input_csv = tmp_path / "input.csv"
+    _write_rows(input_csv, rows)
+    out_dir = tmp_path / "out"
+
+    code = report_analyzer.main(
+        [
+            "ibkr",
+            "--input",
+            str(input_csv),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert code == 2
+    assert "STATUS: ERROR" in stdout
+    main_report = (out_dir / "ibkr_declaration_2025.txt").read_text(encoding="utf-8")
+    diagnostics = (out_dir / "ibkr_declaration_2025.diagnostics.txt").read_text(encoding="utf-8")
+    assert "IBKR отчетът изглежда непълен за данъчни цели" in main_report
+    assert "Изтеглете пълен IBKR Activity Statement" in main_report
+    assert "SANITY CHECKS FAILED" not in main_report
+    assert "[ERROR] [ibkr] IBKR_INCOMPLETE_CLOSED_LOTS" in diagnostics
+
+
+def test_incomplete_default_statement_with_order_rows_without_closedlots_is_actionable(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rows = [row[:] for row in _base_rows() if len(row) < 10 or row[9] != "ClosedLot"]
+    for row in rows:
+        if len(row) >= 10 and row[0] == "Trades" and row[1] == "Data" and row[9] == "Trade":
+            row[9] = "Order"
+    input_csv = tmp_path / "input.csv"
+    _write_rows(input_csv, rows)
+    out_dir = tmp_path / "out"
+
+    code = report_analyzer.main(
+        [
+            "ibkr",
+            "--input",
+            str(input_csv),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
+    _ = capsys.readouterr()
+
+    assert code == 2
+    main_report = (out_dir / "ibkr_declaration_2025.txt").read_text(encoding="utf-8")
+    diagnostics = (out_dir / "ibkr_declaration_2025.diagnostics.txt").read_text(encoding="utf-8")
+    assert "IBKR отчетът изглежда непълен за данъчни цели" in main_report
+    assert "Изтеглете пълен IBKR Activity Statement" in main_report
+    assert "closing_trade_count=2" in diagnostics
+
+
+def test_incomplete_statement_with_realized_subtotal_without_closedlots_is_actionable(
+    tmp_path: Path,
+) -> None:
+    rows = [
+        ["Statement", "Header", "Field", "Value"],
+        ["Statement", "Data", "Account", "U123"],
+        ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch"],
+        ["Financial Instrument Information", "Data", "Stocks", "BMW", "IBIS2"],
+        [
+            "Trades",
+            "Header",
+            "DataDiscriminator",
+            "Asset Category",
+            "Currency",
+            "Symbol",
+            "Date/Time",
+            "Quantity",
+            "T. Price",
+            "C. Price",
+            "Proceeds",
+            "Comm/Fee",
+            "Basis",
+            "Realized P/L",
+            "MTM P/L",
+            "Code",
+        ],
+        ["Trades", "Data", "Order", "Stocks", "USD", "BMW", "2025-01-10, 10:00:00", "10", "1", "1", "-10", "0", "10", "0", "0", "O"],
+        ["Trades", "SubTotal", "", "Stocks", "USD", "BMW", "", "0", "", "", "100", "0", "-80", "20", "0", ""],
+    ]
+
+    with pytest.raises(UserFacingTaxError, match="realized_summary_count=1"):
+        _ = _run(tmp_path, rows, mode="listed_symbol")
+
+
+def test_incomplete_statement_without_any_closedlot_rows_raises_user_facing_error(tmp_path: Path) -> None:
+    rows = [row for row in _base_rows() if len(row) < 10 or row[9] != "ClosedLot"]
+
+    with pytest.raises(UserFacingTaxError, match="realized disposal activity but no Trades/Data/ClosedLot rows"):
+        _ = _run(tmp_path, rows, mode="listed_symbol")
+
 
 def test_unsupported_asset_category_is_skipped_with_warning(tmp_path: Path) -> None:
     rows = _base_rows()

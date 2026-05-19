@@ -137,6 +137,7 @@ DIVIDEND_TAX_RATE = Decimal("0.05")
 
 TAX_MODE_LISTED_SYMBOL = "listed_symbol"
 TAX_MODE_EXECUTION_EXCHANGE = "execution_exchange"
+DEFAULT_TAX_EXEMPT_MODE = TAX_MODE_LISTED_SYMBOL
 APPENDIX8_LIST_MODE_COMPANY = "company"
 APPENDIX8_LIST_MODE_COUNTRY = "country"
 APPENDIX8_COUNTRY_MODE_PAYER_LABEL = "Различни чуждестранни дружества (чрез Interactive Brokers)"

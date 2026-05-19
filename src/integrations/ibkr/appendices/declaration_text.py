@@ -525,6 +525,29 @@ def _append_forex_section(
     lines.append("")
 
 
+def _tax_exempt_mode_description(tax_exempt_mode: str) -> str:
+    if tax_exempt_mode == TAX_MODE_LISTED_SYMBOL:
+        return (
+            "При този режим данъчното третиране се определя според пазара, "
+            "на който е листнат инструментът, а борсата на изпълнение е само информативна."
+        )
+    if tax_exempt_mode == TAX_MODE_EXECUTION_EXCHANGE:
+        return (
+            "При този режим данъчното третиране се определя според борсата на изпълнение "
+            "на сделката."
+        )
+    return "Прегледайте избрания режим ръчно."
+
+
+def _append_configuration_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+    lines.append("Настройки на анализа")
+    lines.append(
+        "- Класификация на IBKR сделките за данъчно освобождаване: "
+        f"{summary.tax_exempt_mode}. {_tax_exempt_mode_description(summary.tax_exempt_mode)}"
+    )
+    lines.append("")
+
+
 def _append_processing_notes_section(lines: list[str], *, summary: AnalysisSummary) -> None:
     if summary.warnings:
         lines.append("Processing Notes")
@@ -636,6 +659,7 @@ def _build_declaration_text(
 ) -> str:
     summary = result.summary
     lines: list[str] = []
+    _append_configuration_section(lines, summary=summary)
     _append_manual_check_section(lines, summary=summary)
     _append_forex_section(lines, summary=summary, money_context=money_context)
     _append_appendix5_section(lines, summary=summary, money_context=money_context)

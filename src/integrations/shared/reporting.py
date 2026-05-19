@@ -84,6 +84,7 @@ _KNOWN_DIAGNOSTIC_CODES = {
     *_GROUPABLE_CODES,
     "EMPTY_INPUT_FILE",
     "GENERIC_ANALYZER_ERROR",
+    "IBKR_INCOMPLETE_CLOSED_LOTS",
     "INPUT_FILE_MISSING",
     "INVALID_TAX_YEAR",
     "MISSING_CSV_HEADER",
@@ -728,6 +729,27 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
         )
         return lines
 
+    if diagnostic.code == "IBKR_INCOMPLETE_CLOSED_LOTS":
+        closing_trade_count = params.get("closing_trade_count")
+        realized_summary_count = params.get("realized_summary_count")
+        lines = [
+            "IBKR отчетът изглежда непълен за данъчни цели: намерени са сделки, "
+            "които вероятно затварят позиции, но липсват ClosedLot редове.",
+        ]
+        if closing_trade_count:
+            lines.append(f"Намерени затварящи сделки без налични ClosedLot данни: {closing_trade_count}.")
+        if realized_summary_count:
+            lines.append(f"Намерени Total/SubTotal редове с реализирана печалба/загуба: {realized_summary_count}.")
+        lines.extend(
+            [
+                "Те са необходими за надеждно изчисляване на печалба/загуба.",
+                "Какво да направите:",
+                "- Изтеглете пълен IBKR Activity Statement с включени Trades -> Closed Lots / Lot Details.",
+                "- Стартирайте анализа отново с пълния отчет.",
+            ]
+        )
+        return lines
+
     if diagnostic.code and diagnostic.code.startswith("CRYPTO_"):
         return _structured_family_message_bg(
             diagnostic,
@@ -1305,6 +1327,23 @@ def _append_missing_values(lines: list[str], missing_values: list[Any], *, inden
             _append_structured_value(lines, list(missing), indent=indent + 4)
 
 
+_COMPACT_LIST_SAMPLE_SIZE = 10
+
+
+def _is_compact_scalar(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _compact_scalar_list(value: list[Any]) -> str | None:
+    if not value or not all(_is_compact_scalar(item) for item in value):
+        return None
+    sample = value[:_COMPACT_LIST_SAMPLE_SIZE]
+    rendered = ", ".join(str(item) for item in sample)
+    if len(value) > _COMPACT_LIST_SAMPLE_SIZE:
+        rendered = f"{rendered}, ..."
+    return f"[{rendered}]"
+
+
 def _append_structured_value(lines: list[str], value: Any, *, indent: int) -> None:
     prefix = " " * indent
     if isinstance(value, dict):
@@ -1316,13 +1355,24 @@ def _append_structured_value(lines: list[str], value: Any, *, indent: int) -> No
                 lines.append(f"{prefix}{key}:")
                 _append_structured_value(lines, item, indent=indent + 2)
             elif isinstance(item, list | tuple | set):
-                lines.append(f"{prefix}{key}:")
-                _append_structured_value(lines, list(item), indent=indent + 2)
+                item_list = list(item)
+                compact = _compact_scalar_list(item_list)
+                if compact is not None:
+                    label = f"{key}_sample" if len(item_list) > _COMPACT_LIST_SAMPLE_SIZE else key
+                    lines.append(f"{prefix}{label}: {compact}")
+                else:
+                    lines.append(f"{prefix}{key}:")
+                    _append_structured_value(lines, item_list, indent=indent + 2)
             else:
                 lines.append(f"{prefix}{key}: {item}")
         return
     if isinstance(value, list | tuple | set):
-        for item in value:
+        value_list = list(value)
+        compact = _compact_scalar_list(value_list)
+        if compact is not None:
+            lines.append(f"{prefix}{compact}")
+            return
+        for item in value_list:
             if item in ("", None, [], {}):
                 continue
             if isinstance(item, dict):
