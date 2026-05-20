@@ -92,6 +92,7 @@ Important notes:
 - The analyzer is designed to work from the IBKR Activity Statement CSV.
 - Do not use the Dividend Report as analyzer input; dividends are read from the Activity Statement sections.
 - Use one full report for the selected tax year. The `Statement -> Period` row must cover exactly January 1 through December 31 of `--tax-year`, for example `January 1, 2025 - December 31, 2025`.
+- The account base currency must be EUR. The analyzer validates the `Account Information,Data,Base Currency,EUR` row before tax calculations start.
 - Wrong or missing statement periods fail by default because tax reporting and SPB-8 can be incorrect.
 - `--skip-period-validation` is for development/testing with partial reports only; do not use it for real tax reporting.
 

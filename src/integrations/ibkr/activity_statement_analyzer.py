@@ -444,6 +444,47 @@ def _validate_statement_period(rows: list[list[str]], *, tax_year: int) -> None:
         )
 
 
+def _ibkr_base_currency(rows: list[list[str]]) -> str:
+    active_header: list[str] | None = None
+    for row in rows:
+        if len(row) < 2 or row[0] != "Account Information":
+            continue
+        if row[1] == "Header":
+            active_header = [cell.strip() for cell in row[2:]]
+            continue
+        if row[1] != "Data":
+            continue
+
+        values = row[2:]
+        if active_header:
+            field_idx = _optional_index(active_header, "Field Name")
+            value_idx = _optional_index(active_header, "Field Value")
+            if field_idx is not None and value_idx is not None:
+                padded = values + [""] * max(0, len(active_header) - len(values))
+                if padded[field_idx].strip() == "Base Currency":
+                    return padded[value_idx].strip()
+                continue
+
+        if len(row) >= 4 and row[2].strip() == "Base Currency":
+            return row[3].strip()
+    return ""
+
+
+def _validate_base_currency(rows: list[list[str]]) -> None:
+    base_currency = _ibkr_base_currency(rows)
+    if base_currency == "EUR":
+        return
+    display_currency = base_currency or "<missing>"
+    raise UserFacingTaxError(
+        code="IBKR_UNSUPPORTED_BASE_CURRENCY",
+        params={"base_currency": display_currency},
+        technical_message_en=(
+            f"ERROR: Unsupported IBKR base currency {display_currency!r}. "
+            "Currently only EUR base currency accounts are supported for Bulgarian tax reporting."
+        ),
+    )
+
+
 def _section_names(rows: list[list[str]]) -> set[str]:
     return {row[0].strip() for row in rows if row and row[0].strip()}
 
@@ -599,6 +640,7 @@ def analyze_ibkr_activity_statement(
     out_dir.mkdir(parents=True, exist_ok=True)
     fx_provider = fx_rate_provider if fx_rate_provider is not None else _default_fx_provider(cache_dir)
     rows = _load_csv_rows(input_path)
+    _validate_base_currency(rows)
     eu_regulated_exchange_overrides = _normalize_cli_eu_regulated_exchanges(eu_regulated_exchanges)
     closed_world_mode = closed_world or bool(eu_regulated_exchange_overrides)
 

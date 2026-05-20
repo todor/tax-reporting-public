@@ -85,6 +85,7 @@ _KNOWN_DIAGNOSTIC_CODES = {
     "EMPTY_INPUT_FILE",
     "GENERIC_ANALYZER_ERROR",
     "IBKR_INCOMPLETE_CLOSED_LOTS",
+    "IBKR_UNSUPPORTED_BASE_CURRENCY",
     "INPUT_FILE_MISSING",
     "INVALID_TAX_YEAR",
     "MISSING_CSV_HEADER",
@@ -752,6 +753,16 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
             ]
         )
         return lines
+
+    if diagnostic.code == "IBKR_UNSUPPORTED_BASE_CURRENCY":
+        base_currency = str(params.get("base_currency") or "<missing>")
+        return [
+            f"Грешка: IBKR акаунтът е с неподдържана базова валута: {base_currency}.",
+            "В момента се поддържат само IBKR акаунти с базова валута EUR за българско данъчно отчитане.",
+            "Какво да направите:",
+            "- Експортирайте Activity Statement за IBKR акаунт с Base Currency EUR.",
+            "- Ако акаунтът не е в EUR, обработете го ръчно или разширете поддръжката на анализатора.",
+        ]
 
     if diagnostic.code and diagnostic.code.startswith("CRYPTO_"):
         return _structured_family_message_bg(

@@ -805,6 +805,7 @@ IBKR Activity Statement period requirements:
 
 - The input must cover exactly January 1 through December 31 of the selected `--tax-year`.
 - The analyzer validates the `Statement -> Period` row, for example `January 1, 2025 - December 31, 2025`.
+- The IBKR account base currency must be EUR. The analyzer validates `Account Information -> Base Currency` before tax calculations start.
 - Wrong or missing periods fail by default because tax reporting and SPB-8 can be incorrect.
 - `--skip-period-validation` exists only for development/testing with partial reports. Do not use it for real tax reporting.
 - `--tax-exempt-mode` defaults to `listed_symbol`; the effective mode is printed in the Bulgarian TXT report because it affects tax treatment.

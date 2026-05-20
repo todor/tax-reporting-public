@@ -5,8 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from integrations.ibkr.activity_statement_analyzer import analyze_ibkr_activity_statement, _validate_statement_period
+from integrations.ibkr.activity_statement_analyzer import (
+    analyze_ibkr_activity_statement,
+    _validate_base_currency,
+    _validate_statement_period,
+)
 from integrations.ibkr.models import IbkrAnalyzerError
+from integrations.shared.contracts import UserFacingTaxError
 from tests.integrations.ibkr.support import _base_rows, _fx_provider
 
 
@@ -52,10 +57,40 @@ def test_statement_period_rejects_malformed_period() -> None:
         _validate_statement_period(_rows("2025-01-01 to 2025-12-31"), tax_year=2025)
 
 
+def test_base_currency_validation_accepts_eur_account_information() -> None:
+    _validate_base_currency(
+        [
+            ["Account Information", "Header", "Field Name", "Field Value"],
+            ["Account Information", "Data", "Base Currency", "EUR"],
+        ]
+    )
+
+
+def test_base_currency_validation_rejects_missing_base_currency() -> None:
+    with pytest.raises(UserFacingTaxError, match="Unsupported IBKR base currency '<missing>'"):
+        _validate_base_currency([["Account Information", "Header", "Field Name", "Field Value"]])
+
+
+def test_base_currency_validation_rejects_non_eur_base_currency() -> None:
+    with pytest.raises(UserFacingTaxError, match="Unsupported IBKR base currency 'USD'"):
+        _validate_base_currency(
+            [
+                ["Account Information", "Header", "Field Name", "Field Value"],
+                ["Account Information", "Data", "Base Currency", "USD"],
+            ]
+        )
+
+
 def test_skip_statement_period_validation_emits_warning(tmp_path: Path) -> None:
     input_csv = tmp_path / "input.csv"
     with input_csv.open("w", encoding="utf-8", newline="") as handle:
-        csv.writer(handle).writerows(_base_rows())
+        csv.writer(handle).writerows(
+            [
+                ["Account Information", "Header", "Field Name", "Field Value"],
+                ["Account Information", "Data", "Base Currency", "EUR"],
+                *_base_rows(),
+            ]
+        )
 
     result = analyze_ibkr_activity_statement(
         input_csv=input_csv,
