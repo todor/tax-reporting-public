@@ -69,7 +69,8 @@ def test_bulgaria_rows_are_kept_but_excluded_from_filing_rendering() -> None:
     assert notes == ["Не се включва в СПБ-8: държава България."]
     assert render_spb8_section(filtered) == []
     assert render_spb8_notes_section(notes) == [
-        "Забележки за СПБ-8",
+        "СПБ-8",
+        "Бележки към СПБ-8",
         "- Не се включва в СПБ-8: държава България.",
     ]
 
@@ -272,3 +273,27 @@ def test_render_spb8_omits_securities_row_when_end_value_is_zero() -> None:
     )
 
     assert lines == []
+
+
+def test_render_spb8_combines_declaration_rows_and_notes_under_one_heading() -> None:
+    lines = render_spb8_section(
+        [
+            SPB8Row(
+                "kraken",
+                "kraken",
+                "03",
+                "Ирландия",
+                "EUR",
+                Decimal("1000"),
+                Decimal("2000"),
+            )
+        ],
+        notes=["CFD позициите не се включват в СПБ-8."],
+        aggregate=True,
+    )
+
+    assert lines.count("СПБ-8") == 1
+    assert "Данни за попълване" in lines
+    assert "Бележки към СПБ-8" in lines
+    assert "- CFD позициите не се включват в СПБ-8." in lines
+    assert "- Детайлите по платформи са налични в индивидуалните TXT файлове." in lines

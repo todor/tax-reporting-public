@@ -3,8 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from ..appendices.declaration_text import _sum_bucket
 from ..constants import (
     ADDED_DIVIDENDS_COLUMNS,
+    APPENDIX_5,
     DECIMAL_EIGHT,
     DIVIDEND_APPENDIX_6,
     DIVIDEND_APPENDIX_8,
@@ -14,6 +16,7 @@ from ..constants import (
     INTEREST_STATUS_UNKNOWN,
     REVIEW_STATUS_NON_TAXABLE,
     REVIEW_STATUS_TAXABLE,
+    ZERO,
 )
 from ..models import (
     AnalysisSummary,
@@ -82,6 +85,10 @@ def _dividends_indexes(active_header: _ActiveHeader) -> _DividendsFieldIndexes:
         status=_optional_index(active_header.headers, "Status"),
         review_status=_optional_index(active_header.headers, "Review Status"),
     )
+
+
+def is_payment_in_lieu_ordinary_dividend(description: str) -> bool:
+    return "payment in lieu of dividend (ordinary dividend)" in description.strip().lower()
 
 
 def _set_dividends_extras(
@@ -289,6 +296,28 @@ def _apply_taxable_dividend_totals(
         summary.appendix_6_lieu_received_eur += effective_amount_eur
 
 
+def _apply_payment_in_lieu_totals(
+    *,
+    summary: AnalysisSummary,
+    amount_eur: Decimal,
+    net_pil: bool,
+) -> None:
+    if amount_eur > ZERO:
+        summary.pil_positive_rows += 1
+        summary.pil_positive_eur += amount_eur
+        summary.appendix_6_positive_pil_eur += amount_eur
+        summary.appendix_6_code_606_eur += amount_eur
+        return
+    if amount_eur < ZERO:
+        negative_abs = -amount_eur
+        summary.pil_negative_rows += 1
+        summary.pil_negative_eur += negative_abs
+        if net_pil:
+            _sum_bucket(summary.appendix_5, ZERO, negative_abs, amount_eur)
+        else:
+            summary.pil_negative_skipped_eur += negative_abs
+
+
 def _set_dividends_existing_values(
     *,
     rows: list[list[str]],
@@ -352,6 +381,7 @@ def process_dividends_section(
     fx_provider,
     tax_year: int,
     report_date_format: IbkrReportDateFormat,
+    net_pil: bool,
 ) -> DividendsSectionResult:
     row_extras: dict[int, dict[str, str]] = {}
     row_base_len: dict[int, int] = {}
@@ -404,6 +434,48 @@ def process_dividends_section(
         )
         description = data[field_idx.description].strip()
         amount = _parse_decimal(data[field_idx.amount], row_number=row_number, field_name="Amount")
+        if is_payment_in_lieu_ordinary_dividend(description):
+            amount_eur, _ = _to_eur(
+                amount,
+                currency,
+                dividend_date,
+                fx_provider,
+                row_number=row_number,
+            )
+            amount_eur_text = _fmt(amount_eur, quant=DECIMAL_EIGHT)
+            effective_appendix = DIVIDEND_APPENDIX_6 if amount_eur > ZERO else APPENDIX_5
+            effective_status = INTEREST_STATUS_TAXABLE
+            if dividend_date.year == tax_year:
+                _apply_payment_in_lieu_totals(
+                    summary=summary,
+                    amount_eur=amount_eur,
+                    net_pil=net_pil,
+                )
+            review_status_raw = data[field_idx.review_status].strip() if field_idx.review_status is not None else ""
+            _set_dividends_existing_values(
+                rows=rows,
+                row_idx=row_idx,
+                active_dividends_header=active_dividends_header,
+                field_idx=field_idx,
+                effective_country_text="",
+                effective_amount_eur_text=amount_eur_text,
+                effective_isin="",
+                effective_appendix=effective_appendix,
+                effective_status=effective_status,
+            )
+            _set_dividends_extras(
+                row_extras,
+                row_idx=row_idx,
+                values={
+                    "Country": "",
+                    "Amount (EUR)": amount_eur_text,
+                    "ISIN": "",
+                    "Appendix": effective_appendix,
+                    "Status": effective_status,
+                    "Review Status": review_status_raw,
+                },
+            )
+            continue
         auto_appendix = _classify_dividend_description(description)
         auto_status = _classify_status_from_description(description)
         review_status_raw = data[field_idx.review_status].strip() if field_idx.review_status is not None else ""

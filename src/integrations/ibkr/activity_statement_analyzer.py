@@ -25,6 +25,7 @@ from .constants import (
     APPENDIX8_LIST_MODE_COMPANY,
     APPENDIX8_LIST_MODE_COUNTRY,
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
+    CFD_ASSET_CATEGORY,
     DEFAULT_OUTPUT_DIR,
     DIVIDEND_TAX_RATE,
     FxRateProvider,
@@ -46,6 +47,7 @@ from .models import (
     _CountryCreditComponent,
 )
 from .sections.dividends import DividendsSectionResult, process_dividends_section
+from .sections.fees import FeesSectionResult, process_fees_section
 from .sections.income import _appendix9_default_country
 from .sections.instruments import (
     _exchange_classification_mode_label,
@@ -117,6 +119,7 @@ CORPORATE_ACTIONS_SECTION = "Corporate Actions"
 @dataclass(slots=True)
 class _ProcessedSections:
     trades: TradesSectionResult
+    fees: FeesSectionResult
     interest: InterestSectionResult
     dividends: DividendsSectionResult
     withholding: WithholdingSectionResult
@@ -188,6 +191,8 @@ def _process_sections(
     eu_regulated_exchange_overrides: set[str],
     closed_world_mode: bool,
     report_date_format: IbkrReportDateFormat,
+    net_cfd_financing: bool,
+    net_pil: bool,
 ) -> _ProcessedSections:
     trades = process_trades_section(
         rows=rows,
@@ -200,6 +205,15 @@ def _process_sections(
         eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
         closed_world_mode=closed_world_mode,
         report_date_format=report_date_format,
+    )
+    fees = process_fees_section(
+        rows=rows,
+        active_headers=active_headers,
+        summary=summary,
+        fx_provider=fx_provider,
+        tax_year=tax_year,
+        report_date_format=report_date_format,
+        net_cfd_financing=net_cfd_financing,
     )
     interest = process_interest_section(
         rows=rows,
@@ -217,6 +231,7 @@ def _process_sections(
         fx_provider=fx_provider,
         tax_year=tax_year,
         report_date_format=report_date_format,
+        net_pil=net_pil,
     )
     withholding = process_withholding_section(
         rows=rows,
@@ -237,6 +252,7 @@ def _process_sections(
     )
     return _ProcessedSections(
         trades=trades,
+        fees=fees,
         interest=interest,
         dividends=dividends,
         withholding=withholding,
@@ -356,6 +372,10 @@ def _compute_appendix_outputs(
         + summary.appendix_6_other_taxable_eur
         + summary.appendix_6_lieu_received_eur
     )
+    summary.appendix_6_code_606_eur = (
+        summary.appendix_6_positive_pil_eur
+        + summary.appendix_6_positive_cfd_financing_eur
+    )
 
 
 def _output_paths(*, out_dir: Path, normalized_alias: str, tax_year: int) -> tuple[Path, Path]:
@@ -471,7 +491,10 @@ def _validate_required_closedlot_rows(
         if asset_idx is None:
             continue
         asset_category = data[asset_idx].strip()
-        if asset_category == FOREX_ASSET_CATEGORY or asset_category not in SUPPORTED_ASSET_CATEGORIES:
+        if (
+            asset_category == FOREX_ASSET_CATEGORY
+            or (asset_category not in SUPPORTED_ASSET_CATEGORIES and asset_category != CFD_ASSET_CATEGORY)
+        ):
             continue
 
         if row_type == "Data":
@@ -521,7 +544,7 @@ def _has_realized_disposal_amount(data: list[str], active_header: _ActiveHeader)
         return True
 
     quantity_idx = _optional_index(active_header.headers, "Quantity")
-    proceeds_idx = _optional_index(active_header.headers, "Proceeds")
+    proceeds_idx = _optional_index(active_header.headers, "Proceeds", "Notional Value")
     basis_idx = _optional_index(active_header.headers, "Basis")
     return (
         quantity_idx is not None
@@ -560,6 +583,8 @@ def analyze_ibkr_activity_statement(
     eu_regulated_exchanges: list[str] | None = None,
     closed_world: bool = False,
     skip_period_validation: bool = False,
+    net_cfd_financing: bool = True,
+    net_pil: bool = True,
     fx_rate_provider: FxRateProvider | None = None,
 ) -> AnalysisResult:
     _validate_analysis_request(
@@ -582,6 +607,8 @@ def analyze_ibkr_activity_statement(
         tax_exempt_mode=tax_exempt_mode,
         dividend_tax_rate=DIVIDEND_TAX_RATE,
         appendix8_dividend_list_mode=appendix8_dividend_list_mode,
+        net_cfd_financing=net_cfd_financing,
+        net_pil=net_pil,
     )
     if skip_period_validation:
         summary.warnings.append(
@@ -633,6 +660,8 @@ def analyze_ibkr_activity_statement(
         eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
         closed_world_mode=closed_world_mode,
         report_date_format=report_date_format,
+        net_cfd_financing=net_cfd_financing,
+        net_pil=net_pil,
     )
     appendix9_components = processed.interest.components_by_country
 
@@ -659,6 +688,10 @@ def analyze_ibkr_activity_statement(
     )
     summary.spb8_rows = spb8.rows
     summary.spb8_notes = spb8.warnings
+    if summary.cfd_trade_rows > 0 or summary.cfd_open_position_rows > 0:
+        summary.spb8_notes.append(
+            "CFD позициите не се включват в СПБ-8, защото са деривативни/synthetic експозиции, а не реални ценни книжа с ISIN."
+        )
 
     populate_trade_aggregate_extras(
         rows=rows,

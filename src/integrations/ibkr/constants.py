@@ -8,6 +8,7 @@ from typing import Callable
 from config import OUTPUT_DIR
 
 SUPPORTED_ASSET_CATEGORIES = {"Stocks", "Treasury Bills"}
+CFD_ASSET_CATEGORY = "CFDs"
 FOREX_ASSET_CATEGORY = "Forex"
 
 EU_REGULATED_MARKETS = {

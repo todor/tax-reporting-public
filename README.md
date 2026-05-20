@@ -37,7 +37,7 @@ The repository now includes:
 - Iuvo (aggregate Appendix 6 mapping)
 - Robocash (aggregate Appendix 6 mapping)
 - Bondora Go & Grow (aggregate Appendix 6 mapping)
-- IBKR activity statement analyzer (trades + interest + dividends)
+- IBKR activity statement analyzer (trades + interest + dividends + CFD/PIL adjustments)
 
 Some areas are still intentionally phased and evolving (for example broader asset coverage and additional appendices).
 
@@ -808,6 +808,14 @@ IBKR Activity Statement period requirements:
 - Wrong or missing periods fail by default because tax reporting and SPB-8 can be incorrect.
 - `--skip-period-validation` exists only for development/testing with partial reports. Do not use it for real tax reporting.
 - `--tax-exempt-mode` defaults to `listed_symbol`; the effective mode is printed in the Bulgarian TXT report because it affects tax treatment.
+
+IBKR CFD and PIL handling:
+
+- CFD are treated as derivative financial instruments and realized CFD results are declared in Appendix 5, Table 2, code 508.
+- CFD holdings are not declared in Appendix 8 and are excluded from SPB-8; the tool does not infer an underlying ISIN from CFD symbols.
+- IBKR CFD financing / CFD interest from `Fees` is netted into Appendix 5 by default. Use `--no-net-cfd-financing` to send positive financing to Appendix 6, code 606, and skip negative financing.
+- `Payment in Lieu of Dividend (Ordinary Dividend)` is not treated as a real dividend. Negative PIL is netted into Appendix 5 by default; use `--no-net-pil` to skip negative PIL. Positive PIL always goes to Appendix 6, code 606.
+- This is a practical interpretation for synthetic broker cashflow adjustments; confirm treatment with your accountant if needed.
 
 Optional venue override inputs (activates closed-world venue classification for this run):
 

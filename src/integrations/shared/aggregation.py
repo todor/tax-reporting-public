@@ -34,7 +34,6 @@ from integrations.shared.reporting import normalize_diagnostics
 from integrations.shared.spb8 import (
     SPB8Row,
     aggregate_spb8_rows,
-    render_spb8_notes_section,
     render_spb8_section,
 )
 
@@ -322,6 +321,32 @@ def _merge_status(base: AnalyzerStatus, incoming: AnalyzerStatus) -> AnalyzerSta
         "ERROR": 3,
     }
     return incoming if priority[incoming] > priority[base] else base
+
+
+def _aggregate_policy_notes(analyzer_results: list[TaxAnalysisResult]) -> list[str]:
+    notes: list[str] = []
+    seen: set[str] = set()
+    for result in analyzer_results:
+        for note in result.policy_notes:
+            cleaned = note.strip()
+            if not cleaned or cleaned in seen:
+                continue
+            seen.add(cleaned)
+            notes.append(cleaned)
+    return notes
+
+
+def _render_policy_audit_lines(lines: list[str], analyzer_results: list[TaxAnalysisResult]) -> None:
+    rendered_any = False
+    for result in analyzer_results:
+        audit_lines = [line for line in result.policy_audit_lines if line.strip()]
+        if not audit_lines:
+            continue
+        if not rendered_any:
+            lines.extend(["", "Policy details"])
+            rendered_any = True
+        lines.append(result.analyzer_alias)
+        lines.extend(audit_lines)
 
 
 def _render_per_analyzer_status(
@@ -652,6 +677,7 @@ def render_aggregated_report(
         global_status = "NEEDS_REVIEW"
     aggregated = aggregate_appendix_records(analyzer_results)
     aggregated_spb8_rows = aggregate_spb8_rows(spb8_rows or [])
+    policy_notes = _aggregate_policy_notes(analyzer_results)
 
     lines: list[str] = [_status_banner(global_status)]
     status_reasons = _status_reason_lines(
@@ -673,8 +699,12 @@ def render_aggregated_report(
             money_context=money_context,
         ),
         _build_appendix9_lines(aggregated, money_context=money_context),
-        render_spb8_section(aggregated_spb8_rows),
-        render_spb8_notes_section(spb8_notes, aggregate=bool(aggregated_spb8_rows)),
+        render_spb8_section(
+            aggregated_spb8_rows,
+            notes=spb8_notes,
+            aggregate=bool(aggregated_spb8_rows),
+        ),
+        ["CFD и PIL", *(f"- {note}" for note in policy_notes)] if policy_notes else [],
     ):
         if not section_lines:
             continue
@@ -690,6 +720,7 @@ def render_aggregated_report(
         f"- global status: {global_status}",
     ]
     technical_lines.extend(f"- {line}" for line in display_currency_technical_lines(money_context))
+    _render_policy_audit_lines(technical_lines, analyzer_results)
     _render_detected_inputs(technical_lines, detected_inputs, detected_input_items)
     _render_ignored_inputs(technical_lines, ignored_inputs)
     _render_per_analyzer_status(

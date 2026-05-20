@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from ..constants import (
     ADDED_OPEN_POSITIONS_COLUMNS,
+    CFD_ASSET_CATEGORY,
     DECIMAL_EIGHT,
     QTY_RECONCILIATION_EPSILON,
     REVIEW_REASON_OPEN_POSITION_TRADE_QTY_MISMATCH,
@@ -411,6 +412,9 @@ def process_open_positions_section(
 
         asset_category = data[field_idx.asset].strip()
         summary.open_positions_summary_rows += 1
+        if asset_category == CFD_ASSET_CATEGORY:
+            summary.cfd_open_position_rows += 1
+            continue
         if not _is_supported_asset(asset_category):
             summary.review_required_rows += 1
             summary.warnings.append(

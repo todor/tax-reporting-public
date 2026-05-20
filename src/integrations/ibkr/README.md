@@ -105,6 +105,8 @@ Important notes:
 - `--closed-world`: force closed-world exchange classification even without `--eu-regulated-exchange`
 - `--report-alias`: optional alias added in output filenames
 - `--skip-period-validation`: skip strict full-year Statement Period validation; development/testing only
+- `--no-net-cfd-financing`: do not net CFD financing into Appendix 5; positive amounts go to Appendix 6 code 606 and negative amounts are skipped
+- `--no-net-pil`: do not net negative Payment in Lieu adjustments into Appendix 5
 - `--output-dir`: optional output root (default `output/ibkr/activity_statement`)
 - `--cache-dir`: optional `bnb_fx` cache override
 - `--display-currency {EUR,BGN}`: optional TXT rendering currency (calculation currency remains EUR)
@@ -363,6 +365,34 @@ CLI override behavior:
 - `cash_leg = proceeds_eur + comm_fee_eur`
 - if `cash_leg >= 0`: `sale_price += abs(cash_leg)`, `purchase += abs(basis_eur)`
 - else: `sale_price += abs(basis_eur)`, `purchase += abs(cash_leg)`
+
+## CFD and Payment in Lieu Handling
+
+CFD trades are treated as derivative financial instruments, not as real shares/ETFs:
+
+- realized CFD results are declared in `Приложение 5`, table 2, code `508`
+- CFD positions are not declared in `Приложение 8`
+- CFD positions are excluded from `СПБ-8`
+- `Financial Instrument Information` rows for CFDs may use a different header and do not contain a reliable `Security ID` / ISIN
+- the analyzer does not infer an underlying ISIN from the CFD symbol
+
+IBKR may report CFD financing in the `Fees` section, for example `Long CFD Interest`, `Short CFD Interest`, or `CFD Financing`.
+
+- By default, CFD financing / CFD interest is treated as part of CFD trading economics and is included in `Приложение 5`, code `508`.
+- A positive amount increases the sale/proceeds side.
+- A negative amount increases the acquisition/cost side by absolute value.
+- With `--no-net-cfd-financing`, netting is disabled: positive amounts are declared in `Приложение 6`, code `606`, and negative amounts are not included automatically.
+- Generic debit interest, margin interest, borrow fees, market data, subscription, ADR, snapshot, and wire fees are not treated as CFD financing unless the description explicitly contains CFD interest/financing wording.
+
+IBKR may report `Payment in Lieu of Dividend (Ordinary Dividend)` in the `Dividends` section.
+
+- PIL is not treated as a real dividend and is not declared in `Приложение 8`.
+- PIL is not assumed to be CFD-related; it may come from short stock positions, CFD exposure, stock lending, rehypothecation, or other synthetic/substitute mechanisms.
+- By default, negative PIL is treated as a cost adjustment for short/synthetic exposure and is included in `Приложение 5`, code `508`.
+- With `--no-net-pil`, negative PIL is not included automatically.
+- Positive PIL is always declared in `Приложение 6`, code `606`, because the exact source cannot be determined reliably from the IBKR Activity Statement.
+
+CFD financing and PIL adjustments are treated according to their economic relationship with CFD/short/synthetic exposure. Because there is no explicit public guidance for synthetic broker cashflow adjustments, the tool applies a practical defensible approach and provides conservative modes through the CLI flags above.
 
 ## Interest Processing (Appendix 6 / 9)
 

@@ -66,6 +66,8 @@ class TaxAnalysisResult:
     spb8_rows: list[SPB8Row] = field(default_factory=list)
     spb8_notes: list[str] = field(default_factory=list)
     spb8_corporate_actions_present: bool = False
+    policy_notes: list[str] = field(default_factory=list)
+    policy_audit_lines: list[str] = field(default_factory=list)
 
     @property
     def status(self) -> AnalyzerStatus:

@@ -16,6 +16,7 @@ from ..constants import (
     EXCHANGE_CLASS_UNMAPPED,
     EU_NON_REGULATED_MARKETS,
     EU_REGULATED_MARKETS,
+    CFD_ASSET_CATEGORY,
     INVALID_EXCHANGE_VALUES,
     KNOWN_NON_EU_MARKETS,
     FOREX_ASSET_CATEGORY,
@@ -139,6 +140,10 @@ def _split_symbol_aliases(raw: str) -> list[str]:
 
 def _is_supported_asset(asset_category: str) -> bool:
     return asset_category.strip() in SUPPORTED_ASSET_CATEGORIES
+
+
+def _is_cfd_asset(asset_category: str) -> bool:
+    return asset_category.strip() == CFD_ASSET_CATEGORY
 
 
 def _is_forex_asset(asset_category: str) -> bool:
@@ -301,7 +306,7 @@ def parse_instrument_listings_with_headers(
         header_name = f"{section_name} header at row {active_header.row_number}"
         asset_idx = _index_for(active_header.headers, "Asset Category", section_name=header_name)
         symbol_idx = _index_for(active_header.headers, "Symbol", section_name=header_name)
-        listing_idx = _index_for(active_header.headers, "Listing Exch", section_name=header_name)
+        listing_idx = _optional_index(active_header.headers, "Listing Exch", "Listing Exchange")
         description_idx = _optional_index(active_header.headers, "Description", "Financial Instrument Description", "Name")
         isin_idx = _optional_index(
             active_header.headers,
@@ -313,8 +318,12 @@ def parse_instrument_listings_with_headers(
 
         data = row[2:] + [""] * (len(active_header.headers) - len(row[2:]))
         asset_category = data[asset_idx].strip()
-        if asset_category not in SUPPORTED_ASSET_CATEGORIES:
+        if asset_category not in SUPPORTED_ASSET_CATEGORIES and not _is_cfd_asset(asset_category):
             continue
+        if listing_idx is None and not _is_cfd_asset(asset_category):
+            raise CsvStructureError(
+                f"{header_name}: missing required column; expected one of ('Listing Exch', 'Listing Exchange')"
+            )
         raw_symbol = data[symbol_idx].strip()
         symbols = _split_symbol_aliases(raw_symbol)
         if _is_treasury_bills_asset(asset_category):
@@ -324,7 +333,7 @@ def parse_instrument_listings_with_headers(
         if not symbols:
             raise CsvStructureError(f"row {row_number}: empty symbol in Financial Instrument Information")
 
-        listing_exchange = data[listing_idx].strip()
+        listing_exchange = data[listing_idx].strip() if listing_idx is not None else ""
         instrument_description = data[description_idx].strip() if description_idx is not None else ""
         instrument_isin = (
             _extract_isin_from_text(data[isin_idx].strip()) if isin_idx is not None else ""

@@ -434,26 +434,37 @@ def _missing_value_note(row: SPB8Row, *, field_label: str) -> str:
     )
 
 
-def render_spb8_section(rows: list[SPB8Row]) -> list[str]:
+def render_spb8_section(
+    rows: list[SPB8Row],
+    *,
+    notes: list[str] | None = None,
+    aggregate: bool = False,
+) -> list[str]:
+    note_lines = list(notes or [])
+    if aggregate:
+        note_lines.append("Детайлите по платформи са налични в индивидуалните TXT файлове.")
     filing_source_rows = [row for row in rows if not row.is_bulgaria]
-    if missing_spb8_value_notes(filing_source_rows):
-        return []
+    rows_are_blocked = bool(missing_spb8_value_notes(filing_source_rows))
     filing_rows = [row for row in filing_source_rows if _row_has_renderable_values(row)]
-    if not filing_rows:
+    if rows_are_blocked:
+        filing_rows = []
+    if not filing_rows and not note_lines:
         return []
     lines = ["СПБ-8"]
-    for row in filing_rows:
-        lines.extend(_render_row(row))
+    if filing_rows:
+        lines.append("Данни за попълване")
+        for row in filing_rows:
+            lines.extend(_render_row(row))
+    if note_lines:
+        if filing_rows:
+            lines.append("")
+        lines.append("Бележки към СПБ-8")
+        lines.extend(f"- {note}" for note in note_lines)
     return lines
 
 
 def render_spb8_notes_section(notes: list[str] | None = None, *, aggregate: bool = False) -> list[str]:
-    note_lines = list(notes or [])
-    if aggregate:
-        note_lines.append("Детайлите по платформи са налични в индивидуалните TXT файлове.")
-    if not note_lines:
-        return []
-    return ["Забележки за СПБ-8", *(f"- {note}" for note in note_lines)]
+    return render_spb8_section([], notes=notes, aggregate=aggregate)
 
 
 def _row_has_renderable_values(row: SPB8Row) -> bool:

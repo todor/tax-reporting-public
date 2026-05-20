@@ -48,6 +48,7 @@ from ..shared import (
 from .instruments import (
     _classify_exchange_with_normalized,
     _record_exchange_observation,
+    _is_cfd_asset,
     _is_forex_asset,
     _is_supported_asset,
     _resolve_instrument_for_trade_symbol,
@@ -118,7 +119,7 @@ def _trade_indexes(active_header: _ActiveHeader) -> _TradeFieldIndexes:
         exchange=_optional_index(active_header.headers, "Exchange", "Exch", "Execution Exchange"),
         quantity=_optional_index(active_header.headers, "Quantity", "Qty"),
         code=_index_for(active_header.headers, "Code", section_name=section_name),
-        proceeds=_index_for(active_header.headers, "Proceeds", section_name=section_name),
+        proceeds=_index_for(active_header.headers, "Proceeds", "Notional Value", section_name=section_name),
         basis=_optional_index(active_header.headers, "Basis", "Cost Basis", "CostBasis"),
         discriminator=_index_for(active_header.headers, "DataDiscriminator", section_name=section_name),
         commission=_optional_index(active_header.headers, "Comm/Fee", "Commission"),
@@ -425,6 +426,10 @@ def _set_non_closing_trade_extras(
     _set_trade_extras(row_extras, row_idx=ctx.row_idx, values=values)
 
 
+def _is_trade_asset_supported_for_parsing(asset_category: str) -> bool:
+    return _is_supported_asset(asset_category) or _is_cfd_asset(asset_category)
+
+
 def _sum_closedlot_basis_and_quantity_eur(
     *,
     rows: list[list[str]],
@@ -578,25 +583,36 @@ def _process_closing_trade_row(
     pnl_win = pnl_eur if pnl_eur > 0 else ZERO
     pnl_loss = -pnl_eur if pnl_eur < 0 else ZERO
 
-    instrument, normalized_symbol, forced_review_reason = _resolve_instrument_for_trade_symbol(
-        asset_category=ctx.asset_category,
-        trade_symbol=ctx.symbol_raw,
-        listings=listings,
-    )
-    symbol_for_messages = normalized_symbol or ctx.symbol
-    missing_symbol_mapping = instrument is None
-    listing_exchange = instrument.listing_exchange_normalized if instrument is not None else ""
-    listing_exchange_class = instrument.listing_exchange_class if instrument is not None else None
-    symbol_is_eu_listed: bool | None = None if instrument is None else instrument.is_eu_listed
+    if _is_cfd_asset(ctx.asset_category):
+        instrument = listings.get(ctx.symbol)
+        normalized_symbol = ctx.symbol
+        symbol_for_messages = ctx.symbol
+        listing_exchange = ""
+        listing_exchange_class = None
+        symbol_is_eu_listed = False
+        appendix_target = APPENDIX_5
+        reason = "CFD derivative instrument -> Appendix 5 code 508"
+        review_required = False
+    else:
+        instrument, normalized_symbol, forced_review_reason = _resolve_instrument_for_trade_symbol(
+            asset_category=ctx.asset_category,
+            trade_symbol=ctx.symbol_raw,
+            listings=listings,
+        )
+        symbol_for_messages = normalized_symbol or ctx.symbol
+        missing_symbol_mapping = instrument is None
+        listing_exchange = instrument.listing_exchange_normalized if instrument is not None else ""
+        listing_exchange_class = instrument.listing_exchange_class if instrument is not None else None
+        symbol_is_eu_listed: bool | None = None if instrument is None else instrument.is_eu_listed
 
-    appendix_target, reason, review_required = _resolve_tax_target(
-        tax_exempt_mode=tax_exempt_mode,
-        listing_exchange_class=listing_exchange_class,
-        execution_exchange_class=ctx.execution_exchange_class,
-        missing_symbol_mapping=missing_symbol_mapping,
-        closed_world_mode=closed_world_mode,
-        forced_review_reason=forced_review_reason,
-    )
+        appendix_target, reason, review_required = _resolve_tax_target(
+            tax_exempt_mode=tax_exempt_mode,
+            listing_exchange_class=listing_exchange_class,
+            execution_exchange_class=ctx.execution_exchange_class,
+            missing_symbol_mapping=missing_symbol_mapping,
+            closed_world_mode=closed_world_mode,
+            forced_review_reason=forced_review_reason,
+        )
 
     review_status_raw = (
         ctx.data[ctx.field_idx.review_status].strip()
@@ -677,6 +693,8 @@ def _process_closing_trade_row(
                     raw_exchange=ctx.execution_exchange_raw,
                 )
         summary.processed_trades_in_tax_year += 1
+        if _is_cfd_asset(ctx.asset_category):
+            summary.cfd_trade_rows += 1
         if tax_exempt_mode == TAX_MODE_EXECUTION_EXCHANGE and appendix_target == APPENDIX_REVIEW:
             summary.review_rows += 1
             summary.review_exchanges.add(ctx.execution_exchange_norm or "<EMPTY>")
@@ -793,7 +811,7 @@ def process_trades_section(
         if row_idx in consumed_closedlots:
             continue
 
-        if not _is_forex_asset(asset_category) and not _is_supported_asset(asset_category):
+        if not _is_forex_asset(asset_category) and not _is_trade_asset_supported_for_parsing(asset_category):
             _record_unsupported_trade_asset_category(
                 summary,
                 row_number=row_number,
@@ -955,7 +973,7 @@ def _aggregate_trade_rows(
             continue
 
         asset_category = _trade_value(data, active_trades_header, "Asset Category")
-        if _is_forex_asset(asset_category) or not _is_supported_asset(asset_category):
+        if _is_forex_asset(asset_category) or not _is_trade_asset_supported_for_parsing(asset_category):
             continue
 
         field_idx = _trade_indexes(active_trades_header)
@@ -1032,7 +1050,7 @@ def _collect_aggregate_rows(
         )
 
         asset_category = _trade_value(data, active_trades_header, "Asset Category")
-        if _is_forex_asset(asset_category) or not _is_supported_asset(asset_category):
+        if _is_forex_asset(asset_category) or not _is_trade_asset_supported_for_parsing(asset_category):
             continue
         field_idx = _trade_indexes(active_trades_header)
         currency = data[field_idx.currency].strip().upper()

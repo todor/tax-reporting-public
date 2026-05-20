@@ -165,6 +165,7 @@ def clean_declaration_body(raw_declaration: str) -> str:
 class MainReportNotes:
     spb8: list[str] = field(default_factory=list)
     forex: list[str] = field(default_factory=list)
+    cfd_pil: list[str] = field(default_factory=list)
     appendix8: list[str] = field(default_factory=list)
     general: list[str] = field(default_factory=list)
 
@@ -212,6 +213,7 @@ def extract_main_report_notes(body: str) -> tuple[str, MainReportNotes]:
     lines = body.splitlines()
     lines, spb8_notes = _extract_note_block(lines, title="Забележки за СПБ-8", bullet_lines=True)
     lines, forex_notes = _extract_note_block(lines, title="Forex операции", bullet_lines=True)
+    lines, cfd_pil_notes = _extract_note_block(lines, title="CFD и PIL", bullet_lines=True)
     lines, appendix8_notes = _extract_note_block(lines, title="Забележка:", bullet_lines=False)
     general_notes: list[str] = []
     appendix8_specific_notes: list[str] = []
@@ -225,6 +227,7 @@ def extract_main_report_notes(body: str) -> tuple[str, MainReportNotes]:
         MainReportNotes(
             spb8=spb8_notes,
             forex=forex_notes,
+            cfd_pil=cfd_pil_notes,
             appendix8=appendix8_specific_notes,
             general=general_notes,
         ),
@@ -1079,16 +1082,52 @@ def _suggested_action_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
     return []
 
 
-def render_review_summary(diagnostics: list[AnalysisDiagnostic]) -> list[str]:
+def _informational_note_count(notes: MainReportNotes) -> int:
+    return sum(
+        len(section)
+        for section in (
+            notes.spb8,
+            notes.forex,
+            notes.cfd_pil,
+            notes.appendix8,
+            notes.general,
+        )
+    )
+
+
+def _inline_note_count(body: str, *, title: str) -> int:
+    lines = body.splitlines()
+    count = 0
+    index = 0
+    while index < len(lines):
+        if lines[index] != title:
+            index += 1
+            continue
+        index += 1
+        while index < len(lines) and lines[index].strip() == "":
+            index += 1
+        while index < len(lines) and lines[index].strip() != "":
+            if lines[index].lstrip().startswith("- "):
+                count += 1
+            index += 1
+    return count
+
+
+def render_review_summary(
+    diagnostics: list[AnalysisDiagnostic],
+    *,
+    informational_note_count: int = 0,
+) -> list[str]:
     diagnostics = normalize_diagnostics(diagnostics)
     counts = diagnostic_counts(diagnostics)
+    info_count = counts["info"] + informational_note_count
     return [
         "Обобщение за преглед",
         "",
         f"- Грешки: {counts['errors']}",
         f"- Изискват ръчен преглед: {counts['manual_review']}",
         f"- Предупреждения: {counts['warnings']}",
-        f"- Информационни бележки: {counts['info']}",
+        f"- Информационни бележки: {info_count}",
     ]
 
 
@@ -1137,6 +1176,7 @@ def render_assumptions_section(*, notes: MainReportNotes, diagnostics_path: Path
     sections = [
         _notes_subsection("СПБ-8", notes.spb8),
         _notes_subsection("Forex операции", notes.forex),
+        _notes_subsection("CFD и PIL", notes.cfd_pil),
         _notes_subsection("Приложение 8", notes.appendix8),
         _notes_subsection(
             "Изчисления и визуализация",
@@ -1168,6 +1208,10 @@ def render_assumptions_section(*, notes: MainReportNotes, diagnostics_path: Path
     return ["Бележки и допускания", "", *lines]
 
 
+def _visible_note_count(section_lines: list[str]) -> int:
+    return sum(1 for line in section_lines if line.lstrip().startswith("- "))
+
+
 def render_main_report(
     *,
     status: AnalyzerStatus,
@@ -1182,13 +1226,30 @@ def render_main_report(
     declaration_text, _technical_lines = split_technical_details(raw_declaration_text)
     body = clean_declaration_body(declaration_text)
     body, notes = extract_main_report_notes(body)
+    assumptions = render_assumptions_section(notes=notes, diagnostics_path=diagnostics_path)
+    informational_note_count = (
+        _visible_note_count(assumptions)
+        + _inline_note_count(
+            body,
+            title="Бележки към СПБ-8",
+        )
+    )
     lines: list[str] = [STATUS_BANNER_BG[status]]
     if tax_year is not None:
         lines.append(f"Данъчна година: {tax_year}")
-    lines.extend(["", *render_review_summary(diagnostics), "", *render_action_items(diagnostics)])
+    lines.extend(
+        [
+            "",
+            *render_review_summary(
+                diagnostics,
+                informational_note_count=informational_note_count,
+            ),
+            "",
+            *render_action_items(diagnostics),
+        ]
+    )
     if body:
         lines.extend(["", body])
-    assumptions = render_assumptions_section(notes=notes, diagnostics_path=diagnostics_path)
     if assumptions:
         lines.extend(["", *assumptions])
     return "\n".join(lines).rstrip() + "\n"

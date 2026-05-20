@@ -39,7 +39,6 @@ from integrations.shared.spb8 import (
     merge_external_platform_rows,
     missing_spb8_value_notes,
     read_spb8_csv,
-    render_spb8_notes_section,
     render_spb8_section,
     rows_by_platform,
     write_spb8_csv,
@@ -114,11 +113,10 @@ def _append_spb8_to_declaration(
     declaration_path = result.output_paths.get("declaration_txt")
     if declaration_path is None:
         return
-    section_lines = render_spb8_section(rows)
-    notes_lines = render_spb8_notes_section(notes)
-    if not section_lines and not notes_lines:
+    section_lines = render_spb8_section(rows, notes=notes)
+    if not section_lines:
         return
-    new_block = "\n\n".join("\n".join(block) for block in (section_lines, notes_lines) if block)
+    new_block = "\n".join(section_lines)
     current = declaration_path.read_text(encoding="utf-8").rstrip()
     if TECHNICAL_DETAILS_SEPARATOR in current:
         declaration_part, technical_part = current.split(TECHNICAL_DETAILS_SEPARATOR, 1)

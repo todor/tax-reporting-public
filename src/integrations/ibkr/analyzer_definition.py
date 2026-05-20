@@ -83,6 +83,22 @@ def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
         action="store_true",
         help="Skip strict IBKR full-year statement period validation; for development/testing only",
     )
+    add_mode_argument(
+        parser,
+        mode=mode,
+        analyzer_alias="ibkr",
+        single_flag="no-net-cfd-financing",
+        action="store_true",
+        help="Do not net IBKR CFD financing into Appendix 5; positive amounts go to Appendix 6 code 606",
+    )
+    add_mode_argument(
+        parser,
+        mode=mode,
+        analyzer_alias="ibkr",
+        single_flag="no-net-pil",
+        action="store_true",
+        help="Do not net negative IBKR Payment in Lieu adjustments into Appendix 5",
+    )
 
 
 def _build_options(
@@ -139,6 +155,24 @@ def _build_options(
                 default=False,
             )
         ),
+        "net_cfd_financing": not bool(
+            option_value(
+                args,
+                mode=mode,
+                single_attr="no_net_cfd_financing",
+                aggregate_attr="ibkr_no_net_cfd_financing",
+                default=False,
+            )
+        ),
+        "net_pil": not bool(
+            option_value(
+                args,
+                mode=mode,
+                single_attr="no_net_pil",
+                aggregate_attr="ibkr_no_net_pil",
+                default=False,
+            )
+        ),
         "display_currency": str(
             option_value(
                 args,
@@ -166,6 +200,8 @@ def _run(context: AnalyzerRunContext):
         eu_regulated_exchanges=context.options.get("eu_regulated_exchanges"),
         closed_world=bool(context.options.get("closed_world")),
         skip_period_validation=bool(context.options.get("skip_period_validation")),
+        net_cfd_financing=bool(context.options.get("net_cfd_financing", True)),
+        net_pil=bool(context.options.get("net_pil", True)),
     )
     return build_ibkr_result(
         analyzer_alias="ibkr",

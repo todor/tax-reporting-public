@@ -260,6 +260,8 @@ def _run(
     report_alias: str | None = None,
     eu_regulated_exchanges: list[str] | None = None,
     closed_world: bool = False,
+    net_cfd_financing: bool = True,
+    net_pil: bool = True,
 ):
     input_csv = tmp_path / "input.csv"
     _write_rows(input_csv, rows)
@@ -272,6 +274,8 @@ def _run(
         output_dir=tmp_path / "out",
         eu_regulated_exchanges=eu_regulated_exchanges,
         closed_world=closed_world,
+        net_cfd_financing=net_cfd_financing,
+        net_pil=net_pil,
         fx_rate_provider=_fx_provider,
     )
 

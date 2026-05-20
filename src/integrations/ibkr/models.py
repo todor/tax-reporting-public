@@ -183,9 +183,12 @@ class AnalysisSummary:
     interest_unknown_types: set[str] = field(default_factory=set)
     interest_unknown_descriptions: list[str] = field(default_factory=list)
     appendix_6_code_603_eur: Decimal = ZERO
+    appendix_6_code_606_eur: Decimal = ZERO
     appendix_6_credit_interest_eur: Decimal = ZERO
     appendix_6_syep_interest_eur: Decimal = ZERO
     appendix_6_other_taxable_eur: Decimal = ZERO
+    appendix_6_positive_pil_eur: Decimal = ZERO
+    appendix_6_positive_cfd_financing_eur: Decimal = ZERO
     appendix_9_credit_interest_eur: Decimal = ZERO
     appendix_9_withholding_paid_eur: Decimal = ZERO
     appendix_9_withholding_source_found: bool = False
@@ -239,6 +242,19 @@ class AnalysisSummary:
     spb8_rows: list[SPB8Row] = field(default_factory=list)
     spb8_notes: list[str] = field(default_factory=list)
     spb8_corporate_actions_present: bool = False
+    net_cfd_financing: bool = True
+    net_pil: bool = True
+    cfd_trade_rows: int = 0
+    cfd_open_position_rows: int = 0
+    cfd_financing_rows: int = 0
+    cfd_financing_positive_eur: Decimal = ZERO
+    cfd_financing_negative_eur: Decimal = ZERO
+    cfd_financing_negative_skipped_eur: Decimal = ZERO
+    pil_positive_rows: int = 0
+    pil_negative_rows: int = 0
+    pil_positive_eur: Decimal = ZERO
+    pil_negative_eur: Decimal = ZERO
+    pil_negative_skipped_eur: Decimal = ZERO
 
 
 @dataclass(slots=True)

@@ -6,7 +6,11 @@ from pathlib import Path
 
 from integrations.crypto.shared.crypto_ir_models import IrAnalysisSummary
 from integrations.fund.shared.fund_ir_models import FundAnalysisSummary
-from integrations.ibkr.appendices.declaration_text import _build_manual_check_reasons
+from integrations.ibkr.appendices.declaration_text import (
+    _build_manual_check_reasons,
+    cfd_pil_policy_audit_lines,
+    cfd_pil_policy_notes,
+)
 from integrations.ibkr.models import AnalysisSummary as IbkrAnalysisSummary
 from integrations.p2p.shared.appendix6_models import P2PAppendix6Result
 
@@ -525,9 +529,25 @@ def build_ibkr_result(
     appendices.append(
         AppendixRecord(
             appendix="6",
+            part="I",
+            code="606",
+            values={"row_kind": "total_by_code", "amount_eur": summary.appendix_6_code_606_eur},
+        )
+    )
+    appendices.append(
+        AppendixRecord(
+            appendix="6",
             part="II",
             code="603",
             values={"taxable_income_eur": summary.appendix_6_code_603_eur},
+        )
+    )
+    appendices.append(
+        AppendixRecord(
+            appendix="6",
+            part="II",
+            code="606",
+            values={"taxable_income_eur": summary.appendix_6_code_606_eur},
         )
     )
 
@@ -595,4 +615,6 @@ def build_ibkr_result(
         spb8_rows=summary.spb8_rows,
         spb8_notes=summary.spb8_notes,
         spb8_corporate_actions_present=summary.spb8_corporate_actions_present,
+        policy_notes=cfd_pil_policy_notes(summary),
+        policy_audit_lines=cfd_pil_policy_audit_lines(summary),
     )

@@ -468,6 +468,79 @@ def test_forex_policy_note_does_not_duplicate_actionable_diagnostic() -> None:
     assert "Forex редове с Review Status=NON-TAXABLE се третират като нетаксируеми." in rendered
 
 
+def test_spb8_notes_are_counted_and_do_not_leave_duplicate_heading() -> None:
+    raw_text = "\n".join(
+        [
+            "СПБ-8",
+            "Данни за попълване",
+            "- Тип на вземането: 03. Сметки, открити в чужбина",
+            "  Матуритет: ",
+            "  Държава: Ирландия",
+            "  Валута: EUR",
+            "  Размер в началото на отчетната година (в хиляди валутни единици): 1.00",
+            "  Размер в края на отчетната година (в хиляди валутни единици): 2.00",
+            "",
+            "Бележки към СПБ-8",
+            "- CFD позициите не се включват в СПБ-8.",
+        ]
+    )
+
+    rendered = render_main_report(
+        status="OK",
+        tax_year=2025,
+        raw_declaration_text=raw_text,
+        diagnostics=[],
+        diagnostics_path=Path("/tmp/report.diagnostics.txt"),
+    )
+
+    assert "- Информационни бележки: 4" in rendered
+    assert rendered.splitlines().count("СПБ-8") == 1
+    assert "Данни за попълване" in rendered
+    assert "Бележки към СПБ-8" in rendered
+    assert "- CFD позициите не се включват в СПБ-8." in rendered
+
+
+def test_aggregate_spb8_rows_and_notes_render_under_one_heading() -> None:
+    result = TaxAnalysisResult(
+        analyzer_alias="ibkr",
+        input_path=Path("/tmp/ibkr.csv"),
+        tax_year=2025,
+        output_paths={},
+        appendices=[],
+        diagnostics=[],
+        policy_notes=["CFD financing / CFD interest корекциите са включени в Приложение 5."],
+        policy_audit_lines=["- CFD financing policy: netted_to_appendix_5"],
+    )
+    rendered = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={},
+        ignored_inputs=[],
+        analyzer_results=[result],
+        analyzer_errors={},
+        spb8_rows=[
+            SPB8Row(
+                "kraken",
+                "kraken",
+                "03",
+                "Ирландия",
+                "EUR",
+                Decimal("1000"),
+                Decimal("2000"),
+            )
+        ],
+        spb8_notes=["CFD позициите не се включват в СПБ-8."],
+    )
+
+    assert rendered.splitlines().count("СПБ-8") == 1
+    assert "Данни за попълване" in rendered
+    assert "Бележки към СПБ-8" in rendered
+    assert "- CFD позициите не се включват в СПБ-8." in rendered
+    assert "CFD и PIL" in rendered
+    assert "- CFD financing / CFD interest корекциите са включени в Приложение 5." in rendered
+    assert "Policy details" in rendered
+    assert "- CFD financing policy: netted_to_appendix_5" in rendered
+
+
 def test_known_family_warnings_use_structured_diagnostics_not_unclassified(tmp_path: Path) -> None:
     crypto_summary = IrAnalysisSummary()
     crypto_summary.warnings.extend(

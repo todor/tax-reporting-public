@@ -87,6 +87,7 @@ def _appendix6_has_reportable_values(summary: AnalysisSummary) -> bool:
         not _is_zero_amount(amount)
         for amount in (
             summary.appendix_6_code_603_eur,
+            summary.appendix_6_code_606_eur,
             summary.appendix_6_credit_interest_eur,
             summary.appendix_6_syep_interest_eur,
             summary.appendix_6_other_taxable_eur,
@@ -269,13 +270,21 @@ def _append_appendix6_section(
                 Appendix6Part1CodeTotal(
                     code="603",
                     amount=Money(summary.appendix_6_code_603_eur, "EUR"),
-                )
+                ),
+                Appendix6Part1CodeTotal(
+                    code="606",
+                    amount=Money(summary.appendix_6_code_606_eur, "EUR"),
+                ),
             ],
             part2_taxable_totals=[
                 Appendix6Part2TaxableTotal(
                     code="603",
                     amount=Money(summary.appendix_6_code_603_eur, "EUR"),
-                )
+                ),
+                Appendix6Part2TaxableTotal(
+                    code="606",
+                    amount=Money(summary.appendix_6_code_606_eur, "EUR"),
+                ),
             ],
             part3_withheld_tax=Money(Decimal("0"), "EUR"),
         ),
@@ -289,6 +298,8 @@ def _append_appendix6_section(
             summary.appendix_6_syep_interest_eur,
             summary.appendix_6_other_taxable_eur,
             summary.appendix_6_lieu_received_eur,
+            summary.appendix_6_positive_pil_eur,
+            summary.appendix_6_positive_cfd_financing_eur,
         )
     ):
         lines.append("Информативни")
@@ -324,6 +335,24 @@ def _append_appendix6_section(
                 context=money_context,
             )
         )
+        if not _is_zero_amount(summary.appendix_6_positive_pil_eur):
+            lines.append(
+                render_money_line(
+                    "- Подател: Positive Payment in Lieu (PIL), код 606",
+                    Money(summary.appendix_6_positive_pil_eur, "EUR"),
+                    quant=DECIMAL_TWO,
+                    context=money_context,
+                )
+            )
+        if not _is_zero_amount(summary.appendix_6_positive_cfd_financing_eur):
+            lines.append(
+                render_money_line(
+                    "- Подател: Positive CFD financing / CFD interest, код 606",
+                    Money(summary.appendix_6_positive_cfd_financing_eur, "EUR"),
+                    quant=DECIMAL_TWO,
+                    context=money_context,
+                )
+            )
     if summary.interest_unknown_rows > 0:
         lines.append("- НУЖЕН Е ПРЕГЛЕД: открити са непознати видове лихви")
         lines.append(f"- брой непознати редове: {summary.interest_unknown_rows}")
@@ -525,6 +554,98 @@ def _append_forex_section(
     lines.append("")
 
 
+def cfd_pil_policy_notes(summary: AnalysisSummary) -> list[str]:
+    notes: list[str] = []
+    if summary.cfd_trade_rows > 0 or summary.cfd_open_position_rows > 0:
+        notes.append(
+            "CFD сделките са третирани като финансови инструменти и са включени в "
+            "Приложение 5, Таблица 2, код 508."
+        )
+        notes.append(
+            "CFD позициите не се декларират в Приложение 8, защото не представляват "
+            "реално притежание на акции/дялове."
+        )
+    if summary.cfd_financing_rows > 0:
+        if summary.net_cfd_financing:
+            notes.append(
+                "CFD financing / CFD interest корекциите са третирани като част от "
+                "CFD trading economics и са включени в Приложение 5, Таблица 2, код 508."
+            )
+            notes.append(
+                "Положителните CFD financing стойности увеличават продажната страна, "
+                "а отрицателните стойности увеличават разходната страна."
+            )
+        else:
+            notes.append(
+                "Нетиране на CFD financing / CFD interest е изключено чрез "
+                "--no-net-cfd-financing."
+            )
+            notes.append("Положителните CFD financing стойности са декларирани в Приложение 6, код 606.")
+            notes.append("Отрицателните CFD financing стойности не са включени в декларацията.")
+    if summary.pil_negative_rows > 0:
+        if summary.net_pil:
+            notes.append(
+                "Отрицателният Payment in Lieu of Dividend (PIL) е третиран като "
+                "short/synthetic exposure economics и е включен в Приложение 5, "
+                "Таблица 2, код 508 като разходна корекция."
+            )
+        else:
+            notes.append("Нетиране на отрицателен Payment in Lieu of Dividend (PIL) е изключено чрез --no-net-pil.")
+            notes.append("Отрицателният PIL не е включен в декларацията.")
+    if summary.pil_positive_rows > 0:
+        notes.append("Положителният Payment in Lieu of Dividend (PIL) е деклариран в Приложение 6, код 606.")
+        notes.append(
+            "Причина: точният произход на положителния PIL не може надеждно да се определи "
+            "само от IBKR Activity Statement и не се третира като реален дивидент по Приложение 8."
+        )
+    return notes
+
+
+def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
+    if not any(
+        (
+            summary.cfd_trade_rows,
+            summary.cfd_open_position_rows,
+            summary.cfd_financing_rows,
+            summary.pil_positive_rows,
+            summary.pil_negative_rows,
+        )
+    ):
+        return []
+    return [
+        "- CFD trades policy: Appendix 5 / Table 2 / code 508",
+        "- CFD holdings policy: excluded_from_appendix_8",
+        "- CFD SPB-8 policy: excluded_from_spb8",
+        (
+            "- CFD financing policy: "
+            f"{'netted_to_appendix_5' if summary.net_cfd_financing else 'conservative_no_netting'}"
+        ),
+        (
+            "- PIL policy: "
+            f"{'negative_pil_netted_to_appendix_5' if summary.net_pil else 'negative_pil_skipped'}"
+        ),
+        "- Positive PIL policy: appendix_6_code_606",
+        f"- CFD trade rows count: {summary.cfd_trade_rows}",
+        f"- CFD open position rows excluded from Appendix 8/SPB-8: {summary.cfd_open_position_rows}",
+        f"- CFD financing rows count: {summary.cfd_financing_rows}",
+        f"- CFD financing positive EUR total: {_fmt(summary.cfd_financing_positive_eur)}",
+        f"- CFD financing negative EUR total: {_fmt(summary.cfd_financing_negative_eur)}",
+        f"- CFD financing negative skipped EUR total: {_fmt(summary.cfd_financing_negative_skipped_eur)}",
+        f"- PIL rows count: {summary.pil_positive_rows + summary.pil_negative_rows}",
+        f"- Positive PIL EUR total: {_fmt(summary.pil_positive_eur)}",
+        f"- Negative PIL EUR total: {_fmt(summary.pil_negative_eur)}",
+    ]
+
+
+def _append_cfd_pil_notes_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+    notes = cfd_pil_policy_notes(summary)
+    if not notes:
+        return
+    lines.append("CFD и PIL")
+    lines.extend(f"- {note}" for note in notes)
+    lines.append("")
+
+
 def _tax_exempt_mode_description(tax_exempt_mode: str) -> str:
     if tax_exempt_mode == TAX_MODE_LISTED_SYMBOL:
         return (
@@ -615,6 +736,7 @@ def _append_proof_section(
             "- unsupported Trades rows skipped: "
             f"{summary.unsupported_trade_asset_category_rows}"
         )
+    lines.extend(cfd_pil_policy_audit_lines(summary))
     if summary.report_date_format_label:
         lines.append(f"- IBKR report date format: {summary.report_date_format_label}")
     if summary.report_date_format_reason:
@@ -662,6 +784,7 @@ def _build_declaration_text(
     _append_configuration_section(lines, summary=summary)
     _append_manual_check_section(lines, summary=summary)
     _append_forex_section(lines, summary=summary, money_context=money_context)
+    _append_cfd_pil_notes_section(lines, summary=summary)
     _append_appendix5_section(lines, summary=summary, money_context=money_context)
     _append_appendix13_section(lines, summary=summary, money_context=money_context)
     _append_appendix6_section(lines, summary=summary, money_context=money_context)
