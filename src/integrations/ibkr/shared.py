@@ -275,6 +275,10 @@ def _normalize_review_status(raw: str) -> str:
     normalized = re.sub(r"\s+", "-", normalized)
     if normalized == "NONTAXABLE":
         return REVIEW_STATUS_NON_TAXABLE
+    if normalized == "TAXABLEFROMHERE":
+        return "TAXABLE-FROM-HERE"
+    if normalized == "NONTAXABLEFROMHERE":
+        return "NON-TAXABLE-FROM-HERE"
     return normalized
 
 

@@ -9,6 +9,52 @@ _run = h._run
 TECHNICAL_DETAILS_SEPARATOR = "------------------------------ Technical Details ------------------------------"
 
 
+def _rows_with_forex_review_statuses(statuses: list[str]) -> list[list[str]]:
+    rows = [
+        ["Statement", "Header", "Field", "Value"],
+        ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch"],
+        ["Financial Instrument Information", "Data", "Stocks", "BMW", "IBIS2"],
+        [
+            "Trades",
+            "Header",
+            "Asset Category",
+            "Currency",
+            "Symbol",
+            "Date/Time",
+            "Exchange",
+            "Code",
+            "Proceeds",
+            "DataDiscriminator",
+            "Basis",
+            "Review Status",
+        ],
+    ]
+    for index, status in enumerate(statuses, start=1):
+        rows.append(
+            [
+                "Trades",
+                "Data",
+                "Forex",
+                "USD",
+                "EUR.USD",
+                f"2025-03-{index:02d}, 10:00:00",
+                "IDEALPRO",
+                "C",
+                "10",
+                "Trade",
+                "",
+                status,
+            ]
+        )
+    rows.extend(
+        [
+            ["Trades", "Data", "Stocks", "USD", "BMW", "2025-04-01, 10:00:00", "IBIS2", "C", "100", "Trade", "", ""],
+            ["Trades", "Data", "Stocks", "USD", "BMW", "2024-12-01", "IBIS2", "", "0", "ClosedLot", "20", ""],
+        ]
+    )
+    return rows
+
+
 def test_known_non_regulated_execution_is_routed_to_appendix_5(tmp_path: Path) -> None:
     rows = _base_rows()
     rows[7][6] = "EUIBSI"  # non-regulated
@@ -155,6 +201,77 @@ def test_forex_taxable_review_status_requires_manual_check(tmp_path: Path) -> No
     assert result.summary.review_required_rows == 1
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" in text
+
+
+def test_forex_taxable_from_here_applies_to_current_and_following_blank_rows(tmp_path: Path) -> None:
+    rows = _rows_with_forex_review_statuses(["TAXABLE-FROM-HERE", ""])
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.forex_ignored_rows == 2
+    assert result.summary.forex_non_taxable_ignored_rows == 0
+    assert result.summary.forex_review_required_rows == 2
+    assert result.summary.review_required_rows == 2
+    assert result.summary.review_status_overrides_rows == 1
+
+
+def test_forex_non_taxable_from_here_applies_to_current_and_following_blank_rows(tmp_path: Path) -> None:
+    rows = _rows_with_forex_review_statuses(["NON-TAXABLE-FROM-HERE", ""])
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.forex_ignored_rows == 2
+    assert result.summary.forex_non_taxable_ignored_rows == 2
+    assert result.summary.forex_review_required_rows == 0
+    assert result.summary.review_required_rows == 0
+    assert result.summary.review_status_overrides_rows == 1
+
+
+def test_forex_explicit_status_overrides_inherited_status_for_one_row_only(tmp_path: Path) -> None:
+    rows = _rows_with_forex_review_statuses(["NON-TAXABLE-FROM-HERE", "", "TAXABLE", ""])
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.forex_ignored_rows == 4
+    assert result.summary.forex_non_taxable_ignored_rows == 3
+    assert result.summary.forex_review_required_rows == 1
+    assert result.summary.review_required_rows == 1
+    assert result.summary.review_status_overrides_rows == 2
+
+
+def test_forex_later_from_here_directive_changes_inherited_status(tmp_path: Path) -> None:
+    rows = _rows_with_forex_review_statuses(["TAXABLE-FROM-HERE", "", "NON-TAXABLE-FROM-HERE", ""])
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.forex_ignored_rows == 4
+    assert result.summary.forex_non_taxable_ignored_rows == 2
+    assert result.summary.forex_review_required_rows == 2
+    assert result.summary.review_required_rows == 2
+    assert result.summary.review_status_overrides_rows == 2
+
+
+def test_forex_missing_status_before_from_here_still_requires_review(tmp_path: Path) -> None:
+    rows = _rows_with_forex_review_statuses(["", "NON-TAXABLE-FROM-HERE", ""])
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.forex_ignored_rows == 3
+    assert result.summary.forex_non_taxable_ignored_rows == 2
+    assert result.summary.forex_review_required_rows == 1
+    assert result.summary.review_required_rows == 1
+
+
+def test_forex_inherited_status_does_not_affect_non_forex_rows(tmp_path: Path) -> None:
+    rows = _rows_with_forex_review_statuses(["NON-TAXABLE-FROM-HERE", ""])
+    rows[-2][6] = "EUIBSI"
+
+    result = _run(tmp_path, rows, mode="execution_exchange")
+
+    assert result.summary.forex_non_taxable_ignored_rows == 2
+    assert result.summary.forex_review_required_rows == 0
+    assert result.summary.appendix_5.rows == 1
+    assert result.summary.appendix_13.rows == 0
 
 
 def test_manual_check_section_is_omitted_when_not_required(tmp_path: Path) -> None:

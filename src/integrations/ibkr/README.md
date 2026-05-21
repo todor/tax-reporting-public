@@ -808,8 +808,30 @@ Forex trades are excluded from Appendix 5/13 calculations in this implementation
 
 - no hard failure on Forex rows
 - explicit warnings in declaration output when Forex rows require manual check
-- if `Review Status=NON-TAXABLE` on a Forex Trade row, the row is ignored without manual-check requirement
-- if Forex `Review Status` is `TAXABLE`, empty, or unknown, manual check is required (taxable Forex is not supported in this version)
+- `Review Status=TAXABLE` and `Review Status=NON-TAXABLE` apply only to the current Forex Trade row
+- `Review Status=NON-TAXABLE` on a Forex Trade row means the row is ignored without manual-check requirement
+- `Review Status=TAXABLE` means the row requires manual review because taxable Forex is not supported in this version
+- `Review Status=TAXABLE-FROM-HERE` applies `TAXABLE` to the current Forex Trade row and to subsequent Forex Trade rows with empty `Review Status`
+- `Review Status=NON-TAXABLE-FROM-HERE` applies `NON-TAXABLE` to the current Forex Trade row and to subsequent Forex Trade rows with empty `Review Status`
+- a later explicit `TAXABLE` or `NON-TAXABLE` overrides the inherited Forex status only for that row
+- a later `TAXABLE-FROM-HERE` or `NON-TAXABLE-FROM-HERE` changes the inherited Forex status from that row onward
+- inherited Forex status is Forex-only and does not affect stocks, CFDs, dividends, interest, withholding tax, or other sections
+- if a Forex Trade row has empty `Review Status` before any `*-FROM-HERE` directive, manual check is required
+
+Short CSV-style example:
+
+```csv
+Trades,Header,Asset Category,Currency,Symbol,Date/Time,Exchange,Code,Proceeds,DataDiscriminator,Basis,Review Status
+Trades,Data,Forex,USD,EUR.USD,2025-03-01 10:00:00,IDEALPRO,C,10,Trade,,NON-TAXABLE-FROM-HERE
+Trades,Data,Forex,USD,EUR.USD,2025-03-02 10:00:00,IDEALPRO,C,11,Trade,,
+Trades,Data,Forex,USD,EUR.USD,2025-03-03 10:00:00,IDEALPRO,C,12,Trade,,TAXABLE
+Trades,Data,Forex,USD,EUR.USD,2025-03-04 10:00:00,IDEALPRO,C,13,Trade,,
+Trades,Data,Forex,USD,EUR.USD,2025-03-05 10:00:00,IDEALPRO,C,14,Trade,,TAXABLE-FROM-HERE
+Trades,Data,Forex,USD,EUR.USD,2025-03-06 10:00:00,IDEALPRO,C,15,Trade,,
+```
+
+In this example, March 1, 2, and 4 are treated as `NON-TAXABLE`; March 3 is
+explicitly `TAXABLE` for that row only; March 5 and 6 are `TAXABLE`.
 
 ## Errors (Fail Loudly)
 

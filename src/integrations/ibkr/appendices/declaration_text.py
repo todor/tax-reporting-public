@@ -550,7 +550,9 @@ def _append_forex_section(
     lines.append("Forex операции")
     lines.append("- Forex сделки (конвертиране на валута или търговия) не се включват автоматично в Приложение 5/13 в тази версия.")
     lines.append("- Forex редове с Review Status=NON-TAXABLE се третират като нетаксируеми.")
+    lines.append("- Forex редове с Review Status=NON-TAXABLE-FROM-HERE прилагат NON-TAXABLE за текущия и следващите празни Forex редове.")
     lines.append("- Forex редове с Review Status=TAXABLE, празен или непознат статус изискват ръчен преглед.")
+    lines.append("- Forex редове с Review Status=TAXABLE-FROM-HERE прилагат TAXABLE за текущия и следващите празни Forex редове.")
     lines.append("")
 
 

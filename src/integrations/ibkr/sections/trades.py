@@ -17,7 +17,9 @@ from ..constants import (
     EXCHANGE_CLASS_EU_REGULATED,
     EXCHANGE_CLASS_UNMAPPED,
     REVIEW_STATUS_NON_TAXABLE,
+    REVIEW_STATUS_NON_TAXABLE_FROM_HERE,
     REVIEW_STATUS_TAXABLE,
+    REVIEW_STATUS_TAXABLE_FROM_HERE,
     TAX_MODE_EXECUTION_EXCHANGE,
     TAX_MODE_LISTED_SYMBOL,
     ZERO,
@@ -364,16 +366,30 @@ def _apply_forex_review_status(
     symbol: str,
     execution_exchange_norm: str,
     review_status_normalized: str,
+    inherited_review_status: str | None,
+    inherited_status_applied: bool,
+    from_here_directive: str | None,
 ) -> tuple[str, bool, str]:
     reason = "Forex ignored (not included in Appendix 5/13)"
     review_required = False
     review_notes_parts: list[str] = []
+    if from_here_directive is not None:
+        summary.review_status_overrides_rows += 1
+        review_notes_parts.append(f"Review Status inheritance set to {from_here_directive}")
+    elif inherited_status_applied:
+        review_notes_parts.append(f"Inherited Forex Review Status applied: {inherited_review_status}")
 
     if review_status_normalized == REVIEW_STATUS_NON_TAXABLE:
-        summary.review_status_overrides_rows += 1
+        if not inherited_status_applied and from_here_directive is None:
+            summary.review_status_overrides_rows += 1
         summary.forex_non_taxable_ignored_rows += 1
-        reason = "Forex ignored: Review Status override NON-TAXABLE"
-        review_notes_parts.append("Review Status override applied")
+        reason = (
+            "Forex ignored: inherited Review Status NON-TAXABLE"
+            if inherited_status_applied
+            else "Forex ignored: Review Status override NON-TAXABLE"
+        )
+        if not inherited_status_applied:
+            review_notes_parts.append("Review Status override applied")
         return reason, review_required, "; ".join(review_notes_parts)
 
     summary.forex_review_required_rows += 1
@@ -381,9 +397,15 @@ def _apply_forex_review_status(
     review_required = True
 
     if review_status_normalized == REVIEW_STATUS_TAXABLE:
-        summary.review_status_overrides_rows += 1
-        reason = "Forex ignored: Review Status override TAXABLE (taxable forex not supported)"
-        review_notes_parts.append("Review Status override applied")
+        if not inherited_status_applied and from_here_directive is None:
+            summary.review_status_overrides_rows += 1
+        reason = (
+            "Forex ignored: inherited Review Status TAXABLE (taxable forex not supported)"
+            if inherited_status_applied
+            else "Forex ignored: Review Status override TAXABLE (taxable forex not supported)"
+        )
+        if not inherited_status_applied:
+            review_notes_parts.append("Review Status override applied")
     elif review_status_normalized == "":
         reason = "Forex ignored: missing Review Status (taxable forex not supported)"
     else:
@@ -402,6 +424,22 @@ def _apply_forex_review_status(
     summary.warnings.append(warning)
     logger.debug("%s", warning)
     return reason, review_required, "; ".join(review_notes_parts)
+
+
+def _effective_forex_review_status(
+    *,
+    review_status_normalized: str,
+    inherited_review_status: str | None,
+) -> tuple[str, str | None, bool, str | None]:
+    if review_status_normalized == REVIEW_STATUS_TAXABLE_FROM_HERE:
+        return REVIEW_STATUS_TAXABLE, REVIEW_STATUS_TAXABLE, False, REVIEW_STATUS_TAXABLE
+    if review_status_normalized == REVIEW_STATUS_NON_TAXABLE_FROM_HERE:
+        return REVIEW_STATUS_NON_TAXABLE, REVIEW_STATUS_NON_TAXABLE, False, REVIEW_STATUS_NON_TAXABLE
+    if review_status_normalized in {REVIEW_STATUS_TAXABLE, REVIEW_STATUS_NON_TAXABLE}:
+        return review_status_normalized, inherited_review_status, False, None
+    if review_status_normalized == "" and inherited_review_status is not None:
+        return inherited_review_status, inherited_review_status, True, None
+    return review_status_normalized, inherited_review_status, False, None
 
 
 def _set_non_closing_trade_extras(
@@ -764,6 +802,7 @@ def process_trades_section(
     row_base_len: dict[int, int] = {}
     consumed_closedlots: set[int] = set()
     current_trades_header: _ActiveHeader | None = None
+    inherited_forex_review_status: str | None = None
     seen_trades_header = False
     found_trade_section_data = False
     for row_idx, row in enumerate(rows):
@@ -855,12 +894,24 @@ def process_trades_section(
                 else ""
             )
             review_status_normalized = _normalize_review_status(review_status_raw)
+            (
+                effective_review_status,
+                inherited_forex_review_status,
+                inherited_status_applied,
+                from_here_directive,
+            ) = _effective_forex_review_status(
+                review_status_normalized=review_status_normalized,
+                inherited_review_status=inherited_forex_review_status,
+            )
             reason, review_required, review_notes = _apply_forex_review_status(
                 summary,
                 row_number=ctx.row_number,
                 symbol=ctx.symbol,
                 execution_exchange_norm=ctx.execution_exchange_norm,
-                review_status_normalized=review_status_normalized,
+                review_status_normalized=effective_review_status,
+                inherited_review_status=inherited_forex_review_status,
+                inherited_status_applied=inherited_status_applied,
+                from_here_directive=from_here_directive,
             )
             for closed_idx in closedlot_indices:
                 consumed_closedlots.add(closed_idx)
