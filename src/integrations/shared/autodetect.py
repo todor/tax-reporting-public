@@ -9,6 +9,7 @@ from .contracts import AnalyzerDefinition
 from .registry import AnalyzerRegistry, AnalyzerRegistryError
 
 _TOKEN_SPLIT_RE = re.compile(r"[^A-Za-z0-9]+")
+_STATE_SIDECAR_SUFFIX = ".state.json"
 
 
 class InputDetectionError(Exception):
@@ -46,6 +47,10 @@ def _matches_definition(*, definition: AnalyzerDefinition, path: Path, tokens: s
     return False
 
 
+def _is_opening_state_sidecar(path: Path) -> bool:
+    return path.name.lower().endswith(_STATE_SIDECAR_SUFFIX)
+
+
 def detect_analyzer_inputs(
     *,
     input_dir: Path,
@@ -66,6 +71,19 @@ def detect_analyzer_inputs(
         if not path.is_file():
             ignored_items.append(
                 DetectionItem(path=path, analyzer_alias=None, reason="not a regular file")
+            )
+            continue
+
+        if _is_opening_state_sidecar(path):
+            ignored_items.append(
+                DetectionItem(
+                    path=path,
+                    analyzer_alias=None,
+                    reason=(
+                        "state sidecar files (*.state.json) are not analyzed as input reports; "
+                        "they are used only as opening state for matching stateful analyzer inputs"
+                    ),
+                )
             )
             continue
 

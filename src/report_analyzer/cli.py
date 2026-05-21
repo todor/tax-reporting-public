@@ -4,7 +4,7 @@ import argparse
 import fnmatch
 import logging
 import shutil
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -46,6 +46,20 @@ from integrations.shared.spb8 import (
 from report_analyzer.registry import list_analyzers
 
 logger = logging.getLogger(__name__)
+_STATE_SIDECAR_SUFFIX = ".state.json"
+
+
+@dataclass(frozen=True, slots=True)
+class _StatefulInput:
+    alias: str
+    path: Path
+
+
+@dataclass(frozen=True, slots=True)
+class _OpeningStateResolution:
+    state_path: Path | None
+    source: str
+    sidecar_path: Path | None = None
 
 
 def _configure_logging(log_level: str) -> None:
@@ -97,6 +111,30 @@ def _add_spb8_arguments(parser: argparse.ArgumentParser) -> None:
         "--spb8-exclude-crypto",
         action="store_true",
         help="Exclude crypto platforms from SPB-8 rows",
+    )
+
+
+def _add_opening_state_argument(parser: argparse.ArgumentParser, *, aggregate: bool) -> None:
+    if aggregate:
+        parser.add_argument(
+            "--opening-state-json",
+            action="append",
+            default=[],
+            metavar="VALUE",
+            help=(
+                "Opening state JSON for stateful analyzers. In aggregate mode repeat as "
+                "input-file=state.json, alias:input-file=state.json, or pass one simple "
+                "state path only when exactly one stateful input is detected."
+            ),
+        )
+        return
+    parser.add_argument(
+        "--opening-state-json",
+        type=str,
+        help=(
+            "Optional opening state JSON. If omitted, the input is treated as "
+            "since-inception/full-history."
+        ),
     )
 
 
@@ -167,6 +205,234 @@ def _detect_spb8_input_file(input_dir: Path, *, include_pattern: str | None) -> 
         f"{formatted}\n"
         "Pass --spb8-input-file explicitly to choose which file to use."
     )
+
+
+def _is_opening_state_sidecar(path: Path) -> bool:
+    return path.name.lower().endswith(_STATE_SIDECAR_SUFFIX)
+
+
+def _state_path(raw_value: str) -> Path:
+    value = raw_value.strip()
+    if value == "":
+        raise InputDetectionError("empty --opening-state-json value")
+    path = Path(value).expanduser().resolve()
+    if not path.exists():
+        raise InputDetectionError(f"--opening-state-json file does not exist: {path}")
+    if not path.is_file():
+        raise InputDetectionError(f"--opening-state-json is not a file: {path}")
+    return path
+
+
+def _stateful_inputs(
+    detected: dict[str, list[Path]],
+    *,
+    registry,
+) -> list[_StatefulInput]:
+    stateful: list[_StatefulInput] = []
+    for alias in sorted(detected):
+        definition = registry.resolve(alias)
+        if not definition.supports_opening_state:
+            continue
+        for path in detected[alias]:
+            stateful.append(_StatefulInput(alias=alias, path=path.expanduser().resolve()))
+    return stateful
+
+
+def _opening_state_sidecars(input_dir: Path) -> list[Path]:
+    return sorted(
+        path.expanduser().resolve()
+        for path in input_dir.iterdir()
+        if path.is_file() and _is_opening_state_sidecar(path)
+    )
+
+
+def _resolve_alias_prefix(raw_selector: str, stateful_aliases: set[str], *, registry) -> tuple[str | None, str]:
+    if ":" not in raw_selector:
+        return None, raw_selector
+    maybe_alias, selector = raw_selector.split(":", 1)
+    try:
+        alias = registry.resolve(maybe_alias.strip()).alias
+    except AnalyzerRegistryError:
+        return None, raw_selector
+    if alias not in stateful_aliases:
+        return None, raw_selector
+    if selector.strip() == "":
+        raise InputDetectionError(f"invalid --opening-state-json mapping {raw_selector!r}; missing input selector")
+    return alias, selector
+
+
+def _matches_state_selector(
+    item: _StatefulInput,
+    selector: str,
+    *,
+    input_dir: Path,
+) -> bool:
+    needle = selector.strip()
+    if needle == "":
+        return False
+    path = item.path.expanduser().resolve()
+    if needle == path.name:
+        return True
+    try:
+        relative = path.relative_to(input_dir)
+    except ValueError:
+        relative = None
+    if relative is not None and needle in {str(relative), relative.as_posix()}:
+        return True
+    if needle in {str(path), path.as_posix()}:
+        return True
+    candidate = Path(needle).expanduser()
+    return candidate.is_absolute() and candidate.resolve() == path
+
+
+def _resolve_opening_states(
+    *,
+    args: argparse.Namespace,
+    input_dir: Path,
+    detected: dict[str, list[Path]],
+    registry,
+) -> tuple[dict[Path, _OpeningStateResolution], list[Path]]:
+    stateful = _stateful_inputs(detected, registry=registry)
+    sidecars = _opening_state_sidecars(input_dir)
+    expected_sidecars: dict[Path, Path] = {}
+    sidecar_to_input: dict[Path, Path] = {}
+    for item in stateful:
+        sidecar = item.path.with_suffix(_STATE_SIDECAR_SUFFIX).expanduser().resolve()
+        if sidecar.exists() and sidecar.is_file():
+            expected_sidecars[item.path] = sidecar
+            sidecar_to_input[sidecar] = item.path
+
+    resolutions: dict[Path, _OpeningStateResolution] = {
+        item.path: _OpeningStateResolution(
+            state_path=expected_sidecars.get(item.path),
+            source="auto" if item.path in expected_sidecars else "none",
+            sidecar_path=expected_sidecars.get(item.path),
+        )
+        for item in stateful
+    }
+    unmatched_sidecars = [path for path in sidecars if path not in sidecar_to_input]
+    raw_values = list(getattr(args, "opening_state_json", []) or [])
+    if not raw_values:
+        return resolutions, unmatched_sidecars
+
+    simple_values = [value for value in raw_values if "=" not in value]
+    mapped_values = [value for value in raw_values if "=" in value]
+    if simple_values and mapped_values:
+        raise InputDetectionError(
+            "Do not combine simple and mapped --opening-state-json values. "
+            "Use per-input mappings when more than one state value is needed."
+        )
+    if len(simple_values) > 1:
+        raise InputDetectionError(
+            "Only one simple --opening-state-json value is allowed. "
+            "Use per-input mappings for multiple state files."
+        )
+    if simple_values:
+        if len(stateful) == 0:
+            raise InputDetectionError("--opening-state-json was provided but no stateful analyzer inputs were detected")
+        if len(stateful) > 1:
+            names = "\n".join(f"- {item.alias}: {format_path(item.path)}" for item in stateful)
+            raise InputDetectionError(
+                "A simple --opening-state-json path is valid only when exactly one stateful input is detected.\n"
+                f"Detected stateful inputs:\n{names}\n"
+                "Use --opening-state-json input-file=state.json mappings instead."
+            )
+        item = stateful[0]
+        resolutions[item.path] = _OpeningStateResolution(
+            state_path=_state_path(simple_values[0]),
+            source="cli",
+            sidecar_path=expected_sidecars.get(item.path),
+        )
+        return resolutions, unmatched_sidecars
+
+    stateful_aliases = {item.alias for item in stateful}
+    assigned: set[Path] = set()
+    for raw in mapped_values:
+        selector_raw, state_raw = raw.split("=", 1)
+        selector_raw = selector_raw.strip()
+        if selector_raw == "":
+            raise InputDetectionError(f"invalid --opening-state-json mapping {raw!r}; missing input selector")
+        alias_filter, selector = _resolve_alias_prefix(selector_raw, stateful_aliases, registry=registry)
+        candidates = [item for item in stateful if alias_filter is None or item.alias == alias_filter]
+        matches = [
+            item
+            for item in candidates
+            if _matches_state_selector(item, selector, input_dir=input_dir)
+        ]
+        if not matches:
+            raise InputDetectionError(
+                f"--opening-state-json mapping {selector_raw!r} did not match any detected stateful input"
+            )
+        if len(matches) > 1:
+            formatted = "\n".join(f"- {item.alias}: {format_path(item.path)}" for item in matches)
+            raise InputDetectionError(
+                f"--opening-state-json mapping {selector_raw!r} matched multiple inputs:\n"
+                f"{formatted}\n"
+                "Use a more specific relative/absolute path or an alias-qualified mapping."
+            )
+        target = matches[0].path
+        if target in assigned:
+            raise InputDetectionError(
+                f"multiple --opening-state-json mappings target the same input: {format_path(target)}"
+            )
+        assigned.add(target)
+        resolutions[target] = _OpeningStateResolution(
+            state_path=_state_path(state_raw),
+            source="cli",
+            sidecar_path=expected_sidecars.get(target),
+        )
+    return resolutions, unmatched_sidecars
+
+
+def _opening_state_description(resolution: _OpeningStateResolution) -> str:
+    if resolution.state_path is None:
+        return "none (since inception)"
+    if resolution.source == "cli" and resolution.sidecar_path is not None:
+        return (
+            f"{format_path(resolution.state_path)} "
+            f"(CLI override; sidecar {format_path(resolution.sidecar_path)} ignored)"
+        )
+    if resolution.source == "cli":
+        return f"{format_path(resolution.state_path)} (CLI override)"
+    return f"{format_path(resolution.state_path)} (auto-detected sidecar)"
+
+
+def _opening_state_diagnostics_lines(
+    *,
+    detected: dict[str, list[Path]],
+    registry,
+    resolutions: dict[Path, _OpeningStateResolution],
+    unmatched_sidecars: list[Path],
+) -> list[str]:
+    stateful = _stateful_inputs(detected, registry=registry)
+    if not stateful and not unmatched_sidecars:
+        return []
+    lines = ["- opening_state_resolution:"]
+    for item in stateful:
+        resolution = resolutions.get(
+            item.path,
+            _OpeningStateResolution(state_path=None, source="none"),
+        )
+        lines.append(
+            f"  - {format_path(item.path)} -> {item.alias}: "
+            f"Opening state: {_opening_state_description(resolution)}"
+        )
+    for path in unmatched_sidecars:
+        lines.append(
+            f"  - {format_path(path)}: unmatched state sidecar ignored; "
+            "no detected stateful input has the same basename"
+        )
+    return lines
+
+
+def _opening_state_diagnostics_line(
+    *,
+    input_path: Path,
+    resolution: _OpeningStateResolution | None,
+) -> str:
+    if resolution is None:
+        resolution = _OpeningStateResolution(state_path=None, source="none")
+    return f"- opening_state: {_opening_state_description(resolution)}"
 
 
 def _write_spb8_template(*, output_dir: Path, rows: list[SPB8Row]) -> Path:
@@ -404,6 +670,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Analyzer input override in the form alias=path (repeatable)",
     )
+    _add_opening_state_argument(parser, aggregate=True)
     parser.add_argument("--tax-year", type=int, help="Tax year")
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR, help="Output directory")
     parser.add_argument("--cache-dir", type=Path, help="Optional shared FX cache dir override")
@@ -461,6 +728,8 @@ def build_parser() -> argparse.ArgumentParser:
         )
         alias_parser.add_argument("--clean-output", action="store_true", help="Delete output-dir before processing")
         _add_spb8_arguments(alias_parser)
+        if definition.supports_opening_state:
+            _add_opening_state_argument(alias_parser, aggregate=False)
         definition.add_arguments(alias_parser, "single")
 
     return parser
@@ -479,6 +748,18 @@ def _run_single_mode(args: argparse.Namespace) -> int:
     options = definition.build_options(args, "single", {})
     options["display_currency"] = str(args.display_currency)
     options["cache_dir"] = str(args.cache_dir) if args.cache_dir is not None else options.get("cache_dir")
+    opening_state_resolution = None
+    if definition.supports_opening_state:
+        state_value = getattr(args, "opening_state_json", None)
+        opening_state_resolution = _OpeningStateResolution(
+            state_path=_state_path(state_value) if state_value else None,
+            source="cli" if state_value else "none",
+        )
+        options["opening_state_json"] = (
+            str(opening_state_resolution.state_path)
+            if opening_state_resolution.state_path is not None
+            else None
+        )
     context = AnalyzerRunContext(
         input_path=args.input.expanduser().resolve(),
         tax_year=args.tax_year,
@@ -503,6 +784,11 @@ def _run_single_mode(args: argparse.Namespace) -> int:
             diagnostics_extra_lines=[
                 f"- input_path: {format_path(context.input_path)}",
                 f"- output_dir: {format_path(output_dir)}",
+                *(
+                    [_opening_state_diagnostics_line(input_path=context.input_path, resolution=opening_state_resolution)]
+                    if definition.supports_opening_state
+                    else []
+                ),
             ],
             exception=exc,
         )
@@ -538,6 +824,16 @@ def _run_single_mode(args: argparse.Namespace) -> int:
                 diagnostics_extra_lines=[
                     f"- input_path: {format_path(context.input_path)}",
                     f"- spb8_input_file: {format_path(args.spb8_input_file)}",
+                    *(
+                        [
+                            _opening_state_diagnostics_line(
+                                input_path=context.input_path,
+                                resolution=opening_state_resolution,
+                            )
+                        ]
+                        if definition.supports_opening_state
+                        else []
+                    ),
                 ],
                 exception=exc,
             )
@@ -585,6 +881,11 @@ def _run_single_mode(args: argparse.Namespace) -> int:
             diagnostics_extra_lines=[
                 f"- input_path: {format_path(context.input_path)}",
                 f"- output_dir: {format_path(output_dir)}",
+                *(
+                    [_opening_state_diagnostics_line(input_path=context.input_path, resolution=opening_state_resolution)]
+                    if definition.supports_opening_state
+                    else []
+                ),
             ],
         )
         result.output_paths["diagnostics_txt"] = diagnostics_path
@@ -689,6 +990,19 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
                 )
             )
 
+    opening_state_resolutions, unmatched_state_sidecars = _resolve_opening_states(
+        args=args,
+        input_dir=input_dir,
+        detected=detected,
+        registry=registry,
+    )
+    opening_state_diagnostics_lines = _opening_state_diagnostics_lines(
+        detected=detected,
+        registry=registry,
+        resolutions=opening_state_resolutions,
+        unmatched_sidecars=unmatched_state_sidecars,
+    )
+
     detected_input_items_for_report = [
         (item.path, item.analyzer_alias or "unknown", item.reason) for item in detected_items
     ]
@@ -735,6 +1049,7 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
             diagnostics_extra_lines=[
                 f"- output_dir: {format_path(output_dir)}",
                 f"- spb8_input_file: {format_path(spb8_input_file)}",
+                *opening_state_diagnostics_lines,
             ],
             exception=exc,
         )
@@ -775,12 +1090,22 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
             ]
         for _index, input_path, analyzer_output_dir in run_targets:
             analyzer_output_dir.mkdir(parents=True, exist_ok=True)
+            run_options = dict(options)
+            if definition.supports_opening_state:
+                resolution = opening_state_resolutions.get(input_path.expanduser().resolve())
+                run_options["opening_state_json"] = (
+                    str(resolution.state_path)
+                    if resolution is not None and resolution.state_path is not None
+                    else None
+                )
+            else:
+                resolution = None
             context = AnalyzerRunContext(
                 input_path=input_path,
                 tax_year=args.tax_year,
                 output_dir=analyzer_output_dir,
                 log_level=args.log_level,
-                options=options,
+                options=run_options,
             )
             try:
                 result = definition.run(context)
@@ -826,6 +1151,11 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
                         diagnostics_extra_lines=[
                             f"- input_path: {format_path(context.input_path)}",
                             f"- output_dir: {format_path(analyzer_output_dir)}",
+                            *(
+                                [_opening_state_diagnostics_line(input_path=context.input_path, resolution=resolution)]
+                                if definition.supports_opening_state
+                                else []
+                            ),
                         ],
                     )
                     result.output_paths["diagnostics_txt"] = diagnostics_path
@@ -898,6 +1228,7 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
             f"- output_dir: {format_path(output_dir)}",
             f"- detected_inputs_count: {sum(len(paths) for paths in detected.values())}",
             f"- ignored_inputs_count: {len(ignored_items)}",
+            *opening_state_diagnostics_lines,
         ],
     )
     print_operational_summary(

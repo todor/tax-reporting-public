@@ -108,3 +108,4 @@ class AnalyzerDefinition:
     add_arguments: Callable[[argparse.ArgumentParser, CliMode], None]
     build_options: Callable[[argparse.Namespace, CliMode, dict[str, Any]], dict[str, Any]]
     run: Callable[[AnalyzerRunContext], TaxAnalysisResult]
+    supports_opening_state: bool = False

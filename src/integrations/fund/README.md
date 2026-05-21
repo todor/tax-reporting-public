@@ -79,6 +79,12 @@ When `--opening-state-json` is provided:
 
 Without opening state, integrations process full input history and still include only tax-year rows in declaration totals.
 
+In aggregate mode, opening state is resolved by the shared generic `--opening-state-json` option.
+Use a simple state path only when exactly one stateful input is detected, use
+`input.csv=state.json` mappings for multiple inputs, or place a sidecar named
+`<input-stem>.state.json` next to the input file. `.state.json` files are not
+analyzed as report inputs.
+
 ## Manual checks and warnings
 
 - Unknown provider row types are surfaced as warnings and excluded.

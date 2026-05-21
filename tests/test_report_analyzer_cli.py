@@ -60,6 +60,7 @@ def _make_fake_definition(
     spb8_rows: list[SPB8Row] | None = None,
     spb8_notes: list[str] | None = None,
     aggregate_mode_option_name: str | None = None,
+    supports_opening_state: bool = False,
 ) -> AnalyzerDefinition:
     def add_arguments(parser, mode: CliMode):  # noqa: ANN001
         if mode == "single":
@@ -70,7 +71,10 @@ def _make_fake_definition(
 
     def build_options(args, mode: CliMode, group_options):  # noqa: ANN001
         if mode == "single":
-            return {"mode": args.mode}
+            options = {"mode": args.mode}
+            if hasattr(args, "opening_state_json"):
+                options["opening_state_json"] = args.opening_state_json
+            return options
         if not aggregate_mode_option_name:
             return {"mode": "aggregate_default"}
         raw = getattr(args, aggregate_mode_option_name.replace("-", "_"))
@@ -105,6 +109,7 @@ def _make_fake_definition(
         add_arguments=add_arguments,
         build_options=build_options,
         run=run,
+        supports_opening_state=supports_opening_state,
     )
 
 
@@ -152,6 +157,99 @@ def test_single_analyzer_mode_runs_selected_analyzer(
     assert "Диагностика" in declaration
     assert TECHNICAL_DETAILS_SEPARATOR not in declaration
     assert "Technical Details" in diagnostics
+
+
+def test_single_stateful_analyzer_uses_generic_opening_state_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    fake = _make_fake_definition(
+        alias="kraken",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        supports_opening_state=True,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+    input_file = tmp_path / "kraken.csv"
+    state_file = tmp_path / "kraken.state.json"
+    input_file.write_text("x\n", encoding="utf-8")
+    state_file.write_text("{}\n", encoding="utf-8")
+
+    code = report_analyzer.main(
+        [
+            "kraken",
+            "--input",
+            str(input_file),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--opening-state-json",
+            str(state_file),
+        ]
+    )
+
+    assert code == 0
+    assert len(run_capture.contexts) == 1
+    assert run_capture.contexts[0].options["opening_state_json"] == str(state_file.resolve())
+    diagnostics = (tmp_path / "out" / "kraken_declaration.diagnostics.txt").read_text(encoding="utf-8")
+    assert f"opening_state: {state_file.resolve()} (CLI override)" in diagnostics
+
+
+def test_single_stateful_analyzer_without_opening_state_is_since_inception(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    fake = _make_fake_definition(
+        alias="kraken",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        supports_opening_state=True,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+    input_file = tmp_path / "kraken.csv"
+    input_file.write_text("x\n", encoding="utf-8")
+
+    code = report_analyzer.main(
+        [
+            "kraken",
+            "--input",
+            str(input_file),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    assert code == 0
+    assert run_capture.contexts[0].options["opening_state_json"] is None
+    diagnostics = (tmp_path / "out" / "kraken_declaration.diagnostics.txt").read_text(encoding="utf-8")
+    assert "opening_state: none (since inception)" in diagnostics
+
+
+def test_analyzer_specific_opening_state_flags_are_not_registered(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _make_fake_definition(
+        alias="kraken",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=_RunCapture(contexts=[]),
+        supports_opening_state=True,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+
+    parser = report_analyzer.build_parser()
+    help_text = parser.format_help()
+
+    assert "--opening-state-json" in help_text
+    assert "--kraken-opening-state-json" not in help_text
 
 
 def test_single_analyzer_report_strips_duplicate_legacy_review_blocks(
@@ -757,6 +855,7 @@ def test_auto_detection_uses_alias_tokens_and_include_pattern(tmp_path: Path) ->
     (tmp_path / "Coinbase Report.csv").write_text("x\n", encoding="utf-8")
     (tmp_path / "kraken_ledger.csv").write_text("x\n", encoding="utf-8")
     (tmp_path / "notes.txt").write_text("x\n", encoding="utf-8")
+    (tmp_path / "kraken_ledger.state.json").write_text("{}\n", encoding="utf-8")
 
     detection = detect_analyzer_inputs(
         input_dir=tmp_path,
@@ -768,6 +867,8 @@ def test_auto_detection_uses_alias_tokens_and_include_pattern(tmp_path: Path) ->
     assert [path.name for path in detection.detected["kraken"]] == ["kraken_ledger.csv"]
     ignored = {item.path.name: item.reason for item in detection.ignored_items}
     assert "notes.txt" in ignored
+    assert "kraken_ledger.state.json" in ignored
+    assert "state sidecar files" in ignored["kraken_ledger.state.json"]
 
 
 def test_auto_detection_include_pattern_supports_escaped_literal_brackets(tmp_path: Path) -> None:
@@ -1098,6 +1199,257 @@ def test_aggregate_mode_supports_repeated_override_for_same_alias(
     assert len(run_capture.contexts) == 2
     run_inputs = sorted(context.input_path.name for context in run_capture.contexts)
     assert run_inputs == ["a.csv", "b.csv"]
+
+
+def test_aggregate_single_stateful_input_accepts_simple_opening_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    definition = _make_fake_definition(
+        alias="kraken",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        supports_opening_state=True,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(definition))
+    (tmp_path / "kraken.csv").write_text("x\n", encoding="utf-8")
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{}\n", encoding="utf-8")
+
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--opening-state-json",
+            str(state_file),
+        ]
+    )
+
+    assert code == 0
+    assert len(run_capture.contexts) == 1
+    assert run_capture.contexts[0].options["opening_state_json"] == str(state_file.resolve())
+
+
+def test_aggregate_simple_opening_state_fails_for_multiple_stateful_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    kraken = _make_fake_definition(
+        alias="kraken",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        supports_opening_state=True,
+    )
+    coinbase = _make_fake_definition(
+        alias="coinbase",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        supports_opening_state=True,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(kraken, coinbase))
+    (tmp_path / "kraken.csv").write_text("x\n", encoding="utf-8")
+    (tmp_path / "coinbase.csv").write_text("x\n", encoding="utf-8")
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{}\n", encoding="utf-8")
+
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--opening-state-json",
+            str(state_file),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert code == 2
+    assert "exactly one stateful input" in stdout
+    assert "input-file=state.json" in stdout
+    assert not run_capture.contexts
+
+
+def test_aggregate_mapped_opening_states_apply_per_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    kraken = _make_fake_definition(
+        alias="kraken",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        supports_opening_state=True,
+    )
+    coinbase = _make_fake_definition(
+        alias="coinbase",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        supports_opening_state=True,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(kraken, coinbase))
+    kraken_input = tmp_path / "kraken-main.csv"
+    coinbase_input = tmp_path / "coinbase-main.csv"
+    kraken_state = tmp_path / "kraken-main.state.json"
+    coinbase_state = tmp_path / "coinbase-main.state.json"
+    kraken_input.write_text("x\n", encoding="utf-8")
+    coinbase_input.write_text("x\n", encoding="utf-8")
+    kraken_state.write_text("{}\n", encoding="utf-8")
+    coinbase_state.write_text("{}\n", encoding="utf-8")
+
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--opening-state-json",
+            f"kraken-main.csv={kraken_state}",
+            "--opening-state-json",
+            f"coinbase:coinbase-main.csv={coinbase_state}",
+        ]
+    )
+
+    assert code == 0
+    by_name = {context.input_path.name: context.options["opening_state_json"] for context in run_capture.contexts}
+    assert by_name == {
+        "coinbase-main.csv": str(coinbase_state.resolve()),
+        "kraken-main.csv": str(kraken_state.resolve()),
+    }
+
+
+def test_aggregate_opening_state_sidecars_are_auto_detected_and_not_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    definition = _make_fake_definition(
+        alias="kraken",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        supports_opening_state=True,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(definition))
+    input_file = tmp_path / "kraken-report.csv"
+    sidecar = tmp_path / "kraken-report.state.json"
+    unmatched = tmp_path / "orphan.state.json"
+    input_file.write_text("x\n", encoding="utf-8")
+    sidecar.write_text("{}\n", encoding="utf-8")
+    unmatched.write_text("{}\n", encoding="utf-8")
+
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    assert code == 0
+    assert len(run_capture.contexts) == 1
+    assert run_capture.contexts[0].input_path == input_file.resolve()
+    assert run_capture.contexts[0].options["opening_state_json"] == str(sidecar.resolve())
+    diagnostics = (tmp_path / "out" / "aggregated_tax_report_2025.diagnostics.txt").read_text(encoding="utf-8")
+    assert f"{input_file.resolve()} -> kraken: Opening state: {sidecar.resolve()} (auto-detected sidecar)" in diagnostics
+    assert "unmatched state sidecar ignored" in diagnostics
+    assert str(unmatched.resolve()) in diagnostics
+    assert "state sidecar files (*.state.json) are not analyzed as input reports" in diagnostics
+
+
+def test_aggregate_cli_opening_state_mapping_overrides_sidecar(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    definition = _make_fake_definition(
+        alias="kraken",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        supports_opening_state=True,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(definition))
+    input_file = tmp_path / "kraken-report.csv"
+    sidecar = tmp_path / "kraken-report.state.json"
+    override = tmp_path / "manual.json"
+    input_file.write_text("x\n", encoding="utf-8")
+    sidecar.write_text("{}\n", encoding="utf-8")
+    override.write_text("{}\n", encoding="utf-8")
+
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--opening-state-json",
+            f"kraken-report.csv={override}",
+        ]
+    )
+
+    assert code == 0
+    assert run_capture.contexts[0].options["opening_state_json"] == str(override.resolve())
+    diagnostics = (tmp_path / "out" / "aggregated_tax_report_2025.diagnostics.txt").read_text(encoding="utf-8")
+    assert f"Opening state: {override.resolve()} (CLI override; sidecar {sidecar.resolve()} ignored)" in diagnostics
+
+
+def test_aggregate_unmatched_opening_state_mapping_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    definition = _make_fake_definition(
+        alias="kraken",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        supports_opening_state=True,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(definition))
+    (tmp_path / "kraken.csv").write_text("x\n", encoding="utf-8")
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{}\n", encoding="utf-8")
+
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--opening-state-json",
+            f"missing.csv={state_file}",
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert code == 2
+    assert "did not match any detected stateful input" in stdout
+    assert not run_capture.contexts
 
 
 def test_aggregate_mode_continues_on_partial_failure(

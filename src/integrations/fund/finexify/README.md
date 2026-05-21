@@ -138,6 +138,15 @@ State contract:
 - declaration totals still include only `row.timestamp.year == tax_year`
 - without opening state, analyzer processes full input history and still declares only tax-year rows
 
+Aggregate mode uses the same generic opening-state mechanism for all stateful analyzers:
+
+- a single `--opening-state-json state.json` is valid only when exactly one stateful input is detected
+- with multiple stateful inputs, use repeated mappings such as `--opening-state-json finexify.csv=state.json`
+- a sibling sidecar named `<input-stem>.state.json` is auto-detected for this input
+- CLI mappings override sidecars
+- `.state.json` files are not analyzed as report inputs
+- aggregate mode analyzes each input independently and does not chain state between inputs
+
 ## CLI
 
 ```bash

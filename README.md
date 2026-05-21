@@ -490,6 +490,7 @@ Aggregate mode global options:
 - `--input-dir`
 - `--include-pattern` (optional glob)
 - `--analyzer-input alias=path` (repeatable override, including repeated same alias for multiple files)
+- `--opening-state-json VALUE` (repeatable generic opening-state mapping for stateful analyzers)
 - `--tax-year`
 - `--output-dir`
 - `--cache-dir` (shared FX cache override for all analyzers that use FX services)
@@ -519,16 +520,23 @@ Group/analyzer override options:
 - `--ibkr-eu-regulated-exchange` (repeatable and supports comma-separated values)
 - `--ibkr-closed-world`
 - `--ibkr-report-alias`
-- `--coinbase-opening-state-json`
-- `--kraken-opening-state-json`
-- `--finexify-opening-state-json`
 
 `--ibkr-tax-exempt-mode` defaults to `listed_symbol` in aggregate mode.
 
-Naming rule:
+Opening-state input rule:
 
-- single-analyzer mode uses base flags (for example `--opening-state-json`)
-- aggregate mode auto-prefixes analyzer-scoped flags with alias (for example `--coinbase-opening-state-json`)
+- opening state is generic and applies to any analyzer that supports it
+- no opening state means the input is treated as since-inception/full-history
+- single-analyzer mode uses `--opening-state-json state.json`
+- aggregate mode accepts one simple `--opening-state-json state.json` only when exactly one detected input supports opening state
+- aggregate mode with multiple stateful inputs uses repeated mappings, for example:
+  - `--opening-state-json kraken-main.csv=states/kraken-main.state.json`
+  - `--opening-state-json coinbase:coinbase-main.csv=states/coinbase-main.state.json`
+- the mapping left side may be a detected input basename, relative path, absolute path, or `alias:selector`
+- aggregate mode also auto-detects sibling sidecars named `<input-stem>.state.json`
+- CLI mappings override auto-detected sidecars
+- `.state.json` files are not analyzed as input reports
+- aggregate mode does not chain state from one input file into another; each input is analyzed independently
 
 Display currency rule (all analyzers, single + aggregate):
 
@@ -954,10 +962,34 @@ uv run tax-reporting coinbase \
 Opening-state contract:
 
 - for `--tax-year YYYY`, `state_tax_year_end` in `--opening-state-json` must be `< YYYY`
+- without `--opening-state-json`, the analyzer runs in since-inception/full-history mode
 - with opening state, analyzer applies ledger/state math only for rows where:
 - `state_tax_year_end < row.timestamp.year <= tax_year`
 - rows `<= state_tax_year_end` and rows `> tax_year` are ignored for ledger/state
 - declaration totals still include only `row.timestamp.year == tax_year`
+
+Aggregate opening-state examples:
+
+```bash
+uv run tax-reporting \
+  --input-dir inputs \
+  --tax-year 2025 \
+  --opening-state-json states/only-stateful-input.state.json
+```
+
+```bash
+uv run tax-reporting \
+  --input-dir inputs \
+  --tax-year 2025 \
+  --opening-state-json kraken-main.csv=states/kraken-main.state.json \
+  --opening-state-json coinbase.csv=states/coinbase.state.json
+```
+
+Sidecar convention:
+
+- `kraken-report.csv` -> `kraken-report.state.json`
+- `coinbase.xlsx` -> `coinbase.state.json`
+- `some.report.v2.csv` -> `some.report.v2.state.json`
 
 ### Kraken report analyzer
 

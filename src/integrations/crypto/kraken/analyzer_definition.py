@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from integrations.shared.cli_helpers import CliMode, add_mode_argument, option_value, resolved_cache_dir
+from integrations.shared.cli_helpers import CliMode, option_value, resolved_cache_dir
 from integrations.shared.contracts import AnalyzerDefinition, AnalyzerRunContext
 from integrations.shared.result_builders import build_crypto_result
 
@@ -11,14 +11,8 @@ from .report_analyzer import analyze_kraken_report
 
 
 def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
-    add_mode_argument(
-        parser,
-        mode=mode,
-        analyzer_alias="kraken",
-        single_flag="opening-state-json",
-        type=str,
-        help="Optional opening holdings state JSON; for --tax-year YYYY state_tax_year_end must be < YYYY",
-    )
+    _ = parser
+    _ = mode
 
 
 def _build_options(
@@ -31,7 +25,6 @@ def _build_options(
             args,
             mode=mode,
             single_attr="opening_state_json",
-            aggregate_attr="kraken_opening_state_json",
         ),
         "display_currency": str(
             option_value(
@@ -81,4 +74,5 @@ ANALYZER = AnalyzerDefinition(
     add_arguments=_add_arguments,
     build_options=_build_options,
     run=_run,
+    supports_opening_state=True,
 )
