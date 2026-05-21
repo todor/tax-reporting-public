@@ -528,7 +528,9 @@ For included rows:
 
 - country is derived from ISIN (not suffix text)
 - amount is converted to EUR
-- declaration math uses absolute withheld amount
+- broker-sign amounts are netted for Appendix 8: negative `Withholding Tax` means tax withheld, positive means returned/reversed tax
+- final creditable foreign tax is clamped at zero, so positive-only reversals do not create negative credit
+- manual `Amount (EUR)` overrides are treated as already-normalized tax-paid values
 - credit-interest withholding rows are also enriched (`Appendix 9`, `Country=Ireland`, empty `ISIN`)
 
 Auto `Status` in this section:

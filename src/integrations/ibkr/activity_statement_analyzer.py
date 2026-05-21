@@ -241,6 +241,7 @@ def _process_sections(
         fx_provider=fx_provider,
         tax_year=tax_year,
         report_date_format=report_date_format,
+        appendix9_components=interest.components_by_country,
     )
     open_positions = process_open_positions_section(
         rows=rows,
@@ -284,11 +285,31 @@ def _apply_interest_withholding_source(
     summary: AnalysisSummary,
     appendix9_components: dict[str, dict[str, _CountryCreditComponent]],
 ) -> None:
-    withholding_paid_eur, withholding_found = extract_interest_withholding_paid_eur(
+    mtm_withholding_paid_eur, mtm_withholding_found = extract_interest_withholding_paid_eur(
         rows,
         active_headers=active_headers,
     )
-    if withholding_paid_eur > ZERO:
+    detail_withholding_paid_eur = sum(
+        (bucket.withholding_tax_paid_eur for bucket in summary.appendix_9_by_country.values()),
+        ZERO,
+    )
+    detail_withholding_found = summary.appendix_9_positive_withholding_rows > 0 or detail_withholding_paid_eur != ZERO
+
+    summary.appendix_9_withholding_detail_source_found = detail_withholding_found
+    summary.appendix_9_withholding_mtm_source_found = mtm_withholding_found
+    summary.appendix_9_withholding_mtm_paid_eur = mtm_withholding_paid_eur
+    summary.appendix_9_withholding_detail_paid_eur = detail_withholding_paid_eur
+
+    if detail_withholding_found:
+        summary.appendix_9_non_positive_net_buckets = sum(
+            1 for bucket in summary.appendix_9_by_country.values() if bucket.withholding_tax_paid_eur <= ZERO
+        )
+        if mtm_withholding_found:
+            mismatch = abs(detail_withholding_paid_eur - mtm_withholding_paid_eur)
+            if mismatch > Decimal("0.01"):
+                summary.appendix_9_withholding_mismatch_found = True
+                summary.appendix_9_withholding_mismatch_eur = mismatch
+    elif mtm_withholding_paid_eur > ZERO:
         country_iso, country_english, country_bulgarian = _appendix9_default_country()
         appendix9_bucket = _appendix9_bucket(
             summary,
@@ -296,25 +317,24 @@ def _apply_interest_withholding_source(
             country_english=country_english,
             country_bulgarian=country_bulgarian,
         )
-        appendix9_bucket.withholding_tax_paid_eur += withholding_paid_eur
+        appendix9_bucket.withholding_tax_paid_eur += mtm_withholding_paid_eur
         _country_component(
             appendix9_components,
             country_iso=country_iso,
             component_key="MTM_SOURCE",
-        ).foreign_tax_paid_eur += withholding_paid_eur
+        ).foreign_tax_paid_eur += mtm_withholding_paid_eur
 
-    summary.appendix_9_withholding_paid_eur = withholding_paid_eur
-    summary.appendix_9_withholding_source_found = withholding_found
+    summary.appendix_9_withholding_source_found = detail_withholding_found or mtm_withholding_found
 
     summary.appendix_9_credit_interest_eur = sum(
         (bucket.gross_interest_eur for bucket in summary.appendix_9_by_country.values()),
         ZERO,
     )
     summary.appendix_9_withholding_paid_eur = sum(
-        (bucket.withholding_tax_paid_eur for bucket in summary.appendix_9_by_country.values()),
+        (max(ZERO, bucket.withholding_tax_paid_eur) for bucket in summary.appendix_9_by_country.values()),
         ZERO,
     )
-    if summary.appendix_9_credit_interest_eur > ZERO and not withholding_found:
+    if summary.appendix_9_credit_interest_eur > ZERO and not summary.appendix_9_withholding_source_found:
         summary.review_required_rows += 1
         summary.warnings.append(
             "Mark-to-Market Performance Summary row for 'Withholding on Interest Received' was not found; using 0"
@@ -339,6 +359,10 @@ def _compute_appendix_outputs(
         totals_by_company=summary.appendix_8_by_company,
         dividend_tax_rate=summary.dividend_tax_rate,
     )
+    if summary.withholding_positive_dividend_rows > 0:
+        summary.withholding_non_positive_net_buckets = sum(
+            1 for totals in summary.appendix_8_by_company.values() if totals.withholding_tax_paid_eur <= ZERO
+        )
     if summary.appendix8_dividend_list_mode == APPENDIX8_LIST_MODE_COUNTRY:
         summary.appendix_8_output_rows = _aggregate_appendix8_company_rows_by_country_and_method(
             company_rows=summary.appendix_8_company_results,

@@ -62,6 +62,9 @@ _GROUPABLE_CODES = {
     "UNSUPPORTED_TRADES_ROWS",
     "UNKNOWN_DIVIDEND_ROWS",
     "IBKR_MANUAL_REVIEW_ROWS",
+    "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL",
+    "IBKR_APPENDIX9_WHT_SOURCE_MISMATCH",
+    "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW",
     "IBKR_SPB8_REVIEW_REQUIRED",
     "IBKR_SANITY_CHECK_FAILURES",
     "IBKR_UNKNOWN_INTEREST_ROWS",
@@ -449,6 +452,11 @@ def _canonicalize_bulgarian_summary(
     elif "реда удържан данък с невалиден ISIN/държава" in message:
         code = "IBKR_WITHHOLDING_COUNTRY_ERRORS"
         english_message = "Withholding tax rows have invalid ISIN/country data."
+    elif "Открит е положителен ред в IBKR Withholding Tax" in message or (
+        "Нетният чуждестранен данък" in message and "IBKR Withholding Tax" in message
+    ):
+        code = "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW"
+        english_message = "Positive dividend withholding tax rows require review."
     elif "непознат Review Status" in message:
         code = "IBKR_UNKNOWN_REVIEW_STATUS_ROWS"
         english_message = "Rows have unknown Review Status values."
@@ -908,6 +916,69 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
             "- Потвърдете ръчното третиране преди подаване.",
         ]
 
+    if diagnostic.code == "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW":
+        positive_rows = diagnostic.params.get("positive_wht_rows")
+        non_positive_buckets = diagnostic.params.get("non_positive_net_buckets")
+        lines = [
+            "IBKR: открити са положителни Withholding Tax редове за дивиденти, които изглеждат като "
+            "възстановен/коригиран чуждестранен данък.",
+            "Инструментът ги приспада от чуждестранния данък за текущата година.",
+        ]
+        if positive_rows:
+            lines.append(f"Положителни Withholding Tax редове: {positive_rows}.")
+        if non_positive_buckets:
+            lines.extend(
+                [
+                    f"Appendix 8 групи с нулев или отрицателен нетен чуждестранен данък: {non_positive_buckets}.",
+                    "За тях инструментът не признава данъчен кредит.",
+                ]
+            )
+        lines.extend(
+            [
+                "Какво да направите:",
+                "- Проверете ръчно дали корекциите се отнасят за текущата година или за предходна данъчна година.",
+                "- Ако са за предходна година, може да е необходимо да се коригира предходната декларация.",
+                "- При прагматичен подход сумата може да се третира като намаление на данъчния кредит в текущата година.",
+            ]
+        )
+        return lines
+
+    if diagnostic.code == "IBKR_APPENDIX9_WHT_SOURCE_MISMATCH":
+        return [
+            "IBKR: открито е разминаване между детайлните Withholding Tax редове за лихви "
+            "и Mark-to-Market Performance Summary / Withholding on Interest Received.",
+            "Инструментът използва детайлните Withholding Tax редове за Приложение 9.",
+            "Какво да направите:",
+            "- Проверете ръчно данъка върху лихви.",
+            "- Ако Mark-to-Market сумата е вярната за вашия отчет, коригирайте входните данни или обработете случая ръчно.",
+        ]
+
+    if diagnostic.code == "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL":
+        positive_rows = diagnostic.params.get("positive_wht_rows")
+        non_positive_buckets = diagnostic.params.get("non_positive_net_buckets")
+        lines = [
+            "IBKR: открити са положителни Withholding Tax редове за лихви, които изглеждат като "
+            "възстановен/коригиран чуждестранен данък.",
+            "Инструментът ги приспада от чуждестранния данък за текущата година.",
+        ]
+        if positive_rows:
+            lines.append(f"Положителни Withholding Tax редове за лихви: {positive_rows}.")
+        if non_positive_buckets:
+            lines.extend(
+                [
+                    f"Appendix 9 групи с нулев или отрицателен нетен чуждестранен данък: {non_positive_buckets}.",
+                    "За тях инструментът не признава данъчен кредит.",
+                ]
+            )
+        lines.extend(
+            [
+                "Какво да направите:",
+                "- Проверете дали корекциите се отнасят за текущата или предходна данъчна година.",
+                "- Ако са за предходна година, може да е необходимо да се коригира предходната декларация.",
+            ]
+        )
+        return lines
+
     if diagnostic.code and diagnostic.code.startswith("IBKR_"):
         return [
             f"{_display_analyzer_name(analyzer)}: {_ibkr_code_summary_bg(diagnostic)}",
@@ -1033,6 +1104,9 @@ def _ibkr_code_summary_bg(diagnostic: AnalysisDiagnostic) -> str:
     count = _diagnostic_count(diagnostic)
     summaries = {
         "IBKR_SANITY_CHECK_FAILURES": f"има {count} неуспешни sanity проверки.",
+        "IBKR_APPENDIX9_WHT_SOURCE_MISMATCH": "има разминаване в източниците за удържан данък върху лихви.",
+        "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL": f"има {count} положителни Withholding Tax реда за лихви.",
+        "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW": f"има {count} случая с положителен Withholding Tax за дивиденти.",
         "IBKR_UNKNOWN_INTEREST_ROWS": f"има {count} реда с непознат вид лихва.",
         "IBKR_DIVIDEND_COUNTRY_ERRORS": f"има {count} дивидентни реда с невалиден ISIN/държава.",
         "IBKR_WITHHOLDING_COUNTRY_ERRORS": f"има {count} реда удържан данък с невалиден ISIN/държава.",

@@ -295,13 +295,13 @@ def test_withholding_review_status_taxable_uses_manual_values_for_aggregation(tm
             ["Dividends", "Data", "USD", "2025-03-01", "TPR(US8760301072) Cash Dividend USD 0.35 per Share", "10"],
             ["Withholding Tax", "Header", "Currency", "Date", "Description", "Amount", "Code", "Country", "Amount (EUR)", "Appendix", "Review Status"],
             ["Withholding Tax", "Data", "USD", "2025-03-01", "Some manual dividend withholding", "-1", "", "Luxembourg", "5.00000000", "Appendix 8", "TAXABLE"],
-            ["Withholding Tax", "Data", "USD", "2025-03-02", "Withholding @ 20% on Credit Interest for Mar-2025", "-1", "", "Ireland", "2.00000000", "Appendix 9", "TAXABLE"],
+            ["Withholding Tax", "Data", "USD", "2025-03-02", "Withholding @ 20% on Credit Interest for Mar-2025", "-1", "", "Ireland", "-2.00000000", "Appendix 9", "TAXABLE"],
         ]
     )
     result = _run(tmp_path, rows, mode="listed_symbol")
     assert result.summary.appendix_8_by_country["LU"].withholding_tax_paid_eur == Decimal("5")
-    assert result.summary.appendix_9_withholding_paid_eur == Decimal("4")
-    assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("4")
+    assert result.summary.appendix_9_withholding_paid_eur == Decimal("2")
+    assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("2")
 
 def test_appendix_8_tax_credit_math_uses_configurable_rate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import integrations.ibkr.activity_statement_analyzer as module
@@ -355,6 +355,97 @@ def test_appendix_8_method_code_is_3_when_withholding_is_missing_or_blank(tmp_pa
     assert "Код за прилагане на метод за избягване на двойното данъчно облагане: 3" in text
     assert "Платен данък в чужбина: 0.00" in text
     assert "Дължим данък, подлежащ на внасяне: 5.00" in text
+
+
+def test_positive_dividend_withholding_nets_against_negative_withholding(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "-2", ""],
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "0.75", ""],
+        ],
+    )
+    rows = _inject_financial_instrument_rows(rows, [("Stocks", "AAA", "NYSE", "Alpha Corp")])
+
+    result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="company")
+
+    company_row = result.summary.appendix_8_output_rows[0]
+    assert result.summary.appendix_8_by_company[("US", "Alpha Corp")].withholding_tax_paid_eur == Decimal("1.25")
+    assert company_row.foreign_tax_paid_eur == Decimal("1.25")
+    assert company_row.recognized_credit_eur == Decimal("1.25")
+    assert company_row.method_code == "1"
+    assert result.summary.withholding_positive_dividend_rows == 1
+    assert not any("Открит е положителен ред в IBKR Withholding Tax" in warning for warning in result.summary.warnings)
+
+
+def test_positive_only_dividend_withholding_creates_no_credit(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "1", ""],
+        ],
+    )
+    rows = _inject_financial_instrument_rows(rows, [("Stocks", "AAA", "NYSE", "Alpha Corp")])
+
+    result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="company")
+
+    company_row = result.summary.appendix_8_output_rows[0]
+    assert result.summary.appendix_8_by_company[("US", "Alpha Corp")].withholding_tax_paid_eur == Decimal("-1")
+    assert company_row.foreign_tax_paid_eur == Decimal("0")
+    assert company_row.allowable_credit_eur == Decimal("0")
+    assert company_row.recognized_credit_eur == Decimal("0")
+    assert company_row.method_code == "3"
+    assert result.summary.withholding_non_positive_net_buckets == 1
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Платен данък в чужбина: 0.00" in text
+    assert "Нетният чуждестранен данък за част от дивидентите е нула или отрицателен" not in text
+
+
+def test_positive_dividend_withholding_larger_than_negative_withholding_creates_no_credit(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "-1", ""],
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "2", ""],
+        ],
+    )
+    rows = _inject_financial_instrument_rows(rows, [("Stocks", "AAA", "NYSE", "Alpha Corp")])
+
+    result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="company")
+
+    company_row = result.summary.appendix_8_output_rows[0]
+    assert result.summary.appendix_8_by_company[("US", "Alpha Corp")].withholding_tax_paid_eur == Decimal("-1")
+    assert company_row.foreign_tax_paid_eur == Decimal("0")
+    assert company_row.method_code == "3"
+    assert result.summary.withholding_non_positive_net_buckets == 1
+    assert not any("Нетният чуждестранен данък" in warning for warning in result.summary.warnings)
+
+
+def test_positive_dividend_withholding_amount_eur_stays_signed_in_enriched_csv(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "1", ""],
+        ],
+    )
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+    out_rows = _read_rows(result.output_csv_path)
+    header, data_rows = _withholding_header_and_data(out_rows)
+    idx = {column: i for i, column in enumerate(header[2:])}
+    row = next(item for item in data_rows if "US1111111111" in item[2 + idx["Description"]])
+
+    assert row[2 + idx["Amount"]] == "1"
+    assert row[2 + idx["Amount (EUR)"]] == "1.00000000"
+
 
 def test_appendix_8_company_mode_groups_rows_and_computes_credit_per_company(tmp_path: Path) -> None:
     rows = _rows_with_dividends_and_withholding(

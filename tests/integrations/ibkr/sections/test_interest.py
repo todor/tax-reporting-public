@@ -20,6 +20,16 @@ _tax_credit_debug_payload = h._tax_credit_debug_payload
 _write_rows = h._write_rows
 
 
+def _append_interest_withholding_rows(rows: list[list[str]], withholding_rows: list[list[str]]) -> list[list[str]]:
+    rows.extend(
+        [
+            ["Withholding Tax", "Header", "Currency", "Date", "Description", "Amount", "Code"],
+            *withholding_rows,
+        ]
+    )
+    return rows
+
+
 def test_interest_scoped_headers_are_resolved_from_active_header(tmp_path: Path) -> None:
     rows = _base_rows()
     rows.extend(
@@ -224,6 +234,120 @@ def test_interest_withholding_is_extracted_from_mark_to_market_summary(tmp_path:
     result = _run(tmp_path, rows, mode="listed_symbol")
     assert result.summary.appendix_9_withholding_paid_eur == Decimal("3.75")
     assert result.summary.appendix_9_withholding_source_found is True
+
+
+def test_appendix_9_interest_withholding_detail_rows_match_mtm_without_warning(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "100"]],
+        mtm_withholding_total="-3",
+    )
+    _append_interest_withholding_rows(
+        rows,
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "Withholding Tax on Interest for Mar-2025", "-3", ""],
+        ],
+    )
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.appendix_9_withholding_paid_eur == Decimal("3")
+    assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("3")
+    assert result.summary.appendix_9_withholding_detail_source_found is True
+    assert result.summary.appendix_9_withholding_mtm_source_found is True
+    assert result.summary.appendix_9_withholding_mismatch_found is False
+
+
+def test_appendix_9_interest_withholding_detail_rows_win_over_mtm_mismatch(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "100"]],
+        mtm_withholding_total="-4",
+    )
+    _append_interest_withholding_rows(
+        rows,
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "Withholding Tax on Interest for Mar-2025", "-3", ""],
+        ],
+    )
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.appendix_9_withholding_paid_eur == Decimal("3")
+    assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("3")
+    assert result.summary.appendix_9_withholding_mismatch_found is True
+    assert result.summary.appendix_9_withholding_mismatch_eur == Decimal("1")
+
+
+def test_positive_appendix_9_interest_withholding_detail_row_reduces_foreign_tax(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "100"]],
+        mtm_withholding_total="-75",
+    )
+    _append_interest_withholding_rows(
+        rows,
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "Withholding Tax on Interest for Mar-2025", "-85", ""],
+            ["Withholding Tax", "Data", "EUR", "2025-03-03", "Withholding Tax on Interest refund for Mar-2025", "10", ""],
+        ],
+    )
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.appendix_9_withholding_paid_eur == Decimal("75")
+    assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("75")
+    assert result.summary.appendix_9_positive_withholding_rows == 1
+
+
+def test_positive_only_appendix_9_interest_withholding_creates_no_credit(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "100"]],
+        mtm_withholding_total="10",
+    )
+    _append_interest_withholding_rows(
+        rows,
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "Withholding Tax on Interest refund for Mar-2025", "10", ""],
+        ],
+    )
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.appendix_9_withholding_paid_eur == Decimal("0")
+    assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("0")
+    assert result.summary.appendix_9_country_results["IE"].recognized_credit_correct_eur == Decimal("0")
+    assert result.summary.appendix_9_positive_withholding_rows == 1
+    assert result.summary.appendix_9_non_positive_net_buckets == 1
+
+
+def test_appendix_9_interest_withholding_falls_back_to_mtm_when_details_missing(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "100"]],
+        mtm_withholding_total="-3.75",
+    )
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.appendix_9_withholding_paid_eur == Decimal("3.75")
+    assert result.summary.appendix_9_withholding_detail_source_found is False
+    assert result.summary.appendix_9_withholding_mtm_source_found is True
+
+
+def test_appendix_9_withholding_description_matches_interest_case_insensitive(tmp_path: Path) -> None:
+    rows = _rows_with_interest(
+        [["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "100"]],
+        mtm_withholding_total="-2",
+    )
+    _append_interest_withholding_rows(
+        rows,
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "Tax adjustment on INTEREST for Mar-2025", "-2", ""],
+        ],
+    )
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.appendix_9_withholding_paid_eur == Decimal("2")
+    assert result.summary.appendix_9_withholding_detail_source_found is True
+
 
 def test_appendix_9_section_contains_expected_values(tmp_path: Path) -> None:
     rows = _rows_with_interest(

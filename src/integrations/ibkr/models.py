@@ -192,6 +192,14 @@ class AnalysisSummary:
     appendix_9_credit_interest_eur: Decimal = ZERO
     appendix_9_withholding_paid_eur: Decimal = ZERO
     appendix_9_withholding_source_found: bool = False
+    appendix_9_withholding_detail_source_found: bool = False
+    appendix_9_withholding_mtm_source_found: bool = False
+    appendix_9_withholding_mtm_paid_eur: Decimal = ZERO
+    appendix_9_withholding_detail_paid_eur: Decimal = ZERO
+    appendix_9_withholding_mismatch_eur: Decimal = ZERO
+    appendix_9_withholding_mismatch_found: bool = False
+    appendix_9_positive_withholding_rows: int = 0
+    appendix_9_non_positive_net_buckets: int = 0
     appendix_9_by_country: dict[str, Appendix9CountryTotals] = field(default_factory=dict)
     appendix_9_country_results: dict[str, Appendix9CountryComputed] = field(default_factory=dict)
     appendix_6_lieu_received_eur: Decimal = ZERO
@@ -207,6 +215,8 @@ class AnalysisSummary:
     withholding_dividend_rows: int = 0
     withholding_non_dividend_rows: int = 0
     withholding_country_errors_rows: int = 0
+    withholding_positive_dividend_rows: int = 0
+    withholding_non_positive_net_buckets: int = 0
     appendix8_dividend_list_mode: str = APPENDIX8_LIST_MODE_COMPANY
     appendix_8_by_country: dict[str, Appendix8CountryTotals] = field(default_factory=dict)
     appendix_8_by_company: dict[tuple[str, str], Appendix8CompanyTotals] = field(default_factory=dict)

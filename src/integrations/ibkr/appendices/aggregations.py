@@ -44,7 +44,10 @@ def _sum_rowwise_wrong_credit(
     rate: Decimal,
 ) -> Decimal:
     return sum(
-        (min(component.foreign_tax_paid_eur, component.gross_eur * rate) for component in components.values()),
+        (
+            min(max(ZERO, component.foreign_tax_paid_eur), component.gross_eur * rate)
+            for component in components.values()
+        ),
         ZERO,
     )
 
@@ -66,7 +69,7 @@ def _compute_appendix8_company_results(
         key=lambda item: (item[1].country_iso, item[1].company_name),
     ):
         gross = totals.gross_dividend_eur
-        foreign_tax = totals.withholding_tax_paid_eur
+        foreign_tax = max(ZERO, totals.withholding_tax_paid_eur)
         bulgarian_tax = gross * dividend_tax_rate
         credit_correct = min(foreign_tax, bulgarian_tax)
         method_code = _determine_appendix8_method_code(
@@ -172,7 +175,7 @@ def _compute_appendix9_country_results(
     results: dict[str, Appendix9CountryComputed] = {}
     for country_iso, totals in totals_by_country.items():
         gross = totals.gross_interest_eur
-        foreign_tax = totals.withholding_tax_paid_eur
+        foreign_tax = max(ZERO, totals.withholding_tax_paid_eur)
         allowable_credit = gross * allowable_credit_rate
         recognized_credit = min(foreign_tax, allowable_credit)
         rowwise_components = components_by_country.get(country_iso, {})

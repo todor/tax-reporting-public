@@ -380,6 +380,39 @@ def test_ibkr_row_level_diagnostics_are_grouped_for_main_report() -> None:
     assert "има 3 реда с изисквана ръчна проверка" not in rendered
 
 
+def test_ibkr_positive_withholding_reversal_is_one_structured_action_item() -> None:
+    diagnostics = [
+        AnalysisDiagnostic(
+            severity="WARNING",
+            message=(
+                "Positive dividend withholding tax rows were netted against current-year "
+                "Appendix 8 foreign tax."
+            ),
+            analyzer_alias="ibkr",
+            code="IBKR_DIVIDEND_WHT_REVERSAL_REVIEW",
+            params={"positive_wht_rows": 1, "non_positive_net_buckets": 1},
+        ),
+    ]
+
+    main = "\n".join(render_action_items(diagnostics))
+    technical = render_diagnostics_report(
+        title="IBKR diagnostics",
+        status="WARNING",
+        raw_declaration_text="",
+        diagnostics=diagnostics,
+    )
+
+    assert "UNCLASSIFIED" not in main
+    assert main.count("IBKR: открити са положителни Withholding Tax редове") == 1
+    assert "Положителни Withholding Tax редове: 1." in main
+    assert "Appendix 8 групи с нулев или отрицателен нетен чуждестранен данък: 1." in main
+    assert "UNCLASSIFIED" not in technical
+    assert "[WARNING] [ibkr] IBKR_DIVIDEND_WHT_REVERSAL_REVIEW" in technical
+    assert "message: Positive dividend withholding tax rows were netted" in technical
+    assert "message: Открит е положителен ред" not in technical
+    assert "Нетният чуждестранен данък" not in technical
+
+
 def test_ibkr_grouped_diagnostics_are_technical_and_structured() -> None:
     rendered = render_diagnostics_report(
         title="IBKR diagnostics",

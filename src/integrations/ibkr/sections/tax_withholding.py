@@ -16,9 +16,11 @@ from ..models import (
     AnalysisSummary,
     Appendix8CompanyTotals,
     Appendix8CountryTotals,
+    Appendix9CountryTotals,
     CsvStructureError,
     InstrumentListing,
     _ActiveHeader,
+    _CountryCreditComponent,
 )
 from ..shared import (
     IbkrReportDateFormat,
@@ -35,6 +37,7 @@ from ..shared import (
     _to_eur,
 )
 from .income import (
+    _appendix9_default_country,
     _classify_status_from_description,
     _extract_isin,
     _resolve_country_from_isin,
@@ -131,13 +134,48 @@ def _appendix8_company_bucket(
     return bucket
 
 
+def _appendix9_bucket(
+    summary: AnalysisSummary,
+    *,
+    country_iso: str,
+    country_english: str,
+    country_bulgarian: str,
+) -> Appendix9CountryTotals:
+    bucket = summary.appendix_9_by_country.get(country_iso)
+    if bucket is None:
+        bucket = Appendix9CountryTotals(
+            country_iso=country_iso,
+            country_english=country_english,
+            country_bulgarian=country_bulgarian,
+        )
+        summary.appendix_9_by_country[country_iso] = bucket
+    return bucket
+
+
+def _appendix9_component(
+    components: dict[str, dict[str, _CountryCreditComponent]],
+    *,
+    country_iso: str,
+    component_key: str,
+) -> _CountryCreditComponent:
+    country_components = components.get(country_iso)
+    if country_components is None:
+        country_components = {}
+        components[country_iso] = country_components
+    component = country_components.get(component_key)
+    if component is None:
+        component = _CountryCreditComponent()
+        country_components[component_key] = component
+    return component
+
+
 def _classify_withholding_appendix(summary: AnalysisSummary, *, description: str) -> str:
     lowered = description.lower()
     if "cash dividend" in lowered:
         summary.withholding_dividend_rows += 1
         return "Appendix 8"
     summary.withholding_non_dividend_rows += 1
-    if "credit interest" in lowered:
+    if "interest" in lowered:
         return "Appendix 9"
     if "lieu received" in lowered:
         return "Appendix 6"
@@ -291,12 +329,20 @@ def _apply_taxable_withholding_totals(
     effective_appendix: str,
     effective_country_text: str,
     effective_amount_eur: Decimal | None,
+    effective_amount_is_manual: bool,
+    appendix9_components: dict[str, dict[str, _CountryCreditComponent]],
 ) -> None:
     is_taxable = effective_status == INTEREST_STATUS_TAXABLE
     if tax_date.year != tax_year or not is_taxable or effective_amount_eur is None:
         return
 
     if effective_appendix == "Appendix 8":
+        # Broker Amount sign convention: negative means tax withheld, positive
+        # means returned/reversed tax. Manual Amount (EUR) is treated as the
+        # user's already-normalized tax-paid value to preserve override behavior.
+        tax_paid_delta_eur = effective_amount_eur if effective_amount_is_manual else -effective_amount_eur
+        if not effective_amount_is_manual and effective_amount_eur > 0:
+            summary.withholding_positive_dividend_rows += 1
         if effective_country_text == "":
             summary.review_required_rows += 1
             summary.warnings.append(
@@ -322,20 +368,38 @@ def _apply_taxable_withholding_totals(
             country_iso=country_iso,
             country_english=country_english,
             country_bulgarian=country_bulgarian,
-        ).withholding_tax_paid_eur += abs(effective_amount_eur)
+        ).withholding_tax_paid_eur += tax_paid_delta_eur
         _appendix8_company_bucket(
             summary,
             country_iso=country_iso,
             country_english=country_english,
             country_bulgarian=country_bulgarian,
             company_name=company_name,
-        ).withholding_tax_paid_eur += abs(effective_amount_eur)
+        ).withholding_tax_paid_eur += tax_paid_delta_eur
         return
 
     if effective_appendix == "Appendix 9":
-        # Appendix 9 paid foreign tax source of truth is Mark-to-Market
-        # ("Withholding on Interest Received"). Appendix 9 rows in this
-        # section stay informational/enriched and do not drive totals.
+        # Broker Amount sign convention: negative means tax withheld, positive
+        # means returned/reversed tax.
+        tax_paid_delta_eur = -effective_amount_eur
+        if effective_amount_eur > 0:
+            summary.appendix_9_positive_withholding_rows += 1
+        country_iso, country_english, country_bulgarian = (
+            _resolve_country_from_text(effective_country_text)
+            if effective_country_text
+            else _appendix9_default_country()
+        )
+        _appendix9_bucket(
+            summary,
+            country_iso=country_iso,
+            country_english=country_english,
+            country_bulgarian=country_bulgarian,
+        ).withholding_tax_paid_eur += tax_paid_delta_eur
+        _appendix9_component(
+            appendix9_components,
+            country_iso=country_iso,
+            component_key=f"WHT_ROW_{row_number}",
+        ).foreign_tax_paid_eur += tax_paid_delta_eur
         return
 
     summary.review_required_rows += 1
@@ -353,6 +417,7 @@ def process_withholding_section(
     fx_provider,
     tax_year: int,
     report_date_format: IbkrReportDateFormat,
+    appendix9_components: dict[str, dict[str, _CountryCreditComponent]],
 ) -> WithholdingSectionResult:
     row_extras: dict[int, dict[str, str]] = {}
     row_base_len: dict[int, int] = {}
@@ -399,6 +464,9 @@ def process_withholding_section(
         summary.withholding_processed_rows += 1
         description = data[field_idx.description].strip()
         auto_status = _classify_status_from_description(description)
+        auto_appendix = _classify_withholding_appendix(summary, description=description)
+        if auto_appendix == "Appendix 9":
+            auto_status = INTEREST_STATUS_TAXABLE
         manual_country = data[field_idx.country].strip() if field_idx.country is not None else ""
         manual_amount_eur_text = data[field_idx.amount_eur].strip() if field_idx.amount_eur is not None else ""
         manual_amount_eur = _parse_optional_decimal(
@@ -411,7 +479,6 @@ def process_withholding_section(
         review_status_raw = data[field_idx.review_status].strip() if field_idx.review_status is not None else ""
         review_status_normalized = _normalize_review_status(review_status_raw)
 
-        auto_appendix = _classify_withholding_appendix(summary, description=description)
         tax_date = _parse_interest_date(
             data[field_idx.date],
             row_number=row_number,
@@ -484,6 +551,8 @@ def process_withholding_section(
             effective_appendix=effective_appendix,
             effective_country_text=effective_country_text,
             effective_amount_eur=effective_amount_eur,
+            effective_amount_is_manual=manual_amount_eur is not None,
+            appendix9_components=appendix9_components,
         )
 
     return WithholdingSectionResult(
