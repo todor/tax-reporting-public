@@ -644,7 +644,11 @@ def test_aggregate_spb8_rows_and_notes_render_under_one_heading() -> None:
         output_paths={},
         appendices=[],
         diagnostics=[],
-        policy_notes=["CFD financing / CFD interest корекциите са включени в Приложение 5."],
+        policy_notes=[
+            "CFD позициите не се декларират в Приложение 8, защото не представляват реално притежание на акции/дялове.",
+            "При CFD не се използва пълният notional/номинал на договора като продажна цена или цена на придобиване.",
+            "CFD financing / CFD interest корекциите са включени в Приложение 5.",
+        ],
         policy_audit_lines=["- CFD financing policy: netted_to_appendix_5"],
     )
     rendered = render_aggregated_report(
@@ -672,6 +676,8 @@ def test_aggregate_spb8_rows_and_notes_render_under_one_heading() -> None:
     assert "Бележки към СПБ-8" in rendered
     assert "- CFD позициите не се включват в СПБ-8." in rendered
     assert "CFD и PIL" in rendered
+    assert "- CFD позициите не се декларират в Приложение 8" in rendered
+    assert "- При CFD не се използва пълният notional/номинал на договора" in rendered
     assert "- CFD financing / CFD interest корекциите са включени в Приложение 5." in rendered
     assert "Policy details" in rendered
     assert "- CFD financing policy: netted_to_appendix_5" in rendered

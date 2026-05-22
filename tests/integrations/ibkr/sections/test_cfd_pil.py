@@ -63,15 +63,29 @@ def test_financial_instrument_information_supports_stock_and_cfd_headers(tmp_pat
 def test_cfd_trade_routes_to_appendix5_code508_without_eu_exemption(tmp_path: Path) -> None:
     result = _run(tmp_path, _cfd_rows(), mode="listed_symbol")
 
-    assert result.summary.appendix_5.sale_price_eur == Decimal("99")
-    assert result.summary.appendix_5.purchase_eur == Decimal("80")
+    assert result.summary.appendix_5.sale_price_eur == Decimal("19")
+    assert result.summary.appendix_5.purchase_eur == Decimal("0")
     assert result.summary.appendix_5.wins_eur == Decimal("19")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "код 508" in text
     assert "CFD сделките са третирани като финансови инструменти" in text
     assert "CFD позициите не се декларират в Приложение 8" in text
+    assert "При CFD не се използва пълният notional/номинал на договора" in text
     assert "CFD trades policy: Appendix 5 / Table 2 / code 508" in text
     assert "CFD SPB-8 policy: excluded_from_spb8" in text
+
+
+def test_negative_cfd_realized_pl_maps_to_appendix5_acquisition_side(tmp_path: Path) -> None:
+    rows = _cfd_rows()
+    rows[7][14] = "-7"
+    rows[8][14] = "-7"
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.appendix_5.sale_price_eur == Decimal("0")
+    assert result.summary.appendix_5.purchase_eur == Decimal("7")
+    assert result.summary.appendix_5.wins_eur == Decimal("0")
+    assert result.summary.appendix_5.losses_eur == Decimal("7")
 
 
 def test_cfd_financing_negative_is_netted_to_appendix5_by_default(tmp_path: Path) -> None:
@@ -81,7 +95,9 @@ def test_cfd_financing_negative_is_netted_to_appendix5_by_default(tmp_path: Path
     result = _run(tmp_path, rows, mode="listed_symbol")
 
     assert result.summary.cfd_financing_rows == 1
-    assert result.summary.appendix_5.purchase_eur == Decimal("82")
+    assert result.summary.appendix_5.sale_price_eur == Decimal("19")
+    assert result.summary.appendix_5.purchase_eur == Decimal("2")
+    assert result.summary.appendix_5.wins_eur == Decimal("19")
     assert result.summary.appendix_5.losses_eur == Decimal("2")
     assert result.summary.appendix_6_code_606_eur == Decimal("0")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
@@ -96,7 +112,7 @@ def test_cfd_financing_positive_is_netted_to_appendix5_by_default(tmp_path: Path
 
     result = _run(tmp_path, rows, mode="listed_symbol")
 
-    assert result.summary.appendix_5.sale_price_eur == Decimal("102")
+    assert result.summary.appendix_5.sale_price_eur == Decimal("22")
     assert result.summary.appendix_5.wins_eur == Decimal("22")
     assert result.summary.appendix_6_code_606_eur == Decimal("0")
 
@@ -108,7 +124,9 @@ def test_no_net_cfd_financing_puts_positive_in_code606_and_skips_negative(tmp_pa
 
     result = _run(tmp_path, rows, mode="listed_symbol", net_cfd_financing=False)
 
-    assert result.summary.appendix_5.purchase_eur == Decimal("80")
+    assert result.summary.appendix_5.sale_price_eur == Decimal("19")
+    assert result.summary.appendix_5.purchase_eur == Decimal("0")
+    assert result.summary.appendix_5.wins_eur == Decimal("19")
     assert result.summary.appendix_5.losses_eur == Decimal("0")
     assert result.summary.appendix_6_code_606_eur == Decimal("3")
     assert result.summary.cfd_financing_negative_skipped_eur == Decimal("2")
@@ -126,7 +144,9 @@ def test_negative_payment_in_lieu_is_netted_to_appendix5_by_default(tmp_path: Pa
     result = _run(tmp_path, rows, mode="listed_symbol")
 
     assert result.summary.pil_negative_rows == 1
-    assert result.summary.appendix_5.purchase_eur == Decimal("89")
+    assert result.summary.appendix_5.sale_price_eur == Decimal("19")
+    assert result.summary.appendix_5.purchase_eur == Decimal("9")
+    assert result.summary.appendix_5.wins_eur == Decimal("19")
     assert result.summary.appendix_5.losses_eur == Decimal("9")
     assert result.summary.appendix_6_code_606_eur == Decimal("0")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
@@ -140,7 +160,9 @@ def test_no_net_pil_skips_negative_payment_in_lieu(tmp_path: Path) -> None:
 
     result = _run(tmp_path, rows, mode="listed_symbol", net_pil=False)
 
-    assert result.summary.appendix_5.purchase_eur == Decimal("80")
+    assert result.summary.appendix_5.sale_price_eur == Decimal("19")
+    assert result.summary.appendix_5.purchase_eur == Decimal("0")
+    assert result.summary.appendix_5.wins_eur == Decimal("19")
     assert result.summary.pil_negative_skipped_eur == Decimal("9")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Нетиране на отрицателен Payment in Lieu of Dividend (PIL) е изключено чрез --no-net-pil." in text
@@ -188,7 +210,8 @@ def test_non_cfd_fees_are_not_treated_as_cfd_financing(tmp_path: Path) -> None:
     result = _run(tmp_path, rows, mode="listed_symbol")
 
     assert result.summary.cfd_financing_rows == 0
-    assert result.summary.appendix_5.purchase_eur == Decimal("80")
+    assert result.summary.appendix_5.sale_price_eur == Decimal("19")
+    assert result.summary.appendix_5.purchase_eur == Decimal("0")
 
 
 def test_cli_flags_for_cfd_financing_and_pil_are_supported(tmp_path: Path) -> None:

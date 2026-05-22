@@ -821,10 +821,12 @@ IBKR Activity Statement period requirements:
 
 IBKR CFD and PIL handling:
 
-- CFD are treated as derivative financial instruments and realized CFD results are declared in Appendix 5, Table 2, code 508.
+- CFD are treated as cash-settled derivative financial instruments and realized CFD results are declared in Appendix 5, Table 2, code 508.
+- IBKR `Notional Value` is treated as exposure / P/L calculation base, not as a real sale/acquisition value.
+- Appendix 5 CFD trade values are based on realized CFD P/L: positive P/L increases the income/sale side, while negative P/L increases the cost/loss side by absolute value. This avoids artificial inflation of Appendix 5 turnover from CFD notional values.
 - CFD holdings are not declared in Appendix 8 and are excluded from SPB-8; the tool does not infer an underlying ISIN from CFD symbols.
-- IBKR CFD financing / CFD interest from `Fees` is netted into Appendix 5 by default. Use `--no-net-cfd-financing` to send positive financing to Appendix 6, code 606, and skip negative financing.
-- `Payment in Lieu of Dividend (Ordinary Dividend)` is not treated as a real dividend. Negative PIL is netted into Appendix 5 by default; use `--no-net-pil` to skip negative PIL. Positive PIL always goes to Appendix 6, code 606.
+- IBKR CFD financing / CFD interest from `Fees` is processed as a separate adjustment, not derived from CFD `Notional Value` / `Basis`, and is netted into Appendix 5 by default. Use `--no-net-cfd-financing` to send positive financing to Appendix 6, code 606, and skip negative financing.
+- `Payment in Lieu of Dividend (Ordinary Dividend)` is not treated as a real dividend and is processed separately from CFD trade P/L. Negative PIL is netted into Appendix 5 by default; use `--no-net-pil` to skip negative PIL. Positive PIL always goes to Appendix 6, code 606.
 - This is a practical interpretation for synthetic broker cashflow adjustments; confirm treatment with your accountant if needed.
 
 Optional venue override inputs (activates closed-world venue classification for this run):

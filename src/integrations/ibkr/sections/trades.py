@@ -479,9 +479,10 @@ def _sum_closedlot_basis_and_quantity_eur(
     fx_provider: FxRateProvider,
     fallback_currency: str,
     report_date_format: IbkrReportDateFormat,
-) -> tuple[Decimal, Decimal | None]:
+) -> tuple[Decimal, Decimal | None, Decimal | None]:
     closedlot_basis_eur_sum = ZERO
     closedlot_abs_quantity_sum: Decimal | None = ZERO
+    closedlot_realized_pl_eur_sum: Decimal | None = ZERO
     for closed_idx in closedlot_indices:
         closed_row_number = closed_idx + 1
         closed_row = rows[closed_idx]
@@ -499,6 +500,22 @@ def _sum_closedlot_basis_and_quantity_eur(
             )
         closed_basis_raw = closed_data[closed_idxes.basis]
         closed_basis = _parse_decimal(closed_basis_raw, row_number=closed_row_number, field_name="Basis")
+        closed_realized_idx = _optional_index(
+            closed_header.headers,
+            "Realized P/L",
+            "Realized P&L",
+            "Realized Profit and Loss",
+            "RealizedProfitLoss",
+        )
+        closed_realized_pl: Decimal | None = None
+        if closed_realized_idx is not None:
+            closed_realized_raw = closed_data[closed_realized_idx].strip()
+            if closed_realized_raw != "":
+                closed_realized_pl = _parse_decimal(
+                    closed_realized_raw,
+                    row_number=closed_row_number,
+                    field_name="Realized P/L",
+                )
         closed_quantity = (
             _parse_decimal(
                 closed_data[closed_idxes.quantity],
@@ -522,6 +539,18 @@ def _sum_closedlot_basis_and_quantity_eur(
             row_number=closed_row_number,
         )
         closedlot_basis_eur_sum += closed_basis_eur
+        if closedlot_realized_pl_eur_sum is not None:
+            if closed_realized_pl is None:
+                closedlot_realized_pl_eur_sum = None
+            else:
+                closed_realized_pl_eur, _ = _to_eur(
+                    closed_realized_pl,
+                    closed_currency,
+                    closed_dt,
+                    fx_provider,
+                    row_number=closed_row_number,
+                )
+                closedlot_realized_pl_eur_sum += closed_realized_pl_eur
         if closedlot_abs_quantity_sum is not None:
             if closed_quantity is None:
                 closedlot_abs_quantity_sum = None
@@ -536,7 +565,7 @@ def _sum_closedlot_basis_and_quantity_eur(
                 "Basis (EUR)": _fmt(closed_basis_eur, quant=DECIMAL_EIGHT),
             },
         )
-    return closedlot_basis_eur_sum, closedlot_abs_quantity_sum
+    return closedlot_basis_eur_sum, closedlot_abs_quantity_sum, closedlot_realized_pl_eur_sum
 
 
 def _apply_review_override(
@@ -586,7 +615,11 @@ def _process_closing_trade_row(
     closedlot_indices: list[int],
     report_date_format: IbkrReportDateFormat,
 ) -> None:
-    closedlot_basis_eur_sum, closedlot_abs_quantity = _sum_closedlot_basis_and_quantity_eur(
+    (
+        closedlot_basis_eur_sum,
+        closedlot_abs_quantity,
+        closedlot_realized_pl_eur_sum,
+    ) = _sum_closedlot_basis_and_quantity_eur(
         rows=rows,
         active_headers=active_headers,
         row_base_len=row_base_len,
@@ -617,6 +650,18 @@ def _process_closing_trade_row(
         sale_price_component_eur = abs(trade_basis_eur)
         purchase_component_eur = abs(cash_leg_eur)
     pnl_eur = closing_proceeds_eur + trade_basis_eur + closing_commission_eur
+
+    if _is_cfd_asset(ctx.asset_category):
+        if closedlot_realized_pl_eur_sum is not None:
+            pnl_eur = closedlot_realized_pl_eur_sum
+        elif ctx.realized_pl_eur is not None:
+            pnl_eur = ctx.realized_pl_eur * closing_fraction
+        if pnl_eur >= ZERO:
+            sale_price_component_eur = pnl_eur
+            purchase_component_eur = ZERO
+        else:
+            sale_price_component_eur = ZERO
+            purchase_component_eur = -pnl_eur
 
     pnl_win = pnl_eur if pnl_eur > 0 else ZERO
     pnl_loss = -pnl_eur if pnl_eur < 0 else ZERO

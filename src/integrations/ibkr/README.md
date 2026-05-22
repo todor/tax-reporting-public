@@ -372,6 +372,11 @@ CLI override behavior:
 CFD trades are treated as derivative financial instruments, not as real shares/ETFs:
 
 - realized CFD results are declared in `Приложение 5`, table 2, code `508`
+- CFDs are cash-settled derivative contracts; IBKR `Notional Value` is exposure / P/L calculation base, not a real sale/acquisition value
+- Appendix 5 CFD trade values are based on realized CFD P/L, not notional turnover:
+  - positive realized P/L increases the income/sale side
+  - negative realized P/L increases the cost/loss side by absolute value
+- this avoids artificial inflation of Appendix 5 turnover from CFD notional values
 - CFD positions are not declared in `Приложение 8`
 - CFD positions are excluded from `СПБ-8`
 - `Financial Instrument Information` rows for CFDs may use a different header and do not contain a reliable `Security ID` / ISIN
@@ -384,6 +389,7 @@ IBKR may report CFD financing in the `Fees` section, for example `Long CFD Inter
 - A negative amount increases the acquisition/cost side by absolute value.
 - With `--no-net-cfd-financing`, netting is disabled: positive amounts are declared in `Приложение 6`, code `606`, and negative amounts are not included automatically.
 - Generic debit interest, margin interest, borrow fees, market data, subscription, ADR, snapshot, and wire fees are not treated as CFD financing unless the description explicitly contains CFD interest/financing wording.
+- CFD financing is a separate adjustment and is not derived from CFD `Notional Value` / `Basis`.
 
 IBKR may report `Payment in Lieu of Dividend (Ordinary Dividend)` in the `Dividends` section.
 
@@ -392,6 +398,7 @@ IBKR may report `Payment in Lieu of Dividend (Ordinary Dividend)` in the `Divide
 - By default, negative PIL is treated as a cost adjustment for short/synthetic exposure and is included in `Приложение 5`, code `508`.
 - With `--no-net-pil`, negative PIL is not included automatically.
 - Positive PIL is always declared in `Приложение 6`, code `606`, because the exact source cannot be determined reliably from the IBKR Activity Statement.
+- PIL is processed separately from CFD trade P/L and is not derived from CFD `Notional Value` / `Basis`.
 
 CFD financing and PIL adjustments are treated according to their economic relationship with CFD/short/synthetic exposure. Because there is no explicit public guidance for synthetic broker cashflow adjustments, the tool applies a practical defensible approach and provides conservative modes through the CLI flags above.
 
