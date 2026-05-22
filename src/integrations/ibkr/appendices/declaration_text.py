@@ -36,6 +36,7 @@ from integrations.shared.rendering.common import (
     render_money_line,
 )
 from integrations.shared.rendering.display_currency import display_currency_technical_lines
+from integrations.shared.contracts import MainReportNote
 
 from ..constants import (
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
@@ -662,12 +663,24 @@ def _tax_exempt_mode_description(tax_exempt_mode: str) -> str:
     return "Прегледайте избрания режим ръчно."
 
 
+def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainReportNote]:
+    return [
+        MainReportNote(
+            section_title="Настройки на анализа",
+            text=(
+                "Класификация на IBKR сделките за данъчно освобождаване: "
+                f"{summary.tax_exempt_mode}. {_tax_exempt_mode_description(summary.tax_exempt_mode)}"
+            ),
+            analyzer_alias="ibkr",
+            category="setting",
+        )
+    ]
+
+
 def _append_configuration_section(lines: list[str], *, summary: AnalysisSummary) -> None:
-    lines.append("Настройки на анализа")
-    lines.append(
-        "- Класификация на IBKR сделките за данъчно освобождаване: "
-        f"{summary.tax_exempt_mode}. {_tax_exempt_mode_description(summary.tax_exempt_mode)}"
-    )
+    for note in analysis_settings_main_report_notes(summary):
+        lines.append(note.section_title)
+        lines.append(f"- {note.text}")
     lines.append("")
 
 

@@ -37,7 +37,7 @@ from integrations.shared.spb8 import (
     render_spb8_section,
 )
 
-from .contracts import AnalysisDiagnostic, AnalyzerStatus, AppendixRecord, TaxAnalysisResult
+from .contracts import AnalysisDiagnostic, AnalyzerStatus, AppendixRecord, MainReportNote, TaxAnalysisResult
 
 ZERO = Decimal("0")
 
@@ -334,6 +334,49 @@ def _aggregate_policy_notes(analyzer_results: list[TaxAnalysisResult]) -> list[s
             seen.add(cleaned)
             notes.append(cleaned)
     return notes
+
+
+def _aggregate_main_report_notes(analyzer_results: list[TaxAnalysisResult]) -> list[MainReportNote]:
+    notes: list[MainReportNote] = []
+    seen: set[tuple[str, str]] = set()
+    for result in analyzer_results:
+        for note in result.main_report_notes:
+            section_title = note.section_title.strip()
+            text = note.text.strip()
+            if not section_title or not text:
+                continue
+            key = (section_title, text)
+            if key in seen:
+                continue
+            seen.add(key)
+            notes.append(note)
+    return notes
+
+
+def _render_main_report_notes(notes: list[MainReportNote]) -> list[str]:
+    if not notes:
+        return []
+    grouped: dict[str, list[str]] = defaultdict(list)
+    seen_by_section: dict[str, set[str]] = defaultdict(set)
+    for note in notes:
+        section_title = note.section_title.strip()
+        text = note.text.strip()
+        if not section_title or not text or text in seen_by_section[section_title]:
+            continue
+        seen_by_section[section_title].add(text)
+        grouped[section_title].append(text)
+    lines: list[str] = []
+    for section_title in sorted(grouped):
+        if lines:
+            lines.append("")
+        lines.append(section_title)
+        for text in grouped[section_title]:
+            text_lines = text.splitlines()
+            if not text_lines:
+                continue
+            lines.append(f"- {text_lines[0]}")
+            lines.extend(f"  {line}" for line in text_lines[1:])
+    return lines
 
 
 def _render_policy_audit_lines(lines: list[str], analyzer_results: list[TaxAnalysisResult]) -> None:
@@ -677,6 +720,7 @@ def render_aggregated_report(
         global_status = "NEEDS_REVIEW"
     aggregated = aggregate_appendix_records(analyzer_results)
     aggregated_spb8_rows = aggregate_spb8_rows(spb8_rows or [])
+    main_report_notes = _aggregate_main_report_notes(analyzer_results)
     policy_notes = _aggregate_policy_notes(analyzer_results)
 
     lines: list[str] = [_status_banner(global_status)]
@@ -689,6 +733,10 @@ def render_aggregated_report(
     if status_reasons:
         lines.extend(["", *status_reasons])
     lines.append("")
+    main_report_note_lines = _render_main_report_notes(main_report_notes)
+    if main_report_note_lines:
+        lines.extend(main_report_note_lines)
+        lines.append("")
     for section_lines in (
         _build_appendix5_lines(aggregated, money_context=money_context),
         _build_appendix13_lines(aggregated, money_context=money_context),

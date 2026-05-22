@@ -553,6 +553,7 @@ TXT output boundary:
 - diagnostics TXT reports contain sorted technical/audit/debug details, raw parser messages, normal filesystem paths, and tracebacks when useful
 - stdout is intentionally short: status, main report path, diagnostics path, and summary counts
 - expected analyzer issues use structured diagnostic codes; free-form warnings are only a defensive fallback and should not appear in normal reports for known conditions
+- analyzer settings or interpretation notes that affect tax treatment or auditability are emitted as structured main-report notes so both individual and aggregate reports show them
 - analyzer-specific warning/manual-review sections are normalized into the shared report structure instead of being rendered as duplicate body sections
 
 Aggregate output:

@@ -55,6 +55,17 @@ class AppendixRecord:
     values: dict[str, AppendixValue] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class MainReportNote:
+    """Human-facing note/setting that must be visible in individual and aggregate reports."""
+
+    section_title: str
+    text: str
+    analyzer_alias: str | None = None
+    source_path: Path | None = None
+    category: str = "info"
+
+
 @dataclass(slots=True)
 class TaxAnalysisResult:
     analyzer_alias: str
@@ -66,6 +77,7 @@ class TaxAnalysisResult:
     spb8_rows: list[SPB8Row] = field(default_factory=list)
     spb8_notes: list[str] = field(default_factory=list)
     spb8_corporate_actions_present: bool = False
+    main_report_notes: list[MainReportNote] = field(default_factory=list)
     policy_notes: list[str] = field(default_factory=list)
     policy_audit_lines: list[str] = field(default_factory=list)
 

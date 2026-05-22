@@ -11,6 +11,8 @@ import pytest
 import report_analyzer
 from integrations.crypto.shared.crypto_ir_models import IrAnalysisSummary
 from integrations.fund.shared.fund_ir_models import FundAnalysisSummary
+from integrations.ibkr.appendices.declaration_text import analysis_settings_main_report_notes
+from integrations.ibkr.models import AnalysisSummary as IbkrAnalysisSummary
 from integrations.shared.aggregation import render_aggregated_report
 from integrations.shared.autodetect import InputDetectionError, detect_analyzer_inputs
 from integrations.shared.contracts import (
@@ -18,6 +20,7 @@ from integrations.shared.contracts import (
     AnalyzerDefinition,
     AnalyzerRunContext,
     AppendixRecord,
+    MainReportNote,
     TaxAnalysisResult,
 )
 from integrations.shared.cli_helpers import CliMode
@@ -59,6 +62,7 @@ def _make_fake_definition(
     diagnostics: list[AnalysisDiagnostic] | None = None,
     spb8_rows: list[SPB8Row] | None = None,
     spb8_notes: list[str] | None = None,
+    main_report_notes: list[MainReportNote] | None = None,
     aggregate_mode_option_name: str | None = None,
     supports_opening_state: bool = False,
 ) -> AnalyzerDefinition:
@@ -96,6 +100,7 @@ def _make_fake_definition(
             diagnostics=list(diagnostics or []),
             spb8_rows=list(spb8_rows or []),
             spb8_notes=list(spb8_notes or []),
+            main_report_notes=list(main_report_notes or []),
         )
 
     return AnalyzerDefinition(
@@ -670,6 +675,127 @@ def test_aggregate_spb8_rows_and_notes_render_under_one_heading() -> None:
     assert "- CFD financing / CFD interest корекциите са включени в Приложение 5." in rendered
     assert "Policy details" in rendered
     assert "- CFD financing policy: netted_to_appendix_5" in rendered
+
+
+def test_aggregate_report_renders_generic_main_report_notes_near_top() -> None:
+    results = [
+        TaxAnalysisResult(
+            analyzer_alias="alpha",
+            input_path=Path("/tmp/alpha.csv"),
+            tax_year=2025,
+            output_paths={},
+            appendices=[
+                AppendixRecord(
+                    appendix="5",
+                    table="2",
+                    code="5082",
+                    values={"trade_count": 1},
+                )
+            ],
+            diagnostics=[],
+            main_report_notes=[
+                MainReportNote(
+                    section_title="Настройки на анализа",
+                    text="Alpha използва режим A.",
+                    analyzer_alias="alpha",
+                    category="setting",
+                )
+            ],
+        ),
+        TaxAnalysisResult(
+            analyzer_alias="beta",
+            input_path=Path("/tmp/beta.csv"),
+            tax_year=2025,
+            output_paths={},
+            appendices=[],
+            diagnostics=[],
+            main_report_notes=[
+                MainReportNote(
+                    section_title="Настройки на анализа",
+                    text="Beta използва режим B.",
+                    analyzer_alias="beta",
+                    category="setting",
+                )
+            ],
+        ),
+    ]
+
+    rendered = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={},
+        ignored_inputs=[],
+        analyzer_results=results,
+        analyzer_errors={},
+    )
+
+    assert "Настройки на анализа\n- Alpha използва режим A.\n- Beta използва режим B." in rendered
+    assert rendered.index("Настройки на анализа") < rendered.index("Приложение 5")
+
+
+def test_aggregate_report_deduplicates_identical_main_report_notes() -> None:
+    note = MainReportNote(
+        section_title="Настройки на анализа",
+        text="Един и същ режим за няколко входа.",
+        analyzer_alias="alpha",
+        category="setting",
+    )
+    results = [
+        TaxAnalysisResult(
+            analyzer_alias="alpha",
+            input_path=Path("/tmp/alpha-one.csv"),
+            tax_year=2025,
+            output_paths={},
+            appendices=[],
+            diagnostics=[],
+            main_report_notes=[note],
+        ),
+        TaxAnalysisResult(
+            analyzer_alias="alpha",
+            input_path=Path("/tmp/alpha-two.csv"),
+            tax_year=2025,
+            output_paths={},
+            appendices=[],
+            diagnostics=[],
+            main_report_notes=[note],
+        ),
+    ]
+
+    rendered = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={},
+        ignored_inputs=[],
+        analyzer_results=results,
+        analyzer_errors={},
+    )
+
+    assert rendered.count("Един и същ режим за няколко входа.") == 1
+
+
+def test_aggregate_report_includes_ibkr_tax_exempt_mode_setting() -> None:
+    notes = analysis_settings_main_report_notes(
+        IbkrAnalysisSummary(tax_year=2025, tax_exempt_mode="listed_symbol")
+    )
+    rendered = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={},
+        ignored_inputs=[],
+        analyzer_results=[
+            TaxAnalysisResult(
+                analyzer_alias="ibkr",
+                input_path=Path("/tmp/ibkr.csv"),
+                tax_year=2025,
+                output_paths={},
+                appendices=[],
+                diagnostics=[],
+                main_report_notes=notes,
+            )
+        ],
+        analyzer_errors={},
+    )
+
+    assert "Настройки на анализа" in rendered
+    assert "Класификация на IBKR сделките за данъчно освобождаване: listed_symbol." in rendered
+    assert "борсата на изпълнение е само информативна" in rendered
 
 
 def test_known_family_warnings_use_structured_diagnostics_not_unclassified(tmp_path: Path) -> None:

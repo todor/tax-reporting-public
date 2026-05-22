@@ -76,6 +76,7 @@ Do not add new expected issues to legacy `warnings: list[str]` or `manual_check_
 - User-actionable expected failures should use shared diagnostic codes/params where practical.
 - ERROR / NEEDS_REVIEW / WARNING diagnostics must be deduplicated and rendered near the top of the main report with the exact actionable reason.
 - Notes/assumptions sections are only for non-actionable context and must be omitted when empty.
+- Analyzer settings or interpretation notes that affect tax treatment, declaration filling, or auditability must be emitted as structured `MainReportNote` values so aggregate reports include them too. Use diagnostics for actionable problems and diagnostics TXT for raw technical evidence.
 - Render normal filesystem paths in reports and diagnostics, not `file://` URLs.
 - Technical Details belong in diagnostics, not embedded in the main report.
 - Prefer shared report/rendering helpers over analyzer-specific formatting at the output boundary.

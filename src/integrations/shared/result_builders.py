@@ -8,6 +8,7 @@ from integrations.crypto.shared.crypto_ir_models import IrAnalysisSummary
 from integrations.fund.shared.fund_ir_models import FundAnalysisSummary
 from integrations.ibkr.appendices.declaration_text import (
     _build_manual_check_reasons,
+    analysis_settings_main_report_notes,
     cfd_pil_policy_audit_lines,
     cfd_pil_policy_notes,
 )
@@ -664,6 +665,7 @@ def build_ibkr_result(
         spb8_rows=summary.spb8_rows,
         spb8_notes=summary.spb8_notes,
         spb8_corporate_actions_present=summary.spb8_corporate_actions_present,
+        main_report_notes=analysis_settings_main_report_notes(summary),
         policy_notes=cfd_pil_policy_notes(summary),
         policy_audit_lines=cfd_pil_policy_audit_lines(summary),
     )
