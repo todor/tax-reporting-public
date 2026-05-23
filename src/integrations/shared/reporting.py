@@ -62,6 +62,8 @@ _GROUPABLE_CODES = {
     "UNSUPPORTED_TRADES_ROWS",
     "UNKNOWN_DIVIDEND_ROWS",
     "IBKR_MANUAL_REVIEW_ROWS",
+    "IBKR_OPTIONS_EXERCISE_ASSIGNMENT_NO_CLOSEDLOT",
+    "IBKR_OPTIONS_UNHANDLED_ROWS",
     "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL",
     "IBKR_APPENDIX9_WHT_SOURCE_MISMATCH",
     "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW",
@@ -175,6 +177,7 @@ class MainReportNotes:
     forex: list[str] = field(default_factory=list)
     cfd_pil: list[str] = field(default_factory=list)
     futures: list[str] = field(default_factory=list)
+    options: list[str] = field(default_factory=list)
     appendix8: list[str] = field(default_factory=list)
     general: list[str] = field(default_factory=list)
 
@@ -228,6 +231,7 @@ def extract_main_report_notes(body: str) -> tuple[str, MainReportNotes]:
         title="Фючърси — IBKR daily cash-settled MTM",
         bullet_lines=True,
     )
+    lines, options_notes = _extract_note_block(lines, title="Опции върху акции и индекси", bullet_lines=True)
     lines, appendix8_notes = _extract_note_block(lines, title="Забележка:", bullet_lines=False)
     general_notes: list[str] = []
     appendix8_specific_notes: list[str] = []
@@ -243,6 +247,7 @@ def extract_main_report_notes(body: str) -> tuple[str, MainReportNotes]:
             forex=forex_notes,
             cfd_pil=cfd_pil_notes,
             futures=futures_notes,
+            options=options_notes,
             appendix8=appendix8_specific_notes,
             general=general_notes,
         ),
@@ -1210,6 +1215,7 @@ def _informational_note_count(notes: MainReportNotes) -> int:
             notes.forex,
             notes.cfd_pil,
             notes.futures,
+            notes.options,
             notes.appendix8,
             notes.general,
         )
@@ -1299,6 +1305,7 @@ def render_assumptions_section(*, notes: MainReportNotes, diagnostics_path: Path
         _notes_subsection("Forex операции", notes.forex),
         _notes_subsection("CFD и PIL", notes.cfd_pil),
         _notes_subsection("Фючърси — IBKR daily cash-settled MTM", notes.futures),
+        _notes_subsection("Опции върху акции и индекси", notes.options),
         _notes_subsection("Приложение 8", notes.appendix8),
         _notes_subsection(
             "Изчисления и визуализация",

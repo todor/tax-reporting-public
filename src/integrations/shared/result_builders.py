@@ -12,6 +12,7 @@ from integrations.ibkr.appendices.declaration_text import (
     cfd_pil_policy_audit_lines,
     cfd_pil_policy_notes,
     futures_policy_audit_lines,
+    options_policy_audit_lines,
 )
 from integrations.ibkr.models import AnalysisSummary as IbkrAnalysisSummary
 from integrations.p2p.shared.appendix6_models import P2PAppendix6Result
@@ -555,6 +556,37 @@ def build_ibkr_result(
                 },
             )
         )
+    if summary.option_exercise_assignment_without_closedlot_rows > 0:
+        legacy_diagnostics.append(
+            AnalysisDiagnostic(
+                severity="INFO",
+                analyzer_alias=analyzer_alias,
+                code="IBKR_OPTIONS_EXERCISE_ASSIGNMENT_NO_CLOSEDLOT",
+                message=(
+                    "Equity/index option exercise or assignment rows without ClosedLot did not create "
+                    "standalone option taxable events."
+                ),
+                params={
+                    "count": summary.option_exercise_assignment_without_closedlot_rows,
+                },
+            )
+        )
+    if (
+        summary.option_trade_rows > 0
+        and summary.option_closedlot_rows == 0
+        and summary.option_exercise_assignment_without_closedlot_rows == 0
+    ):
+        legacy_diagnostics.append(
+            AnalysisDiagnostic(
+                severity="WARNING",
+                analyzer_alias=analyzer_alias,
+                code="IBKR_OPTIONS_UNHANDLED_ROWS",
+                message="Equity/index option rows were detected but no ClosedLot or exercise/assignment handling was identified.",
+                params={
+                    "count": summary.option_trade_rows,
+                },
+            )
+        )
     diagnostics = normalize_diagnostics(legacy_diagnostics)
 
     appendices: list[AppendixRecord] = []
@@ -694,5 +726,9 @@ def build_ibkr_result(
         spb8_corporate_actions_present=summary.spb8_corporate_actions_present,
         main_report_notes=analysis_settings_main_report_notes(summary),
         policy_notes=cfd_pil_policy_notes(summary),
-        policy_audit_lines=cfd_pil_policy_audit_lines(summary) + futures_policy_audit_lines(summary),
+        policy_audit_lines=(
+            cfd_pil_policy_audit_lines(summary)
+            + futures_policy_audit_lines(summary)
+            + options_policy_audit_lines(summary)
+        ),
     )

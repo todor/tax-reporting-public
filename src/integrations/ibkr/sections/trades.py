@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 import logging
+import re
 from decimal import Decimal
 from typing import Literal
 
@@ -54,6 +55,7 @@ from .instruments import (
     _record_exchange_observation,
     _is_cfd_asset,
     _is_forex_asset,
+    _is_option_asset,
     _is_supported_asset,
     _resolve_instrument_for_trade_symbol,
     _resolve_tax_target,
@@ -467,11 +469,23 @@ def _set_non_closing_trade_extras(
 
 
 def _is_trade_asset_supported_for_parsing(asset_category: str) -> bool:
-    return _is_supported_asset(asset_category) or _is_cfd_asset(asset_category)
+    return _is_supported_asset(asset_category) or _is_cfd_asset(asset_category) or _is_option_asset(asset_category)
 
 
 def _is_futures_asset(asset_category: str) -> bool:
     return asset_category.strip() == FUTURES_ASSET_CATEGORY
+
+
+def _code_tokens(code: str) -> set[str]:
+    return {token for token in re.split(r"[^A-Za-z0-9]+", code.upper()) if token}
+
+
+def _is_option_exercise_assignment_code(code: str) -> bool:
+    return bool(_code_tokens(code) & {"A", "EX", "AEX", "MEX", "GEA"})
+
+
+def _is_option_expiry_code(code: str) -> bool:
+    return "EP" in _code_tokens(code)
 
 
 def _sum_closedlot_basis_and_quantity_eur(
@@ -684,6 +698,16 @@ def _process_closing_trade_row(
         appendix_target = APPENDIX_5
         reason = "CFD derivative instrument -> Appendix 5 code 508"
         review_required = False
+    elif _is_option_asset(ctx.asset_category):
+        instrument = listings.get(ctx.symbol)
+        normalized_symbol = ctx.symbol
+        symbol_for_messages = ctx.symbol
+        listing_exchange = ""
+        listing_exchange_class = None
+        symbol_is_eu_listed = False
+        appendix_target = APPENDIX_5
+        reason = "Equity/index option -> Appendix 5 code 508"
+        review_required = False
     else:
         instrument, normalized_symbol, forced_review_reason = _resolve_instrument_for_trade_symbol(
             asset_category=ctx.asset_category,
@@ -786,6 +810,14 @@ def _process_closing_trade_row(
         summary.processed_trades_in_tax_year += 1
         if _is_cfd_asset(ctx.asset_category):
             summary.cfd_trade_rows += 1
+        if _is_option_asset(ctx.asset_category):
+            summary.option_closedlot_rows += len(closedlot_indices)
+            if closedlot_realized_pl_sum is not None:
+                currency = ctx.currency or "-"
+                summary.option_closedlot_realized_pl_by_currency[currency] = (
+                    summary.option_closedlot_realized_pl_by_currency.get(currency, ZERO)
+                    + closedlot_realized_pl_sum
+                )
         if tax_exempt_mode == TAX_MODE_EXECUTION_EXCHANGE and appendix_target == APPENDIX_REVIEW:
             summary.review_rows += 1
             summary.review_exchanges.add(ctx.execution_exchange_norm or "<EMPTY>")
@@ -943,6 +975,8 @@ def process_trades_section(
             row_base_len=row_base_len,
             row_idx=row_idx,
         )
+        if _is_option_asset(ctx.asset_category):
+            summary.option_trade_rows += 1
 
         if _is_forex_asset(ctx.asset_category):
             summary.forex_ignored_rows += 1
@@ -984,7 +1018,17 @@ def process_trades_section(
             )
             continue
 
-        if not ctx.is_closing_trade:
+        option_exercise_assignment = (
+            _is_option_asset(ctx.asset_category)
+            and _is_option_exercise_assignment_code(ctx.code)
+        )
+        option_realized_close = _is_option_asset(ctx.asset_category) and bool(closedlot_indices)
+        if not ctx.is_closing_trade and not option_realized_close:
+            if option_exercise_assignment:
+                summary.option_exercise_assignment_rows += 1
+                summary.option_exercise_assignment_without_closedlot_rows += 1
+            elif _is_option_asset(ctx.asset_category) and _is_option_expiry_code(ctx.code):
+                summary.option_unhandled_trade_rows += 1
             summary.ignored_non_closing_trade_rows += 1
             _set_non_closing_trade_extras(
                 ctx=ctx,
@@ -996,6 +1040,25 @@ def process_trades_section(
         summary.closing_trade_candidates += 1
 
         if not closedlot_indices:
+            if option_exercise_assignment:
+                summary.option_exercise_assignment_rows += 1
+                summary.option_exercise_assignment_without_closedlot_rows += 1
+                summary.ignored_non_closing_trade_rows += 1
+                _set_non_closing_trade_extras(
+                    ctx=ctx,
+                    tax_exempt_mode=tax_exempt_mode,
+                    row_extras=row_extras,
+                )
+                continue
+            if _is_option_asset(ctx.asset_category):
+                summary.option_unhandled_trade_rows += 1
+                summary.ignored_non_closing_trade_rows += 1
+                _set_non_closing_trade_extras(
+                    ctx=ctx,
+                    tax_exempt_mode=tax_exempt_mode,
+                    row_extras=row_extras,
+                )
+                continue
             raise IbkrAnalyzerError(f"row {row_number}: no ClosedLot rows attached to closing Trade")
         _process_closing_trade_row(
             ctx=ctx,

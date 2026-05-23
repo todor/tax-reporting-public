@@ -30,6 +30,7 @@ from .constants import (
     DIVIDEND_TAX_RATE,
     FxRateProvider,
     FOREX_ASSET_CATEGORY,
+    OPTION_ASSET_CATEGORY,
     SUPPORTED_ASSET_CATEGORIES,
     TAX_MODE_EXECUTION_EXCHANGE,
     TAX_MODE_LISTED_SYMBOL,
@@ -566,7 +567,10 @@ def _validate_required_closedlot_rows(
         asset_category = data[asset_idx].strip()
         if (
             asset_category == FOREX_ASSET_CATEGORY
-            or (asset_category not in SUPPORTED_ASSET_CATEGORIES and asset_category != CFD_ASSET_CATEGORY)
+            or (
+                asset_category not in SUPPORTED_ASSET_CATEGORIES
+                and asset_category not in {CFD_ASSET_CATEGORY, OPTION_ASSET_CATEGORY}
+            )
         ):
             continue
 
@@ -768,10 +772,12 @@ def analyze_ibkr_activity_statement(
         )
     if summary.futures_trade_rows > 0 or summary.futures_mtm_rows > 0:
         summary.spb8_notes.append(
-            "СПБ-8: IBKR фючърсите не се включват като ценни книжа в СПБ-8, защото са "
+            "IBKR фючърсите не се включват като ценни книжа в СПБ-8, защото са "
             "деривативни/парично сетълнати договори, а не реално притежавани ценни книжа "
             "с ISIN. IBKR паричните средства/сметки се разглеждат отделно по правилата за СПБ-8."
         )
+    if summary.option_trade_rows > 0 or summary.option_closedlot_rows > 0 or summary.option_open_position_rows > 0:
+        summary.spb8_notes.append("Опциите не се включват в СПБ-8 като притежавани ценни книжа.")
 
     populate_trade_aggregate_extras(
         rows=rows,

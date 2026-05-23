@@ -99,10 +99,12 @@ def test_futures_are_excluded_from_spb8_and_main_report_explains_policy(tmp_path
 
     assert [row for row in result.summary.spb8_rows if row.type_code == "04"] == []
     assert any("IBKR фючърсите не се включват като ценни книжа в СПБ-8" in note for note in result.summary.spb8_notes)
+    assert all(not note.startswith("СПБ-8: IBKR фючърсите") for note in result.summary.spb8_notes)
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Фючърси — IBKR daily cash-settled MTM" in text
     assert "Trades редовете за фючърси не се добавят отделно" in text
     assert "Класификация на IBKR фючърси" in text
+    assert "СПБ-8: IBKR фючърсите" not in text
 
 
 def test_futures_spb8_exclusion_note_appears_once_in_aggregate_report(tmp_path: Path) -> None:

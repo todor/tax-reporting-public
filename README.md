@@ -819,6 +819,14 @@ IBKR Activity Statement period requirements:
 - `--skip-period-validation` exists only for development/testing with partial reports. Do not use it for real tax reporting.
 - `--tax-exempt-mode` defaults to `listed_symbol`; the effective mode is printed in the Bulgarian TXT report because it affects tax treatment.
 
+IBKR Equity and Index Options handling:
+
+- `Asset Category = Equity and Index Options` is taxable by default and is declared in Appendix 5, Table 2, code 508.
+- Normal closed options and expired options with an attached IBKR `ClosedLot` are processed through the same sale/acquisition ClosedLot model used for stocks.
+- Option `Order`, `SubTotal`, `Total`, and MTM rows are not used as primary tax calculation sources.
+- Exercised/assigned options without an option `ClosedLot` do not create standalone option P/L; the generated stock lot is expected to carry adjusted basis/proceeds.
+- Options are excluded from Appendix 8 holdings and SPB-8 because they are derivative contracts, not directly held securities for the tool's SPB-8 securities model.
+
 IBKR CFD and PIL handling:
 
 - CFD are treated as cash-settled derivative financial instruments and realized CFD results are declared in Appendix 5, Table 2, code 508.

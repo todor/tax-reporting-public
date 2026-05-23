@@ -10,6 +10,7 @@ from config import OUTPUT_DIR
 SUPPORTED_ASSET_CATEGORIES = {"Stocks", "Treasury Bills"}
 CFD_ASSET_CATEGORY = "CFDs"
 FUTURES_ASSET_CATEGORY = "Futures"
+OPTION_ASSET_CATEGORY = "Equity and Index Options"
 FOREX_ASSET_CATEGORY = "Forex"
 
 EU_REGULATED_MARKETS = {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
@@ -11,6 +12,7 @@ from ..models import InstrumentListing, _ActiveHeader, _SanityCheckResult, _Sani
 from ..shared import _code_has_closing_token, _fmt, _optional_index, _try_parse_decimal
 from .instruments import (
     _is_forex_asset,
+    _is_option_asset,
     _is_supported_asset,
     _resolve_instrument_for_trade_symbol,
 )
@@ -48,6 +50,15 @@ class _TradeSanityMetrics:
     losses: Decimal
     is_closing_trade: bool
     is_prorated: bool
+
+
+def _is_sanity_supported_asset(asset_category: str) -> bool:
+    return _is_supported_asset(asset_category) or _is_option_asset(asset_category)
+
+
+def _is_option_exercise_assignment_code(code: str) -> bool:
+    tokens = {token for token in re.split(r"[^A-Za-z0-9]+", code.upper()) if token}
+    return bool(tokens & {"A", "EX", "AEX", "MEX", "GEA"})
 
 
 def _add_failure(
@@ -188,7 +199,9 @@ def _compute_trade_metrics(
     closedlot_count_for_trade: int,
     tolerance: Decimal,
 ) -> _TradeSanityMetrics:
-    is_closing_trade = _code_has_closing_token(code)
+    is_closing_trade = _code_has_closing_token(code) or (
+        _is_option_asset(asset_category) and closedlot_count_for_trade > 0
+    )
     trade_abs_quantity = abs(quantity)
     closing_fraction = (
         closedlot_abs_quantity / trade_abs_quantity
@@ -350,7 +363,7 @@ def _process_trade_data_row(
     if _is_forex_asset(asset_category):
         state.forex_ignored_rows += 1
         return
-    if not _is_supported_asset(asset_category):
+    if not _is_sanity_supported_asset(asset_category):
         return
 
     proceeds = _try_parse_decimal(data[field_idx.proceeds]) or ZERO
@@ -393,6 +406,24 @@ def _process_trade_data_row(
         active_headers=active_headers,
         row_idx=row_idx,
     )
+    if (
+        _is_option_asset(asset_category)
+        and closedlot_count_for_trade == 0
+        and _is_option_exercise_assignment_code(code)
+    ):
+        _set_sanity_extras(
+            state,
+            row_idx,
+            "Trade",
+            {
+                "Realized P/L (EUR)": _fmt(ZERO, quant=DECIMAL_EIGHT),
+                "Tax Treatment Reason": (
+                    "Equity/index option exercise or assignment without ClosedLot; "
+                    "no standalone option taxable event"
+                ),
+            },
+        )
+        return
     metrics = _compute_trade_metrics(
         state,
         row_number=row_number,
@@ -457,7 +488,7 @@ def _record_subtotal_total_candidate(
 ) -> None:
     if _is_forex_asset(asset_category):
         return
-    if not _is_supported_asset(asset_category):
+    if not _is_sanity_supported_asset(asset_category):
         return
 
     subtotal_symbol = symbol_upper
@@ -542,7 +573,7 @@ def _collect_trade_and_aggregate_data(
             row_idx=row_idx,
         )
         asset_category = _trade_value(data, active_header, "Asset Category")
-        if _is_forex_asset(asset_category) or not _is_supported_asset(asset_category):
+        if _is_forex_asset(asset_category) or not _is_sanity_supported_asset(asset_category):
             continue
 
         field_idx = _trade_indexes(active_header)

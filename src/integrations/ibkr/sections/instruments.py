@@ -20,6 +20,7 @@ from ..constants import (
     INVALID_EXCHANGE_VALUES,
     KNOWN_NON_EU_MARKETS,
     FOREX_ASSET_CATEGORY,
+    OPTION_ASSET_CATEGORY,
     SUPPORTED_ASSET_CATEGORIES,
     TAX_MODE_EXECUTION_EXCHANGE,
     TAX_MODE_LISTED_SYMBOL,
@@ -148,6 +149,10 @@ def _is_cfd_asset(asset_category: str) -> bool:
 
 def _is_forex_asset(asset_category: str) -> bool:
     return asset_category.strip() == FOREX_ASSET_CATEGORY
+
+
+def _is_option_asset(asset_category: str) -> bool:
+    return asset_category.strip() == OPTION_ASSET_CATEGORY
 
 
 def _is_treasury_bills_asset(asset_category: str) -> bool:

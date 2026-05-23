@@ -268,6 +268,13 @@ class AnalysisSummary:
     futures_mtm_other_rows: int = 0
     futures_mtm_other_eur: Decimal = ZERO
     futures_mtm_arithmetic_mismatches: list[dict[str, str]] = field(default_factory=list)
+    option_trade_rows: int = 0
+    option_closedlot_rows: int = 0
+    option_open_position_rows: int = 0
+    option_closedlot_realized_pl_by_currency: dict[str, Decimal] = field(default_factory=dict)
+    option_exercise_assignment_rows: int = 0
+    option_exercise_assignment_without_closedlot_rows: int = 0
+    option_unhandled_trade_rows: int = 0
     pil_positive_rows: int = 0
     pil_negative_rows: int = 0
     pil_positive_eur: Decimal = ZERO

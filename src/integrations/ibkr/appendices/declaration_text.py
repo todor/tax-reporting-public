@@ -37,6 +37,7 @@ from integrations.shared.rendering.common import (
 )
 from integrations.shared.rendering.display_currency import display_currency_technical_lines
 from integrations.shared.contracts import MainReportNote
+from integrations.shared.spb8 import render_spb8_section
 
 from ..constants import (
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
@@ -690,6 +691,56 @@ def futures_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
     ]
 
 
+def options_policy_notes(summary: AnalysisSummary) -> list[str]:
+    if summary.option_trade_rows <= 0 and summary.option_closedlot_rows <= 0 and summary.option_open_position_rows <= 0:
+        return []
+    return [
+        "Реализираните печалби/загуби от затворени или изтекли опции са включени в Приложение 5, Таблица 2, код 508.",
+        "За Приложение 5 се използват стойностите за продажна цена и цена на придобиване, както при останалите затворени позиции.",
+        "MTM стойностите за опции не се използват за данъчната калкулация.",
+        (
+            "При упражняване/assignment не се създава отделен данъчен резултат за опцията; "
+            "премията се очаква да е отразена в базата/постъпленията на получения/продадения базов актив."
+        ),
+    ]
+
+
+def options_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
+    if summary.option_trade_rows <= 0 and summary.option_closedlot_rows <= 0 and summary.option_open_position_rows <= 0:
+        return []
+    lines = [
+        "- Equity/index options policy: Appendix 5 / Table 2 / code 508",
+        "- Equity/index options calculation source: Trades/ClosedLot",
+        "- Equity/index options MTM policy: ignored for tax calculation",
+        "- Equity/index options SPB-8 policy: excluded_from_spb8",
+        f"- Equity/index option Trade rows count: {summary.option_trade_rows}",
+        f"- Equity/index option ClosedLot rows included: {summary.option_closedlot_rows}",
+        f"- Equity/index option open position rows excluded from Appendix 8/SPB-8: {summary.option_open_position_rows}",
+        f"- Equity/index option exercise/assignment rows without ClosedLot: {summary.option_exercise_assignment_without_closedlot_rows}",
+        f"- Equity/index option unhandled Trade rows: {summary.option_unhandled_trade_rows}",
+    ]
+    for currency, amount in sorted(summary.option_closedlot_realized_pl_by_currency.items()):
+        lines.append(f"- Equity/index option ClosedLot realized P/L {currency} total: {_fmt(amount)}")
+    return lines
+
+
+def _append_options_notes_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+    notes = options_policy_notes(summary)
+    if not notes:
+        return
+    lines.append("Опции върху акции и индекси")
+    lines.extend(f"- {note}" for note in notes)
+    lines.append("")
+
+
+def _append_spb8_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+    section = render_spb8_section(summary.spb8_rows, notes=summary.spb8_notes)
+    if not section:
+        return
+    lines.extend(section)
+    lines.append("")
+
+
 def _append_cfd_pil_notes_section(lines: list[str], *, summary: AnalysisSummary) -> None:
     notes = cfd_pil_policy_notes(summary)
     if not notes:
@@ -750,6 +801,16 @@ def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainRe
             notes.append(
                 MainReportNote(
                     section_title="Фючърси — IBKR daily cash-settled MTM",
+                    text=note,
+                    analyzer_alias="ibkr",
+                    category="info",
+                )
+            )
+    if summary.option_trade_rows > 0 or summary.option_closedlot_rows > 0 or summary.option_open_position_rows > 0:
+        for note in options_policy_notes(summary):
+            notes.append(
+                MainReportNote(
+                    section_title="Опции върху акции и индекси",
                     text=note,
                     analyzer_alias="ibkr",
                     category="info",
@@ -841,6 +902,7 @@ def _append_proof_section(
         )
     lines.extend(cfd_pil_policy_audit_lines(summary))
     lines.extend(futures_policy_audit_lines(summary))
+    lines.extend(options_policy_audit_lines(summary))
     if summary.report_date_format_label:
         lines.append(f"- IBKR report date format: {summary.report_date_format_label}")
     if summary.report_date_format_reason:
@@ -912,6 +974,8 @@ def _build_declaration_text(
     _append_forex_section(lines, summary=summary, money_context=money_context)
     _append_cfd_pil_notes_section(lines, summary=summary)
     _append_futures_notes_section(lines, summary=summary)
+    _append_options_notes_section(lines, summary=summary)
+    _append_spb8_section(lines, summary=summary)
     _append_appendix5_section(lines, summary=summary, money_context=money_context)
     _append_appendix13_section(lines, summary=summary, money_context=money_context)
     _append_appendix6_section(lines, summary=summary, money_context=money_context)

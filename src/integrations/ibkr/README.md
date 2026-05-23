@@ -350,10 +350,11 @@ CLI override behavior:
 
 1. Parse instrument listings (`Stocks`, `Treasury Bills`) from `Financial Instrument Information`.
 2. Process `Trades,Data` rows only.
-3. Closing trade = `DataDiscriminator=Trade` and `Code` contains token `C`.
+3. Closing stock/Treasury trade = `DataDiscriminator=Trade` and `Code` contains token `C`.
 4. Attach immediate following `ClosedLot` rows.
 5. Asset handling:
 - `Stocks`, `Treasury Bills`: processed
+- `Equity and Index Options`: processed through the same `Trade` + attached `ClosedLot` model and taxable by default
 - `Forex`: ignored for Appendix 5/13 totals, explicitly surfaced in output
 - other category: fail
 6. EUR conversion:
@@ -366,6 +367,22 @@ CLI override behavior:
 - `cash_leg = proceeds_eur + comm_fee_eur`
 - if `cash_leg >= 0`: `sale_price += abs(cash_leg)`, `purchase += abs(basis_eur)`
 - else: `sale_price += abs(basis_eur)`, `purchase += abs(cash_leg)`
+
+## Equity and Index Options Handling
+
+IBKR `Asset Category = Equity and Index Options` is supported as a taxable financial-instrument category.
+
+- normal option closes are processed from `Trades,Data,Trade` plus the immediately attached `Trades,Data,ClosedLot` rows, aligned with the stock ClosedLot model
+- expired options are handled the same way when IBKR provides a closing/expiration trade and an attached `ClosedLot`, including expiry-style codes such as `Ep`
+- Appendix 5 Table 2 code `508` is used
+- Appendix 5 sale/acquisition values use the same proceeds/cost-basis leg model as other closed positions, not only a net realized P/L total
+- `Order`, `SubTotal`, `Total`, and option MTM rows are not used as primary tax calculation sources
+- option MTM values are ignored for tax calculation
+- options are not declared as holdings in Appendix 8
+- options are excluded from SPB-8 because they are derivative contracts, not directly held foreign securities with ISIN for the tool's SPB-8 securities model
+- exercise/assignment-related option rows (`Ex`, `A`, `AEx`, `MEx`, `GEA`) do not create standalone option taxable P/L when there is no option `ClosedLot`; the generated stock lot is expected to carry adjusted basis/proceeds and taxation happens through the normal stock logic when that stock lot is closed
+
+Only the columns used by the analyzer are required for option processing. The analyzer does not validate the full exact IBKR option header shape.
 
 ## CFD and Payment in Lieu Handling
 

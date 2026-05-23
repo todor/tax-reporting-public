@@ -35,6 +35,7 @@ from ..shared import (
 )
 from .income import _resolve_country_from_isin
 from .instruments import (
+    _is_option_asset,
     _is_supported_asset,
     _resolve_instrument_for_trade_symbol,
 )
@@ -414,6 +415,9 @@ def process_open_positions_section(
         summary.open_positions_summary_rows += 1
         if asset_category == CFD_ASSET_CATEGORY:
             summary.cfd_open_position_rows += 1
+            continue
+        if _is_option_asset(asset_category):
+            summary.option_open_position_rows += 1
             continue
         if not _is_supported_asset(asset_category):
             summary.review_required_rows += 1
