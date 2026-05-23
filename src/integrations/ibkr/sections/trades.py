@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 import logging
 from decimal import Decimal
 from typing import Literal
@@ -100,7 +101,7 @@ class _TradeRowContext:
     proceeds: Decimal
     commission: Decimal
     trade_basis: Decimal | None
-    trade_date: object
+    trade_date: date
     realized_pl: Decimal | None
     execution_exchange_raw: str
     execution_exchange_norm: str
@@ -487,7 +488,7 @@ def _sum_closedlot_basis_and_quantity_eur(
 ) -> tuple[Decimal, Decimal | None, Decimal | None]:
     closedlot_basis_eur_sum = ZERO
     closedlot_abs_quantity_sum: Decimal | None = ZERO
-    closedlot_realized_pl_eur_sum: Decimal | None = ZERO
+    closedlot_realized_pl_sum: Decimal | None = ZERO
     for closed_idx in closedlot_indices:
         closed_row_number = closed_idx + 1
         closed_row = rows[closed_idx]
@@ -544,18 +545,11 @@ def _sum_closedlot_basis_and_quantity_eur(
             row_number=closed_row_number,
         )
         closedlot_basis_eur_sum += closed_basis_eur
-        if closedlot_realized_pl_eur_sum is not None:
+        if closedlot_realized_pl_sum is not None:
             if closed_realized_pl is None:
-                closedlot_realized_pl_eur_sum = None
+                closedlot_realized_pl_sum = None
             else:
-                closed_realized_pl_eur, _ = _to_eur(
-                    closed_realized_pl,
-                    closed_currency,
-                    closed_dt,
-                    fx_provider,
-                    row_number=closed_row_number,
-                )
-                closedlot_realized_pl_eur_sum += closed_realized_pl_eur
+                closedlot_realized_pl_sum += closed_realized_pl
         if closedlot_abs_quantity_sum is not None:
             if closed_quantity is None:
                 closedlot_abs_quantity_sum = None
@@ -570,7 +564,7 @@ def _sum_closedlot_basis_and_quantity_eur(
                 "Basis (EUR)": _fmt(closed_basis_eur, quant=DECIMAL_EIGHT),
             },
         )
-    return closedlot_basis_eur_sum, closedlot_abs_quantity_sum, closedlot_realized_pl_eur_sum
+    return closedlot_basis_eur_sum, closedlot_abs_quantity_sum, closedlot_realized_pl_sum
 
 
 def _apply_review_override(
@@ -623,7 +617,7 @@ def _process_closing_trade_row(
     (
         closedlot_basis_eur_sum,
         closedlot_abs_quantity,
-        closedlot_realized_pl_eur_sum,
+        closedlot_realized_pl_sum,
     ) = _sum_closedlot_basis_and_quantity_eur(
         rows=rows,
         active_headers=active_headers,
@@ -657,8 +651,17 @@ def _process_closing_trade_row(
     pnl_eur = closing_proceeds_eur + trade_basis_eur + closing_commission_eur
 
     if _is_cfd_asset(ctx.asset_category):
-        if closedlot_realized_pl_eur_sum is not None:
-            pnl_eur = closedlot_realized_pl_eur_sum
+        if closedlot_realized_pl_sum is not None:
+            # ClosedLot Date/Time is the opened lot/acquisition date. CFD
+            # realized P/L is realized by the closing trade, so convert it
+            # using the closing trade currency/date.
+            pnl_eur, _ = _to_eur(
+                closedlot_realized_pl_sum,
+                ctx.currency,
+                ctx.trade_date,
+                fx_provider,
+                row_number=ctx.row_number,
+            )
         elif ctx.realized_pl_eur is not None:
             pnl_eur = ctx.realized_pl_eur * closing_fraction
         if pnl_eur >= ZERO:

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+from integrations.ibkr.activity_statement_analyzer import analyze_ibkr_activity_statement
 import report_analyzer
 
 from tests.integrations.ibkr import support as h
@@ -86,6 +88,38 @@ def test_negative_cfd_realized_pl_maps_to_appendix5_acquisition_side(tmp_path: P
     assert result.summary.appendix_5.purchase_eur == Decimal("7")
     assert result.summary.appendix_5.wins_eur == Decimal("0")
     assert result.summary.appendix_5.losses_eur == Decimal("7")
+
+
+def test_cfd_closedlot_realized_pl_uses_closing_trade_fx_date(tmp_path: Path) -> None:
+    rows = _cfd_rows()
+    for row in rows:
+        if len(row) > 4 and row[0] == "Trades" and row[1] == "Data" and row[3] == "CFDs":
+            row[4] = "USD"
+    rows[7][14] = "10"
+    rows[8][14] = "10"
+    input_csv = tmp_path / "input.csv"
+    _write_rows(input_csv, rows)
+
+    def fx_provider(currency: str, on_date: date) -> Decimal:
+        if currency == "EUR":
+            return Decimal("1")
+        if currency == "USD" and on_date == date(2025, 1, 10):
+            return Decimal("0.5")
+        if currency == "USD" and on_date == date(2025, 1, 20):
+            return Decimal("0.8")
+        raise AssertionError(f"unexpected FX request: {currency} {on_date}")
+
+    result = analyze_ibkr_activity_statement(
+        input_csv=input_csv,
+        tax_year=2025,
+        tax_exempt_mode="listed_symbol",
+        output_dir=tmp_path / "out",
+        fx_rate_provider=fx_provider,
+    )
+
+    assert result.summary.appendix_5.sale_price_eur == Decimal("8.0")
+    assert result.summary.appendix_5.purchase_eur == Decimal("0")
+    assert result.summary.appendix_5.wins_eur == Decimal("8.0")
 
 
 def test_cfd_financing_negative_is_netted_to_appendix5_by_default(tmp_path: Path) -> None:
