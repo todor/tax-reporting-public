@@ -55,7 +55,14 @@ _OPEN_POSITION_MISMATCH_RE = re.compile(
 )
 
 
-def _sum_bucket(bucket: BucketTotals, sale_price_eur: Decimal, purchase_eur: Decimal, pnl_eur: Decimal) -> None:
+def _sum_bucket(
+    bucket: BucketTotals,
+    sale_price_eur: Decimal,
+    purchase_eur: Decimal,
+    pnl_eur: Decimal,
+    *,
+    count_row: bool = True,
+) -> None:
     bucket.sale_price_eur += sale_price_eur
     bucket.purchase_eur += purchase_eur
 
@@ -63,7 +70,8 @@ def _sum_bucket(bucket: BucketTotals, sale_price_eur: Decimal, purchase_eur: Dec
         bucket.wins_eur += pnl_eur
     elif pnl_eur < 0:
         bucket.losses_eur += -pnl_eur
-    bucket.rows += 1
+    if count_row:
+        bucket.rows += 1
 
 
 def _is_zero_amount(value: Decimal) -> bool:
@@ -647,11 +655,55 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
     ]
 
 
+def futures_policy_notes(summary: AnalysisSummary) -> list[str]:
+    if summary.futures_trade_rows <= 0 and summary.futures_mtm_rows <= 0:
+        return []
+    return [
+        (
+            "IBKR фючърсите се отчитат по дневна mark-to-market сетълмент логика. "
+            "Затова за тях не се използват номиналните стойности на контрактите като "
+            "„продажна“ и „придобивна“ цена. В Приложение 5, Таблица 2 сумите са "
+            "представени като парично сетълнати MTM печалби и загуби за годината: "
+            "положителните MTM резултати са включени в „продажна цена“, а отрицателните "
+            "MTM резултати — в „цена на придобиване“. Trades редовете за фючърси не се "
+            "добавят отделно, за да не се получи двойно броене."
+        )
+    ]
+
+
+def futures_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
+    if summary.futures_trade_rows <= 0 and summary.futures_mtm_rows <= 0:
+        return []
+    return [
+        "- Futures policy: Mark-to-Market Performance Summary / cash-settled MTM",
+        "- Futures Appendix 5 mapping: positive MTM to sale value; negative MTM to acquisition value",
+        "- Futures Trades rows policy: not used for taxable Futures P/L to avoid double counting",
+        "- Futures Cash Report / Cash Settling MTM policy: not used for taxable Futures P/L",
+        "- Futures SPB-8 policy: excluded_from_spb8",
+        f"- Futures Trades rows count: {summary.futures_trade_rows}",
+        f"- Futures MTM rows count: {summary.futures_mtm_rows}",
+        f"- Futures MTM total EUR: {_fmt(summary.futures_mtm_total_eur)}",
+        f"- Futures MTM positive EUR total: {_fmt(summary.futures_mtm_positive_eur)}",
+        f"- Futures MTM negative EUR total: {_fmt(summary.futures_mtm_negative_eur)}",
+        f"- Futures MTM rows with non-zero Other: {summary.futures_mtm_other_rows}",
+        f"- Futures MTM Other EUR total: {_fmt(summary.futures_mtm_other_eur)}",
+    ]
+
+
 def _append_cfd_pil_notes_section(lines: list[str], *, summary: AnalysisSummary) -> None:
     notes = cfd_pil_policy_notes(summary)
     if not notes:
         return
     lines.append("CFD и PIL")
+    lines.extend(f"- {note}" for note in notes)
+    lines.append("")
+
+
+def _append_futures_notes_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+    notes = futures_policy_notes(summary)
+    if not notes:
+        return
+    lines.append("Фючърси — IBKR daily cash-settled MTM")
     lines.extend(f"- {note}" for note in notes)
     lines.append("")
 
@@ -671,7 +723,7 @@ def _tax_exempt_mode_description(tax_exempt_mode: str) -> str:
 
 
 def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainReportNote]:
-    return [
+    notes = [
         MainReportNote(
             section_title="Настройки на анализа",
             text=(
@@ -682,12 +734,41 @@ def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainRe
             category="setting",
         )
     ]
+    if summary.futures_trade_rows > 0 or summary.futures_mtm_rows > 0:
+        notes.append(
+            MainReportNote(
+                section_title="Настройки на анализа",
+                text=(
+                    "Класификация на IBKR фючърси: използва се "
+                    "Mark-to-Market Performance Summary / cash-settled MTM за данъчната година."
+                ),
+                analyzer_alias="ibkr",
+                category="setting",
+            )
+        )
+        for note in futures_policy_notes(summary):
+            notes.append(
+                MainReportNote(
+                    section_title="Фючърси — IBKR daily cash-settled MTM",
+                    text=note,
+                    analyzer_alias="ibkr",
+                    category="info",
+                )
+            )
+    return notes
 
 
 def _append_configuration_section(lines: list[str], *, summary: AnalysisSummary) -> None:
-    for note in analysis_settings_main_report_notes(summary):
-        lines.append(note.section_title)
-        lines.append(f"- {note.text}")
+    settings = [
+        note.text
+        for note in analysis_settings_main_report_notes(summary)
+        if note.section_title == "Настройки на анализа"
+    ]
+    if not settings:
+        return
+    lines.append("Настройки на анализа")
+    for text in settings:
+        lines.append(f"- {text}")
     lines.append("")
 
 
@@ -759,6 +840,7 @@ def _append_proof_section(
             f"{summary.unsupported_trade_asset_category_rows}"
         )
     lines.extend(cfd_pil_policy_audit_lines(summary))
+    lines.extend(futures_policy_audit_lines(summary))
     if summary.report_date_format_label:
         lines.append(f"- IBKR report date format: {summary.report_date_format_label}")
     if summary.report_date_format_reason:
@@ -829,6 +911,7 @@ def _build_declaration_text(
     _append_manual_check_section(lines, summary=summary)
     _append_forex_section(lines, summary=summary, money_context=money_context)
     _append_cfd_pil_notes_section(lines, summary=summary)
+    _append_futures_notes_section(lines, summary=summary)
     _append_appendix5_section(lines, summary=summary, money_context=money_context)
     _append_appendix13_section(lines, summary=summary, money_context=money_context)
     _append_appendix6_section(lines, summary=summary, money_context=money_context)

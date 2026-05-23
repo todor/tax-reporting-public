@@ -260,6 +260,14 @@ class AnalysisSummary:
     cfd_financing_positive_eur: Decimal = ZERO
     cfd_financing_negative_eur: Decimal = ZERO
     cfd_financing_negative_skipped_eur: Decimal = ZERO
+    futures_trade_rows: int = 0
+    futures_mtm_rows: int = 0
+    futures_mtm_total_eur: Decimal = ZERO
+    futures_mtm_positive_eur: Decimal = ZERO
+    futures_mtm_negative_eur: Decimal = ZERO
+    futures_mtm_other_rows: int = 0
+    futures_mtm_other_eur: Decimal = ZERO
+    futures_mtm_arithmetic_mismatches: list[dict[str, str]] = field(default_factory=list)
     pil_positive_rows: int = 0
     pil_negative_rows: int = 0
     pil_positive_eur: Decimal = ZERO

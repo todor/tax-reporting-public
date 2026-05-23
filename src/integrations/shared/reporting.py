@@ -65,6 +65,8 @@ _GROUPABLE_CODES = {
     "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL",
     "IBKR_APPENDIX9_WHT_SOURCE_MISMATCH",
     "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW",
+    "IBKR_FUTURES_MTM_ARITHMETIC_MISMATCH",
+    "IBKR_FUTURES_MTM_OTHER_INCLUDED",
     "IBKR_SPB8_REVIEW_REQUIRED",
     "IBKR_SANITY_CHECK_FAILURES",
     "IBKR_UNKNOWN_INTEREST_ROWS",
@@ -88,6 +90,8 @@ _KNOWN_DIAGNOSTIC_CODES = {
     "EMPTY_INPUT_FILE",
     "GENERIC_ANALYZER_ERROR",
     "IBKR_INCOMPLETE_CLOSED_LOTS",
+    "IBKR_FUTURES_MISSING_MTM_COLUMNS",
+    "IBKR_FUTURES_MISSING_MTM_ROWS",
     "IBKR_UNSUPPORTED_BASE_CURRENCY",
     "INPUT_FILE_MISSING",
     "INVALID_TAX_YEAR",
@@ -170,6 +174,7 @@ class MainReportNotes:
     spb8: list[str] = field(default_factory=list)
     forex: list[str] = field(default_factory=list)
     cfd_pil: list[str] = field(default_factory=list)
+    futures: list[str] = field(default_factory=list)
     appendix8: list[str] = field(default_factory=list)
     general: list[str] = field(default_factory=list)
 
@@ -218,6 +223,11 @@ def extract_main_report_notes(body: str) -> tuple[str, MainReportNotes]:
     lines, spb8_notes = _extract_note_block(lines, title="Забележки за СПБ-8", bullet_lines=True)
     lines, forex_notes = _extract_note_block(lines, title="Forex операции", bullet_lines=True)
     lines, cfd_pil_notes = _extract_note_block(lines, title="CFD и PIL", bullet_lines=True)
+    lines, futures_notes = _extract_note_block(
+        lines,
+        title="Фючърси — IBKR daily cash-settled MTM",
+        bullet_lines=True,
+    )
     lines, appendix8_notes = _extract_note_block(lines, title="Забележка:", bullet_lines=False)
     general_notes: list[str] = []
     appendix8_specific_notes: list[str] = []
@@ -232,6 +242,7 @@ def extract_main_report_notes(body: str) -> tuple[str, MainReportNotes]:
             spb8=spb8_notes,
             forex=forex_notes,
             cfd_pil=cfd_pil_notes,
+            futures=futures_notes,
             appendix8=appendix8_specific_notes,
             general=general_notes,
         ),
@@ -772,6 +783,28 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
             "- Ако акаунтът не е в EUR, обработете го ръчно или разширете поддръжката на анализатора.",
         ]
 
+    if diagnostic.code == "IBKR_FUTURES_MISSING_MTM_ROWS":
+        return [
+            "Открити са IBKR Futures сделки, но липсват Futures редове в Mark-to-Market Performance Summary.",
+            "Не може надеждно да се изчисли данъчният резултат за фючърси без MTM секцията.",
+            "Какво да направите:",
+            "- Експортирайте пълен IBKR Activity Statement с включена Mark-to-Market Performance Summary секция.",
+            "- Стартирайте анализа отново с пълния отчет.",
+        ]
+
+    if diagnostic.code == "IBKR_FUTURES_MISSING_MTM_COLUMNS":
+        columns = [str(item) for item in params.get("columns", [])]
+        lines = ["Грешка: Futures ред в Mark-to-Market Performance Summary няма задължителни колони:"]
+        lines.extend(f"- {column}" for column in columns)
+        lines.extend(
+            [
+                "Какво да направите:",
+                "- Експортирайте IBKR Activity Statement с пълна Mark-to-Market Performance Summary секция.",
+                "- Стартирайте анализа отново с пълния отчет.",
+            ]
+        )
+        return lines
+
     if diagnostic.code and diagnostic.code.startswith("CRYPTO_"):
         return _structured_family_message_bg(
             diagnostic,
@@ -1107,6 +1140,8 @@ def _ibkr_code_summary_bg(diagnostic: AnalysisDiagnostic) -> str:
         "IBKR_APPENDIX9_WHT_SOURCE_MISMATCH": "има разминаване в източниците за удържан данък върху лихви.",
         "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL": f"има {count} положителни Withholding Tax реда за лихви.",
         "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW": f"има {count} случая с положителен Withholding Tax за дивиденти.",
+        "IBKR_FUTURES_MTM_ARITHMETIC_MISMATCH": f"има {count} Futures MTM реда с аритметично разминаване.",
+        "IBKR_FUTURES_MTM_OTHER_INCLUDED": f"има {count} Futures MTM реда с ненулева стойност в колоната Other.",
         "IBKR_UNKNOWN_INTEREST_ROWS": f"има {count} реда с непознат вид лихва.",
         "IBKR_DIVIDEND_COUNTRY_ERRORS": f"има {count} дивидентни реда с невалиден ISIN/държава.",
         "IBKR_WITHHOLDING_COUNTRY_ERRORS": f"има {count} реда удържан данък с невалиден ISIN/държава.",
@@ -1174,6 +1209,7 @@ def _informational_note_count(notes: MainReportNotes) -> int:
             notes.spb8,
             notes.forex,
             notes.cfd_pil,
+            notes.futures,
             notes.appendix8,
             notes.general,
         )
@@ -1262,6 +1298,7 @@ def render_assumptions_section(*, notes: MainReportNotes, diagnostics_path: Path
         _notes_subsection("СПБ-8", notes.spb8),
         _notes_subsection("Forex операции", notes.forex),
         _notes_subsection("CFD и PIL", notes.cfd_pil),
+        _notes_subsection("Фючърси — IBKR daily cash-settled MTM", notes.futures),
         _notes_subsection("Приложение 8", notes.appendix8),
         _notes_subsection(
             "Изчисления и визуализация",

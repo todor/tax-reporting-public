@@ -829,6 +829,15 @@ IBKR CFD and PIL handling:
 - `Payment in Lieu of Dividend (Ordinary Dividend)` is not treated as a real dividend and is processed separately from CFD trade P/L. Negative PIL is netted into Appendix 5 by default; use `--no-net-pil` to skip negative PIL. Positive PIL always goes to Appendix 6, code 606.
 - This is a practical interpretation for synthetic broker cashflow adjustments; confirm treatment with your accountant if needed.
 
+IBKR Futures handling:
+
+- Futures are daily cash-settled derivatives and use `Mark-to-Market Performance Summary` as the taxable P/L source.
+- Futures `Trades` rows and `Cash Report` / `Cash Settling MTM` rows are not added on top of MTM.
+- Futures notional/contract value is not used as sale/acquisition value.
+- Appendix 5 Table 2 code 508 maps positive MTM totals to the sale/income side and negative MTM totals to the acquisition/cost side by absolute value.
+- Futures MTM rows affect monetary totals only; the Appendix 5 informational trade count uses actual Futures `Trades` executions, not MTM row count.
+- Futures are excluded from SPB-8 because they are derivative/cash-settled contracts, not real securities with ISIN.
+
 Optional venue override inputs (activates closed-world venue classification for this run):
 
 ```bash

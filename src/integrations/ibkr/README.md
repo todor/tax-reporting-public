@@ -402,6 +402,35 @@ IBKR may report `Payment in Lieu of Dividend (Ordinary Dividend)` in the `Divide
 
 CFD financing and PIL adjustments are treated according to their economic relationship with CFD/short/synthetic exposure. Because there is no explicit public guidance for synthetic broker cashflow adjustments, the tool applies a practical defensible approach and provides conservative modes through the CLI flags above.
 
+## Futures Handling
+
+IBKR Futures are daily cash-settled derivative contracts. They are handled differently from stocks/options:
+
+- taxable Futures P/L is sourced from `Mark-to-Market Performance Summary`
+- only rows with `Asset Category = Futures` are included
+- the analyzer uses `Mark-to-Market P/L Total`
+- `Trades` rows are not used for taxable Futures P/L and are not added on top of MTM
+- `Cash Report` / `Cash Settling MTM` rows are not added on top of MTM
+- Futures notional/contract value is not used as sale/acquisition value
+- Appendix 5 Table 2 code `508` mapping:
+  - positive MTM total -> sale/income side
+  - negative MTM total -> acquisition/cost side by absolute value
+- the net Appendix 5 result equals the sum of converted Futures MTM totals
+- MTM rows contribute only to monetary totals; the informational trade count uses Futures `Trades` executions, not MTM row count
+- Futures are excluded from `СПБ-8` because they are derivative/cash-settled contracts, not real securities with ISIN
+
+The required MTM columns are:
+
+- `Asset Category`
+- `Symbol`
+- `Mark-to-Market P/L Position`
+- `Mark-to-Market P/L Transaction`
+- `Mark-to-Market P/L Commissions`
+- `Mark-to-Market P/L Other`
+- `Mark-to-Market P/L Total`
+
+The analyzer validates that `Position + Transaction + Commissions + Other` matches `Total` within rounding tolerance. A material mismatch is reported as a warning. A non-zero `Other` value is included through `Total` and is shown in diagnostics.
+
 ## Interest Processing (Appendix 6 / 9)
 
 Source section:

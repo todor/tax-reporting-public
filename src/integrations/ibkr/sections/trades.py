@@ -16,6 +16,7 @@ from ..constants import (
     EXCHANGE_CLASS_INVALID,
     EXCHANGE_CLASS_EU_REGULATED,
     EXCHANGE_CLASS_UNMAPPED,
+    FUTURES_ASSET_CATEGORY,
     REVIEW_STATUS_NON_TAXABLE,
     REVIEW_STATUS_NON_TAXABLE_FROM_HERE,
     REVIEW_STATUS_TAXABLE,
@@ -468,6 +469,10 @@ def _is_trade_asset_supported_for_parsing(asset_category: str) -> bool:
     return _is_supported_asset(asset_category) or _is_cfd_asset(asset_category)
 
 
+def _is_futures_asset(asset_category: str) -> bool:
+    return asset_category.strip() == FUTURES_ASSET_CATEGORY
+
+
 def _sum_closedlot_basis_and_quantity_eur(
     *,
     rows: list[list[str]],
@@ -893,6 +898,12 @@ def process_trades_section(
             summary.order_discriminator_rows += 1
 
         if row_idx in consumed_closedlots:
+            continue
+
+        if _is_futures_asset(asset_category):
+            if lowered == "trade":
+                summary.futures_trade_rows += 1
+                summary.appendix_5.rows += 1
             continue
 
         if not _is_forex_asset(asset_category) and not _is_trade_asset_supported_for_parsing(asset_category):

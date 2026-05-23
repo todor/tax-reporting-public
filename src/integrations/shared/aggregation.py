@@ -454,6 +454,14 @@ def _short_reason_for_diagnostic(diagnostic: AnalysisDiagnostic) -> str:
         return "Binance futures funding fee review"
     if diagnostic.code == "IBKR_INCOMPLETE_CLOSED_LOTS":
         return "incomplete IBKR statement missing ClosedLot rows"
+    if diagnostic.code == "IBKR_FUTURES_MISSING_MTM_ROWS":
+        return "missing Futures MTM rows"
+    if diagnostic.code == "IBKR_FUTURES_MISSING_MTM_COLUMNS":
+        return "missing Futures MTM columns"
+    if diagnostic.code == "IBKR_FUTURES_MTM_ARITHMETIC_MISMATCH":
+        return "Futures MTM arithmetic mismatch"
+    if diagnostic.code == "IBKR_FUTURES_MTM_OTHER_INCLUDED":
+        return "Futures MTM Other included"
     if diagnostic.code == "IBKR_SPB8_REVIEW_REQUIRED":
         return "IBKR SPB-8 review required"
     if diagnostic.code in {"UNCLASSIFIED_WARNING_GROUP", "UNCLASSIFIED_MANUAL_REVIEW_GROUP"}:

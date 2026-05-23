@@ -48,6 +48,7 @@ from .models import (
 )
 from .sections.dividends import DividendsSectionResult, process_dividends_section
 from .sections.fees import FeesSectionResult, process_fees_section
+from .sections.futures import process_futures_mtm_section
 from .sections.income import _appendix9_default_country
 from .sections.instruments import (
     _exchange_classification_mode_label,
@@ -205,6 +206,13 @@ def _process_sections(
         eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
         closed_world_mode=closed_world_mode,
         report_date_format=report_date_format,
+    )
+    process_futures_mtm_section(
+        rows=rows,
+        active_headers=active_headers,
+        summary=summary,
+        fx_provider=fx_provider,
+        tax_year=tax_year,
     )
     fees = process_fees_section(
         rows=rows,
@@ -757,6 +765,12 @@ def analyze_ibkr_activity_statement(
     if summary.cfd_trade_rows > 0 or summary.cfd_open_position_rows > 0:
         summary.spb8_notes.append(
             "CFD позициите не се включват в СПБ-8, защото са деривативни/synthetic експозиции, а не реални ценни книжа с ISIN."
+        )
+    if summary.futures_trade_rows > 0 or summary.futures_mtm_rows > 0:
+        summary.spb8_notes.append(
+            "СПБ-8: IBKR фючърсите не се включват като ценни книжа в СПБ-8, защото са "
+            "деривативни/парично сетълнати договори, а не реално притежавани ценни книжа "
+            "с ISIN. IBKR паричните средства/сметки се разглеждат отделно по правилата за СПБ-8."
         )
 
     populate_trade_aggregate_extras(

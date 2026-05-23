@@ -11,6 +11,7 @@ from integrations.ibkr.appendices.declaration_text import (
     analysis_settings_main_report_notes,
     cfd_pil_policy_audit_lines,
     cfd_pil_policy_notes,
+    futures_policy_audit_lines,
 )
 from integrations.ibkr.models import AnalysisSummary as IbkrAnalysisSummary
 from integrations.p2p.shared.appendix6_models import P2PAppendix6Result
@@ -528,6 +529,32 @@ def build_ibkr_result(
                 },
             )
         )
+    if summary.futures_mtm_arithmetic_mismatches:
+        legacy_diagnostics.append(
+            AnalysisDiagnostic(
+                severity="WARNING",
+                analyzer_alias=analyzer_alias,
+                code="IBKR_FUTURES_MTM_ARITHMETIC_MISMATCH",
+                message="Futures Mark-to-Market arithmetic mismatch was detected.",
+                params={
+                    "count": len(summary.futures_mtm_arithmetic_mismatches),
+                    "rows": summary.futures_mtm_arithmetic_mismatches,
+                },
+            )
+        )
+    if summary.futures_mtm_other_rows > 0:
+        legacy_diagnostics.append(
+            AnalysisDiagnostic(
+                severity="INFO",
+                analyzer_alias=analyzer_alias,
+                code="IBKR_FUTURES_MTM_OTHER_INCLUDED",
+                message="Non-zero Futures Mark-to-Market P/L Other was included via MTM Total.",
+                params={
+                    "count": summary.futures_mtm_other_rows,
+                    "other_eur": summary.futures_mtm_other_eur,
+                },
+            )
+        )
     diagnostics = normalize_diagnostics(legacy_diagnostics)
 
     appendices: list[AppendixRecord] = []
@@ -667,5 +694,5 @@ def build_ibkr_result(
         spb8_corporate_actions_present=summary.spb8_corporate_actions_present,
         main_report_notes=analysis_settings_main_report_notes(summary),
         policy_notes=cfd_pil_policy_notes(summary),
-        policy_audit_lines=cfd_pil_policy_audit_lines(summary),
+        policy_audit_lines=cfd_pil_policy_audit_lines(summary) + futures_policy_audit_lines(summary),
     )
