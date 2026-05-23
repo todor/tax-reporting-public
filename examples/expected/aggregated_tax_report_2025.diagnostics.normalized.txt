@@ -3,8 +3,10 @@ Technical Details
 Aggregated tax report diagnostics
 - status: OK
 - output_dir: <OUTPUT>
-- detected_inputs_count: 2
+- detected_inputs_count: 3
 - ignored_inputs_count: 0
+- opening_state_resolution:
+  - <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv -> kraken: Opening state: none (since inception)
 
 Analyzer technical details
 Aggregated Report
@@ -16,8 +18,56 @@ Aggregated Report
 - Display FX date: 2025-12-31
 - Display FX pair: EUR/BGN
 
+Policy details
+ibkr
+- CFD trades policy: Appendix 5 / Table 2 / code 508
+- CFD holdings policy: excluded_from_appendix_8
+- CFD SPB-8 policy: excluded_from_spb8
+- CFD financing policy: netted_to_appendix_5
+- PIL policy: negative_pil_netted_to_appendix_5
+- Positive PIL policy: appendix_6_code_606
+- CFD trade rows count: 5
+- CFD open position rows excluded from Appendix 8/SPB-8: 0
+- Appendix 5 non-trade adjustment rows not counted as trades: 10
+- Appendix 5 CFD financing adjustment rows not counted as trades: 9
+- Appendix 5 negative PIL adjustment rows not counted as trades: 1
+- CFD financing rows detected in statement: 9
+- CFD financing rows included in tax year: 9
+- CFD financing rows outside tax year ignored: 0
+- CFD financing positive EUR total: 0
+- CFD financing negative EUR total: 12.68427532045218653972993563
+- CFD financing negative skipped EUR total: 0
+- PIL rows detected in statement: 1
+- PIL rows included in tax year: 1
+- PIL rows outside tax year ignored: 0
+- Positive PIL EUR total: 0
+- Negative PIL EUR total: 28.45414386730953099195737871
+- Futures policy: Mark-to-Market Performance Summary / cash-settled MTM
+- Futures Appendix 5 mapping: positive MTM to sale value; negative MTM to acquisition value
+- Futures Trades rows policy: not used for taxable Futures P/L to avoid double counting
+- Futures Cash Report / Cash Settling MTM policy: not used for taxable Futures P/L
+- Futures SPB-8 policy: excluded_from_spb8
+- Futures Trades rows count: 6
+- Futures MTM rows count: 3
+- Futures MTM total EUR: -433.0725670
+- Futures MTM positive EUR total: 0
+- Futures MTM negative EUR total: 433.0725670
+- Futures MTM rows with non-zero Other: 0
+- Futures MTM Other EUR total: 0
+- Equity/index options policy: Appendix 5 / Table 2 / code 508
+- Equity/index options calculation source: Trades/ClosedLot
+- Equity/index options MTM policy: ignored for tax calculation
+- Equity/index options SPB-8 policy: excluded_from_spb8
+- Equity/index option Trade rows count: 10
+- Equity/index option ClosedLot rows included: 5
+- Equity/index option open position rows excluded from Appendix 8/SPB-8: 0
+- Equity/index option exercise/assignment rows without ClosedLot: 0
+- Equity/index option unhandled Trade rows: 0
+- Equity/index option ClosedLot realized P/L USD total: -101.588980
+
 Detected inputs
 - <REPO>/examples/inputs/ibkr_activity_statement_sample_sanitized.csv -> ibkr (auto-detected from filename tokens)
+- <REPO>/examples/inputs/ibkr_activity_statement_sample_synthetic.csv -> ibkr (auto-detected from filename tokens)
 - <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv -> kraken (auto-detected from filename tokens)
 - <REPO>/examples/inputs/spb8-input-file.csv -> spb8-input (auto-detected from filename tokens)
 
@@ -25,7 +75,10 @@ Per-analyzer status
 ibkr
 - OK
   source: <REPO>/examples/inputs/ibkr_activity_statement_sample_sanitized.csv
-  declaration: <OUTPUT>/ibkr/ibkr_activity_declaration_2025.txt
+  declaration: <OUTPUT>/ibkr/ibkr_activity_statement_sample_sanitized_1/ibkr_activity_declaration_2025.txt
+- OK
+  source: <REPO>/examples/inputs/ibkr_activity_statement_sample_synthetic.csv
+  declaration: <OUTPUT>/ibkr/ibkr_activity_statement_sample_synthetic_2/ibkr_activity_declaration_2025.txt
 kraken
 - OK
   source: <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv
