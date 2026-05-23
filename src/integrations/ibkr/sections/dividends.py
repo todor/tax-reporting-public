@@ -313,7 +313,7 @@ def _apply_payment_in_lieu_totals(
         summary.pil_negative_rows += 1
         summary.pil_negative_eur += negative_abs
         if net_pil:
-            _sum_bucket(summary.appendix_5, ZERO, negative_abs, amount_eur)
+            _sum_bucket(summary.appendix_5, ZERO, negative_abs, amount_eur, count_row=False)
         else:
             summary.pil_negative_skipped_eur += negative_abs
 
@@ -435,6 +435,7 @@ def process_dividends_section(
         description = data[field_idx.description].strip()
         amount = _parse_decimal(data[field_idx.amount], row_number=row_number, field_name="Amount")
         if is_payment_in_lieu_ordinary_dividend(description):
+            summary.pil_detected_rows += 1
             amount_eur, _ = _to_eur(
                 amount,
                 currency,
@@ -451,6 +452,8 @@ def process_dividends_section(
                     amount_eur=amount_eur,
                     net_pil=net_pil,
                 )
+            else:
+                summary.pil_outside_tax_year_rows += 1
             review_status_raw = data[field_idx.review_status].strip() if field_idx.review_status is not None else ""
             _set_dividends_existing_values(
                 rows=rows,

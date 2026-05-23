@@ -531,12 +531,15 @@ def _append_review_section(
     lines.append("")
     for entry in summary.review_entries:
         lines.append(
-            "- row={row} symbol={symbol} date={dt} listing={listing} execution={execution} "
-            "reason={reason} proceeds_eur={proceeds} basis_eur={basis} pnl_eur={pnl}".format(
+            "- row={row} symbol={symbol} date={dt} listing={listing} "
+            "listing_raw={listing_raw} mapped_classification={mapped_classification} "
+            "execution={execution} reason={reason} proceeds_eur={proceeds} basis_eur={basis} pnl_eur={pnl}".format(
                 row=entry.row_number,
                 symbol=entry.symbol,
                 dt=entry.trade_date,
                 listing=entry.listing_exchange,
+                listing_raw=entry.listing_exchange_raw,
+                mapped_classification=entry.mapped_listing_classification,
                 execution=entry.execution_exchange,
                 reason=entry.reason,
                 proceeds=_fmt(entry.proceeds_eur, quant=DECIMAL_TWO),
@@ -625,12 +628,22 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
         (
             summary.cfd_trade_rows,
             summary.cfd_open_position_rows,
+            summary.cfd_financing_detected_rows,
             summary.cfd_financing_rows,
+            summary.cfd_financing_outside_tax_year_rows,
+            summary.pil_detected_rows,
             summary.pil_positive_rows,
             summary.pil_negative_rows,
+            summary.pil_outside_tax_year_rows,
         )
     ):
         return []
+    included_pil_rows = summary.pil_positive_rows + summary.pil_negative_rows
+    appendix5_cfd_financing_adjustment_rows = summary.cfd_financing_rows if summary.net_cfd_financing else 0
+    appendix5_negative_pil_adjustment_rows = summary.pil_negative_rows if summary.net_pil else 0
+    appendix5_non_trade_adjustment_rows = (
+        appendix5_cfd_financing_adjustment_rows + appendix5_negative_pil_adjustment_rows
+    )
     return [
         "- CFD trades policy: Appendix 5 / Table 2 / code 508",
         "- CFD holdings policy: excluded_from_appendix_8",
@@ -646,18 +659,46 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
         "- Positive PIL policy: appendix_6_code_606",
         f"- CFD trade rows count: {summary.cfd_trade_rows}",
         f"- CFD open position rows excluded from Appendix 8/SPB-8: {summary.cfd_open_position_rows}",
-        f"- CFD financing rows count: {summary.cfd_financing_rows}",
+        f"- Appendix 5 non-trade adjustment rows not counted as trades: {appendix5_non_trade_adjustment_rows}",
+        (
+            "- Appendix 5 CFD financing adjustment rows not counted as trades: "
+            f"{appendix5_cfd_financing_adjustment_rows}"
+        ),
+        (
+            "- Appendix 5 negative PIL adjustment rows not counted as trades: "
+            f"{appendix5_negative_pil_adjustment_rows}"
+        ),
+        f"- CFD financing rows detected in statement: {summary.cfd_financing_detected_rows}",
+        f"- CFD financing rows included in tax year: {summary.cfd_financing_rows}",
+        f"- CFD financing rows outside tax year ignored: {summary.cfd_financing_outside_tax_year_rows}",
         f"- CFD financing positive EUR total: {_fmt(summary.cfd_financing_positive_eur)}",
         f"- CFD financing negative EUR total: {_fmt(summary.cfd_financing_negative_eur)}",
         f"- CFD financing negative skipped EUR total: {_fmt(summary.cfd_financing_negative_skipped_eur)}",
-        f"- PIL rows count: {summary.pil_positive_rows + summary.pil_negative_rows}",
+        f"- PIL rows detected in statement: {summary.pil_detected_rows}",
+        f"- PIL rows included in tax year: {included_pil_rows}",
+        f"- PIL rows outside tax year ignored: {summary.pil_outside_tax_year_rows}",
         f"- Positive PIL EUR total: {_fmt(summary.pil_positive_eur)}",
         f"- Negative PIL EUR total: {_fmt(summary.pil_negative_eur)}",
     ]
 
 
+def _has_futures_current_year_policy(summary: AnalysisSummary) -> bool:
+    return summary.futures_mtm_rows > 0
+
+
+def _has_options_current_year_policy(summary: AnalysisSummary) -> bool:
+    return any(
+        (
+            summary.option_closedlot_rows,
+            summary.option_open_position_rows,
+            summary.option_exercise_assignment_without_closedlot_rows,
+            summary.option_unhandled_trade_rows,
+        )
+    )
+
+
 def futures_policy_notes(summary: AnalysisSummary) -> list[str]:
-    if summary.futures_trade_rows <= 0 and summary.futures_mtm_rows <= 0:
+    if not _has_futures_current_year_policy(summary):
         return []
     return [
         (
@@ -692,7 +733,7 @@ def futures_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
 
 
 def options_policy_notes(summary: AnalysisSummary) -> list[str]:
-    if summary.option_trade_rows <= 0 and summary.option_closedlot_rows <= 0 and summary.option_open_position_rows <= 0:
+    if not _has_options_current_year_policy(summary):
         return []
     return [
         "Реализираните печалби/загуби от затворени или изтекли опции са включени в Приложение 5, Таблица 2, код 508.",
@@ -785,7 +826,7 @@ def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainRe
             category="setting",
         )
     ]
-    if summary.futures_trade_rows > 0 or summary.futures_mtm_rows > 0:
+    if _has_futures_current_year_policy(summary):
         notes.append(
             MainReportNote(
                 section_title="Настройки на анализа",
@@ -806,7 +847,7 @@ def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainRe
                     category="info",
                 )
             )
-    if summary.option_trade_rows > 0 or summary.option_closedlot_rows > 0 or summary.option_open_position_rows > 0:
+    if _has_options_current_year_policy(summary):
         for note in options_policy_notes(summary):
             notes.append(
                 MainReportNote(

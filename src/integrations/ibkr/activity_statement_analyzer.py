@@ -770,13 +770,18 @@ def analyze_ibkr_activity_statement(
         summary.spb8_notes.append(
             "CFD позициите не се включват в СПБ-8, защото са деривативни/synthetic експозиции, а не реални ценни книжа с ISIN."
         )
-    if summary.futures_trade_rows > 0 or summary.futures_mtm_rows > 0:
+    if summary.futures_mtm_rows > 0:
         summary.spb8_notes.append(
             "IBKR фючърсите не се включват като ценни книжа в СПБ-8, защото са "
             "деривативни/парично сетълнати договори, а не реално притежавани ценни книжа "
             "с ISIN. IBKR паричните средства/сметки се разглеждат отделно по правилата за СПБ-8."
         )
-    if summary.option_trade_rows > 0 or summary.option_closedlot_rows > 0 or summary.option_open_position_rows > 0:
+    if (
+        summary.option_closedlot_rows > 0
+        or summary.option_open_position_rows > 0
+        or summary.option_exercise_assignment_without_closedlot_rows > 0
+        or summary.option_unhandled_trade_rows > 0
+    ):
         summary.spb8_notes.append("Опциите не се включват в СПБ-8 като притежавани ценни книжа.")
 
     populate_trade_aggregate_extras(

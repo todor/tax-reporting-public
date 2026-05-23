@@ -483,6 +483,103 @@ def test_ibkr_row_level_diagnostics_are_grouped_for_main_report() -> None:
     assert "има 3 реда с изисквана ръчна проверка" not in rendered
 
 
+def test_ibkr_manual_review_rows_render_concrete_examples_in_main_and_diagnostics() -> None:
+    diagnostics = [
+        AnalysisDiagnostic(
+            severity="WARNING",
+            message=(
+                "row 699: Unmapped listing exchange (open-world mode) "
+                "(symbol=ECCC, listing_exchange=<missing from Financial Instrument Information>, "
+                "mapped_classification=MISSING, execution_exchange=NYSE)"
+            ),
+            analyzer_alias="ibkr",
+        ),
+        AnalysisDiagnostic(
+            severity="WARNING",
+            message=(
+                "row 702: Unmapped listing exchange (open-world mode) "
+                "(symbol=ECCC, listing_exchange=FOOEX, mapped_classification=UNMAPPED, execution_exchange=NYSE)"
+            ),
+            analyzer_alias="ibkr",
+        ),
+        AnalysisDiagnostic(
+            severity="MANUAL_REVIEW",
+            message="има 2 записа с изисквана ръчна проверка",
+            analyzer_alias="ibkr",
+        ),
+    ]
+
+    main = "\n".join(render_action_items(diagnostics))
+    technical = render_diagnostics_report(
+        title="IBKR diagnostics",
+        status="NEEDS_REVIEW",
+        raw_declaration_text="",
+        diagnostics=diagnostics,
+    )
+
+    assert main.count("IBKR:") == 1
+    assert "IBKR_MANUAL_REVIEW_ROWS" in main
+    assert "Категория: ръчен преглед." in main
+    assert "борсата на листване от IBKR Financial Instrument Information липсва или не е мапната" in main
+    assert "Важно: execution_exchange показва къде е изпълнена сделката" in main
+    assert (
+        "row 699, section=Trades, symbol=ECCC, "
+        "listing_exchange=<missing from Financial Instrument Information>, "
+        "mapped_classification=MISSING, execution_exchange=NYSE"
+    ) in main
+    assert (
+        "row 702, section=Trades, symbol=ECCC, listing_exchange=FOOEX, "
+        "mapped_classification=UNMAPPED, execution_exchange=NYSE"
+    ) in main
+    assert "Прегледайте детайлите в диагностичния файл" not in main
+    assert "Проверете Financial Instrument Information реда за съответния символ" in main
+    assert "[WARNING] [ibkr] UNCLASSIFIED_WARNING_GROUP" not in technical
+    assert "[MANUAL_REVIEW] [ibkr] IBKR_MANUAL_REVIEW_ROWS" in technical
+    assert "examples:\n  -\n    row: 699" in technical
+    assert "listing_exchange: <missing from Financial Instrument Information>" in technical
+    assert "listing_exchange: FOOEX" in technical
+    assert "mapped_classification: UNMAPPED" in technical
+
+
+def test_ibkr_option_unhandled_rows_are_specific_and_include_examples() -> None:
+    diagnostics = [
+        AnalysisDiagnostic(
+            severity="WARNING",
+            analyzer_alias="ibkr",
+            code="IBKR_OPTIONS_UNHANDLED_ROWS",
+            message="Equity/index option rows require review because no attached ClosedLot was found.",
+            params={
+                "count": 2,
+                "rows": [
+                    {
+                        "row": "10",
+                        "section": "Trades",
+                        "symbol": "SPY 20DEC24 585 P",
+                        "date": "2024-12-20",
+                        "code": "Ep",
+                        "reason": "expiry-style option row without attached ClosedLot",
+                    }
+                ],
+            },
+        )
+    ]
+
+    main = "\n".join(render_action_items(diagnostics))
+    technical = render_diagnostics_report(
+        title="IBKR diagnostics",
+        status="WARNING",
+        raw_declaration_text="",
+        diagnostics=diagnostics,
+    )
+
+    assert "IBKR_OPTIONS_UNHANDLED_ROWS" in main
+    assert "опции изискват преглед" in main
+    assert "без attached ClosedLot" in main
+    assert "row 10, section=Trades, symbol=SPY 20DEC24 585 P" in main
+    assert "[WARNING] [ibkr] IBKR_OPTIONS_UNHANDLED_ROWS" in technical
+    assert "expiry-style option row without attached ClosedLot" in technical
+
+
 def test_ibkr_positive_withholding_reversal_is_one_structured_action_item() -> None:
     diagnostics = [
         AnalysisDiagnostic(
@@ -558,7 +655,8 @@ def test_ibkr_grouped_diagnostics_are_technical_and_structured() -> None:
     assert "[MANUAL_REVIEW] [ibkr] FOREX_ROWS_IGNORED" in rendered
     assert "message: Forex rows were ignored because taxable forex is not supported" in rendered
     assert "count: 17" in rendered
-    assert "rows:\n  -\n    execution_exchange: IDEALFX" in rendered
+    assert "rows:\n  -\n    row: 6691" in rendered
+    assert "execution_exchange: IDEALFX" in rendered
     assert "[WARNING] [ibkr] UNKNOWN_DIVIDEND_ROWS" in rendered
     assert "message: има 17 Forex" not in rendered
     assert "Payment in Lieu of Dividend" in rendered
@@ -911,7 +1009,8 @@ def test_unclassified_fallback_keeps_raw_details_only_in_diagnostics() -> None:
     )
 
     assert "unexpected raw English warning" not in main
-    assert "Coinbase: има 1 предупреждения, които изискват преглед." in main
+    assert "Coinbase: UNCLASSIFIED_WARNING_GROUP - има 1 предупреждения, които изискват преглед." in main
+    assert "Причина: диагностиката няма структуриран код" in main
     assert "[WARNING] [coinbase] UNCLASSIFIED_WARNING_GROUP" in technical
     assert "unexpected raw English warning that has no structured code" in technical
 

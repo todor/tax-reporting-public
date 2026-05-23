@@ -477,6 +477,32 @@ def build_ibkr_result(
         AnalysisDiagnostic(severity="WARNING", message=warning, analyzer_alias=analyzer_alias)
         for warning in summary.warnings
     )
+    if summary.review_entries:
+        legacy_diagnostics.append(
+            AnalysisDiagnostic(
+                severity="MANUAL_REVIEW",
+                analyzer_alias=analyzer_alias,
+                code="IBKR_MANUAL_REVIEW_ROWS",
+                message="IBKR trade rows require manual tax-treatment review.",
+                params={
+                    "count": len(summary.review_entries),
+                    "rows": [
+                        {
+                            "row": entry.row_number,
+                            "section": "Trades",
+                            "symbol": entry.symbol,
+                            "date": entry.trade_date,
+                            "listing_exchange": entry.listing_exchange_raw,
+                            "listing_exchange_normalized": entry.listing_exchange,
+                            "mapped_classification": entry.mapped_listing_classification,
+                            "execution_exchange": entry.execution_exchange,
+                            "reason": entry.reason,
+                        }
+                        for entry in summary.review_entries
+                    ],
+                },
+            )
+        )
     legacy_diagnostics.extend(
         AnalysisDiagnostic(severity="MANUAL_REVIEW", message=reason, analyzer_alias=analyzer_alias)
         for reason in _build_manual_check_reasons(summary)
@@ -568,22 +594,20 @@ def build_ibkr_result(
                 ),
                 params={
                     "count": summary.option_exercise_assignment_without_closedlot_rows,
+                    "rows": summary.option_exercise_assignment_details,
                 },
             )
         )
-    if (
-        summary.option_trade_rows > 0
-        and summary.option_closedlot_rows == 0
-        and summary.option_exercise_assignment_without_closedlot_rows == 0
-    ):
+    if summary.option_unhandled_trade_rows > 0:
         legacy_diagnostics.append(
             AnalysisDiagnostic(
                 severity="WARNING",
                 analyzer_alias=analyzer_alias,
                 code="IBKR_OPTIONS_UNHANDLED_ROWS",
-                message="Equity/index option rows were detected but no ClosedLot or exercise/assignment handling was identified.",
+                message="Equity/index option rows require review because no attached ClosedLot was found.",
                 params={
-                    "count": summary.option_trade_rows,
+                    "count": summary.option_unhandled_trade_rows,
+                    "rows": summary.option_unhandled_trade_details,
                 },
             )
         )

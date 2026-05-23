@@ -48,6 +48,8 @@ class ReviewEntry:
     symbol: str
     trade_date: str
     listing_exchange: str
+    listing_exchange_raw: str
+    mapped_listing_classification: str
     execution_exchange: str
     reason: str
     proceeds_eur: Decimal
@@ -256,7 +258,9 @@ class AnalysisSummary:
     net_pil: bool = True
     cfd_trade_rows: int = 0
     cfd_open_position_rows: int = 0
+    cfd_financing_detected_rows: int = 0
     cfd_financing_rows: int = 0
+    cfd_financing_outside_tax_year_rows: int = 0
     cfd_financing_positive_eur: Decimal = ZERO
     cfd_financing_negative_eur: Decimal = ZERO
     cfd_financing_negative_skipped_eur: Decimal = ZERO
@@ -275,8 +279,12 @@ class AnalysisSummary:
     option_exercise_assignment_rows: int = 0
     option_exercise_assignment_without_closedlot_rows: int = 0
     option_unhandled_trade_rows: int = 0
+    option_unhandled_trade_details: list[dict[str, str]] = field(default_factory=list)
+    option_exercise_assignment_details: list[dict[str, str]] = field(default_factory=list)
     pil_positive_rows: int = 0
     pil_negative_rows: int = 0
+    pil_detected_rows: int = 0
+    pil_outside_tax_year_rows: int = 0
     pil_positive_eur: Decimal = ZERO
     pil_negative_eur: Decimal = ZERO
     pil_negative_skipped_eur: Decimal = ZERO

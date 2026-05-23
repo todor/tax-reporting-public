@@ -86,6 +86,7 @@ def process_fees_section(
         description = data[field_idx.description].strip()
         if not is_cfd_interest_fee(description):
             continue
+        summary.cfd_financing_detected_rows += 1
 
         fee_date = _parse_interest_date(
             data[field_idx.date],
@@ -94,12 +95,13 @@ def process_fees_section(
             field_name="Fees date",
         )
         amount = _parse_decimal(data[field_idx.amount], row_number=row_number, field_name="Amount")
-        processed_rows += 1
-        summary.cfd_financing_rows += 1
 
         if fee_date.year != tax_year:
+            summary.cfd_financing_outside_tax_year_rows += 1
             continue
 
+        processed_rows += 1
+        summary.cfd_financing_rows += 1
         amount_eur, _ = _to_eur(
             amount,
             currency,
@@ -110,7 +112,7 @@ def process_fees_section(
         if amount_eur > ZERO:
             summary.cfd_financing_positive_eur += amount_eur
             if net_cfd_financing:
-                _sum_bucket(summary.appendix_5, amount_eur, ZERO, amount_eur)
+                _sum_bucket(summary.appendix_5, amount_eur, ZERO, amount_eur, count_row=False)
             else:
                 summary.appendix_6_positive_cfd_financing_eur += amount_eur
                 summary.appendix_6_code_606_eur += amount_eur
@@ -120,7 +122,7 @@ def process_fees_section(
             negative_abs = -amount_eur
             summary.cfd_financing_negative_eur += negative_abs
             if net_cfd_financing:
-                _sum_bucket(summary.appendix_5, ZERO, negative_abs, amount_eur)
+                _sum_bucket(summary.appendix_5, ZERO, negative_abs, amount_eur, count_row=False)
             else:
                 summary.cfd_financing_negative_skipped_eur += negative_abs
 

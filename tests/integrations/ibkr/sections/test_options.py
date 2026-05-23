@@ -85,13 +85,22 @@ def test_equity_and_index_options_use_stock_style_closedlot_appendix5_model(tmp_
 
 def test_options_ignore_order_rows_mtm_and_spb8_holdings(tmp_path: Path) -> None:
     result = _run(tmp_path, _option_rows(), mode="listed_symbol", year=2024)
+    tax_result = build_ibkr_result(
+        analyzer_alias="ibkr",
+        input_path=result.input_csv_path,
+        tax_year=2024,
+        output_paths={"declaration": result.declaration_txt_path},
+        summary=result.summary,
+    )
 
     assert result.summary.order_discriminator_rows == 10
     assert result.summary.option_open_position_rows == 1
+    assert result.summary.option_unhandled_trade_rows == 0
     assert result.summary.spb8_rows == []
     assert result.summary.appendix_8_part1_rows == []
     assert result.summary.futures_mtm_rows == 0
     assert result.summary.appendix_5.rows == 5
+    assert all(diagnostic.code != "IBKR_OPTIONS_UNHANDLED_ROWS" for diagnostic in tax_result.diagnostics)
 
 
 def test_option_expiry_with_closedlot_is_processed_without_c_token(tmp_path: Path) -> None:
@@ -163,3 +172,36 @@ def test_option_policy_note_is_rendered_in_individual_and_aggregate_reports(tmp_
     aggregate_option_section = rendered.split("Опции върху акции и индекси", 1)[1].split("\n\n", 1)[0]
     assert "Опциите не се включват в СПБ-8" not in aggregate_option_section
     assert "Бележки към СПБ-8" in rendered
+
+
+def test_outside_tax_year_option_rows_do_not_render_main_policy_notes(tmp_path: Path) -> None:
+    rows = [
+        ["Statement", "Header", "Field Name", "Field Value"],
+        ["Statement", "Data", "Period", "January 1, 2025 - December 31, 2025"],
+        *_option_rows()[2:-3],
+    ]
+
+    result = _run(tmp_path, rows, mode="listed_symbol", year=2025)
+    tax_result = build_ibkr_result(
+        analyzer_alias="ibkr",
+        input_path=result.input_csv_path,
+        tax_year=2025,
+        output_paths={"declaration": result.declaration_txt_path},
+        summary=result.summary,
+    )
+    rendered = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={},
+        ignored_inputs=[],
+        analyzer_results=[tax_result],
+        analyzer_errors={},
+        spb8_notes=result.summary.spb8_notes,
+    )
+
+    assert result.summary.option_trade_rows == 10
+    assert result.summary.option_closedlot_rows == 0
+    assert result.summary.option_open_position_rows == 0
+    assert result.summary.appendix_5.rows == 0
+    assert "Опции върху акции и индекси" not in result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Опции върху акции и индекси" not in rendered
+    assert "Опциите не се включват в СПБ-8 като притежавани ценни книжа." not in result.summary.spb8_notes

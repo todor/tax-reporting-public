@@ -45,6 +45,13 @@ _UNKNOWN_DIVIDEND_RE = re.compile(
     r"^row (?P<row>\d+): unknown dividend description requires manual review "
     r"\(description=(?P<description>.*)\)$"
 )
+_IBKR_REVIEW_ROW_RE = re.compile(
+    r"^row (?P<row>\d+): (?P<reason>.*?) "
+    r"\(symbol=(?P<symbol>.*?), "
+    r"(?:(?:listing_exchange|listing_exchange_raw)=(?P<listing_exchange>.*?), "
+    r"mapped_classification=(?P<mapped_classification>.*?), )?"
+    r"execution_exchange=(?P<execution_exchange>.*?)\)$"
+)
 _IBKR_COUNT_RE = re.compile(r"има (?P<count>\d+)")
 
 _GROUPABLE_CODES = {
@@ -376,6 +383,31 @@ def _canonicalize_diagnostic(diagnostic: AnalysisDiagnostic) -> AnalysisDiagnost
             technical_message_en=None,
         )
 
+    match = _IBKR_REVIEW_ROW_RE.match(message)
+    if match and _looks_like_ibkr_manual_review_reason(match.group("reason")):
+        rows = [
+            {
+                "row": match.group("row"),
+                "section": "Trades",
+                "symbol": match.group("symbol"),
+                "listing_exchange": (
+                    match.group("listing_exchange")
+                    or "<missing from Financial Instrument Information>"
+                ),
+                "mapped_classification": match.group("mapped_classification") or "MISSING",
+                "execution_exchange": match.group("execution_exchange"),
+                "reason": match.group("reason"),
+            }
+        ]
+        params.update({"count": 1, "rows": rows})
+        return replace(
+            diagnostic,
+            code="IBKR_MANUAL_REVIEW_ROWS",
+            message="IBKR trade rows require manual tax-treatment review.",
+            params=params,
+            technical_message_en=None,
+        )
+
     if _contains_cyrillic(message):
         return _canonicalize_bulgarian_summary(diagnostic, params=params, message=message)
 
@@ -430,6 +462,22 @@ def _forex_review_status_label(reason: str) -> str:
     if "unknown Review Status=" in reason:
         return reason.split("unknown Review Status=", 1)[1].split(" ", 1)[0]
     return "unknown"
+
+
+def _looks_like_ibkr_manual_review_reason(reason: str) -> bool:
+    lowered = reason.lower()
+    return any(
+        token in lowered
+        for token in (
+            "unmapped",
+            "missing listing exchange",
+            "invalid listing exchange",
+            "unknown review status",
+            "review status",
+            "manual review",
+            "classification",
+        )
+    )
 
 
 def _canonicalize_bulgarian_summary(
@@ -548,14 +596,30 @@ def _merge_diagnostics(
 
 def _merge_unique_dict_rows(left: list[Any], right: list[Any]) -> list[Any]:
     rows: list[Any] = []
-    seen: set[Any] = set()
+    seen: dict[Any, int] = {}
     for item in [*left, *right]:
-        identity = _hashable(item)
+        identity = _diagnostic_row_identity(item)
         if identity in seen:
+            existing_index = seen[identity]
+            existing = rows[existing_index]
+            if isinstance(existing, dict) and isinstance(item, dict):
+                rows[existing_index] = {**existing, **item}
             continue
-        seen.add(identity)
+        seen[identity] = len(rows)
         rows.append(item)
     return rows
+
+
+def _diagnostic_row_identity(item: Any) -> Any:
+    if not isinstance(item, dict):
+        return _hashable(item)
+    row = item.get("row")
+    section = item.get("section")
+    symbol = item.get("symbol")
+    reason = item.get("reason")
+    if row not in ("", None):
+        return ("row", row, section or "", symbol or "", reason or "")
+    return _hashable(item)
 
 
 def _merge_unique_texts(left: list[Any], right: list[Any]) -> list[str]:
@@ -603,7 +667,14 @@ def _drop_redundant_summary_diagnostics(
             *_diagnostic_source_key(diagnostic),
         )
         for diagnostic in diagnostics
-        if diagnostic.code in {"FOREX_ROWS_IGNORED", "UNSUPPORTED_TRADES_ROWS", "UNKNOWN_DIVIDEND_ROWS"}
+        if diagnostic.code
+        in {
+            "FOREX_ROWS_IGNORED",
+            "UNSUPPORTED_TRADES_ROWS",
+            "UNKNOWN_DIVIDEND_ROWS",
+            "IBKR_MANUAL_REVIEW_ROWS",
+            "IBKR_OPTIONS_UNHANDLED_ROWS",
+        }
         and diagnostic.params.get("rows")
     }
     if not specific_keys:
@@ -613,7 +684,12 @@ def _drop_redundant_summary_diagnostics(
         if diagnostic.code == "IBKR_MANUAL_REVIEW_ROWS" and (
             diagnostic.analyzer_alias,
             *_diagnostic_source_key(diagnostic),
-        ) in specific_keys:
+        ) in specific_keys and not diagnostic.params.get("rows"):
+            continue
+        if (
+            diagnostic.code in {"UNCLASSIFIED_WARNING_GROUP", "UNCLASSIFIED_MANUAL_REVIEW_GROUP"}
+            and (diagnostic.analyzer_alias, *_diagnostic_source_key(diagnostic)) in specific_keys
+        ):
             continue
         filtered.append(diagnostic)
     return filtered
@@ -947,12 +1023,39 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
         return lines
 
     if diagnostic.code == "IBKR_MANUAL_REVIEW_ROWS":
-        return [
-            f"{_display_analyzer_name(analyzer)}: има {_diagnostic_count(diagnostic)} реда с изисквана ръчна проверка.",
-            "Какво да направите:",
-            "- Прегледайте групираните предупреждения по-долу и детайлите в диагностичния файл.",
-            "- Потвърдете ръчното третиране преди подаване.",
+        count = _diagnostic_count(diagnostic)
+        listing_related = _is_listing_exchange_review(diagnostic)
+        lines = [
+            f"{_display_analyzer_name(analyzer)}: {diagnostic.code} - {count} реда изискват ръчна проверка.",
+            "Категория: ръчен преглед.",
+            f"Причина: {_diagnostic_reason_bg(diagnostic, default='класификацията или Review Status не позволяват автоматично данъчно третиране.')}",
         ]
+        if listing_related:
+            lines.append(
+                "Важно: execution_exchange показва къде е изпълнена сделката, но не е достатъчен "
+                "за класификацията при listed_symbol режим."
+            )
+        examples = _diagnostic_examples_bg(diagnostic.params, include_raw=False)
+        if examples:
+            lines.append("Примери:")
+            lines.extend(f"- {example}" for example in examples)
+        lines.append("Какво да направите:")
+        if listing_related:
+            lines.extend(
+                [
+                    "- Проверете Financial Instrument Information реда за съответния символ в IBKR Activity Statement.",
+                    "- Ако борсата на листване е известна и трябва да бъде класифицирана, добавете/поправете мапинга в exchange classification таблицата.",
+                    "- Ако не може да се класифицира автоматично, потвърдете данъчното третиране ръчно преди подаване.",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "- Проверете тези конкретни редове в IBKR индивидуалния отчет и диагностичния файл.",
+                    "- Потвърдете данъчното третиране преди подаване.",
+                ]
+            )
+        return lines
 
     if diagnostic.code == "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW":
         positive_rows = diagnostic.params.get("positive_wht_rows")
@@ -1018,6 +1121,25 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
         return lines
 
     if diagnostic.code and diagnostic.code.startswith("IBKR_"):
+        if diagnostic.code == "IBKR_OPTIONS_UNHANDLED_ROWS":
+            count = _diagnostic_count(diagnostic)
+            lines = [
+                f"{_display_analyzer_name(analyzer)}: {diagnostic.code} - {count} реда с опции изискват преглед.",
+                "Категория: предупреждение.",
+                "Причина: открити са option Trade редове без attached ClosedLot, затова не е създаден автоматичен данъчен резултат.",
+            ]
+            examples = _diagnostic_examples_bg(diagnostic.params)
+            if examples:
+                lines.append("Примери:")
+                lines.extend(f"- {example}" for example in examples)
+            lines.extend(
+                [
+                    "Какво да направите:",
+                    "- Проверете дали тези опции са реализирани, изтекли, упражнени или assigned.",
+                    "- Ако имат данъчно значение, обработете резултата ръчно или добавете поддръжка в анализатора.",
+                ]
+            )
+            return lines
         return [
             f"{_display_analyzer_name(analyzer)}: {_ibkr_code_summary_bg(diagnostic)}",
             "Какво да направите:",
@@ -1028,7 +1150,15 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
     if diagnostic.code in {"UNCLASSIFIED_WARNING_GROUP", "UNCLASSIFIED_MANUAL_REVIEW_GROUP"}:
         count = _diagnostic_count(diagnostic)
         kind = "предупреждения" if diagnostic.severity == "WARNING" else "сигнала за ръчен преглед"
-        lines = [f"{_display_analyzer_name(analyzer)}: има {count} {kind}, които изискват преглед."]
+        reason = _unclassified_reason_bg(diagnostic)
+        lines = [
+            f"{_display_analyzer_name(analyzer)}: {diagnostic.code} - има {count} {kind}, които изискват преглед.",
+            f"Причина: {reason}",
+        ]
+        examples = _diagnostic_examples_bg(diagnostic.params, include_raw=False)
+        if examples:
+            lines.append("Примери:")
+            lines.extend(f"- {example}" for example in examples)
         lines.extend(
             [
                 "Какво да направите:",
@@ -1136,6 +1266,110 @@ def _diagnostic_distinct_values(params: dict[str, Any], key: str) -> list[str]:
         seen.add(value)
         values.append(value)
     return values
+
+
+def _diagnostic_reason_bg(diagnostic: AnalysisDiagnostic, *, default: str) -> str:
+    values = _diagnostic_distinct_values(diagnostic.params, "reason")
+    if not values:
+        return default
+    if len(values) == 1:
+        return _reason_bg(values[0])
+    return "; ".join(_reason_bg(value) for value in values[:3])
+
+
+def _reason_bg(reason: str) -> str:
+    lowered = reason.lower()
+    if "unmapped listing exchange" in lowered:
+        return (
+            "борсата на листване от IBKR Financial Instrument Information липсва или не е мапната "
+            "за целите на данъчното освобождаване при режим listed_symbol."
+        )
+    if "missing listing exchange" in lowered:
+        return (
+            "борсата на листване от IBKR Financial Instrument Information липсва или не е мапната "
+            "за целите на данъчното освобождаване при режим listed_symbol."
+        )
+    if "invalid listing exchange" in lowered:
+        return "невалидна стойност за listing exchange."
+    if "unknown review status" in lowered:
+        return "непозната стойност в Review Status."
+    return reason.rstrip(".") + "."
+
+
+def _diagnostic_examples_bg(params: dict[str, Any], *, limit: int = 3, include_raw: bool = True) -> list[str]:
+    rows = params.get("rows") or params.get("items")
+    examples: list[str] = []
+    if isinstance(rows, list):
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            examples.append(_diagnostic_row_example(item))
+            if len(examples) >= limit:
+                return examples
+    if include_raw:
+        raw_examples = params.get("examples")
+        if isinstance(raw_examples, list):
+            for item in raw_examples:
+                text = str(item).strip()
+                if not text:
+                    continue
+                examples.append(text)
+                if len(examples) >= limit:
+                    return examples
+        raw_detail = params.get("raw_detail")
+        if raw_detail:
+            examples.append(str(raw_detail).strip())
+    return examples[:limit]
+
+
+def _diagnostic_row_example(item: dict[str, Any]) -> str:
+    parts: list[str] = []
+    if item.get("row") not in ("", None):
+        parts.append(f"row {item['row']}")
+    if item.get("section"):
+        parts.append(f"section={item['section']}")
+    if item.get("symbol"):
+        parts.append(f"symbol={item['symbol']}")
+    listing = item.get("listing_exchange_raw") or item.get("listing_exchange")
+    if listing:
+        parts.append(f"listing_exchange={listing}")
+    if item.get("mapped_classification"):
+        parts.append(f"mapped_classification={item['mapped_classification']}")
+    if item.get("execution_exchange"):
+        parts.append(f"execution_exchange={item['execution_exchange']}")
+    if item.get("date"):
+        parts.append(f"date={item['date']}")
+    if item.get("type"):
+        parts.append(f"type={item['type']}")
+    if item.get("review_status"):
+        parts.append(f"review_status={item['review_status']}")
+    if item.get("reason"):
+        parts.append(f"reason={item['reason']}")
+    if not parts:
+        return ", ".join(f"{key}={value}" for key, value in item.items() if value not in ("", None))
+    return ", ".join(parts)
+
+
+def _is_listing_exchange_review(diagnostic: AnalysisDiagnostic) -> bool:
+    return any(
+        "listing exchange" in str(item.get("reason", "")).lower()
+        for item in diagnostic.params.get("rows", [])
+        if isinstance(item, dict)
+    )
+
+
+def _unclassified_reason_bg(diagnostic: AnalysisDiagnostic) -> str:
+    examples = [str(item) for item in diagnostic.params.get("examples", []) if str(item).strip()]
+    combined = "\n".join(examples).lower()
+    if "unmapped listing exchange" in combined:
+        return "немапната борса/listing exchange."
+    if "invalid listing exchange" in combined:
+        return "невалидна стойност за listing exchange."
+    if "missing listing exchange" in combined:
+        return "липсваща класификация на listing exchange."
+    if "execution_exchange" in combined or "listing exchange" in combined:
+        return "нужна е проверка на борсова класификация."
+    return "диагностиката няма структуриран код; вижте примерите и техническите детайли."
 
 
 def _ibkr_code_summary_bg(diagnostic: AnalysisDiagnostic) -> str:
@@ -1483,7 +1717,7 @@ def _render_known_diagnostic_fields(
         lines.append(f"count: {count}")
     rows = remaining.pop("rows", None)
     if rows:
-        lines.append("rows:")
+        lines.append("examples:" if diagnostic.code == "IBKR_MANUAL_REVIEW_ROWS" else "rows:")
         _append_structured_value(lines, list(rows), indent=2)
     items = remaining.pop("items", None)
     if items:
@@ -1537,7 +1771,7 @@ def _compact_scalar_list(value: list[Any]) -> str | None:
 def _append_structured_value(lines: list[str], value: Any, *, indent: int) -> None:
     prefix = " " * indent
     if isinstance(value, dict):
-        for key in sorted(value):
+        for key in _ordered_diagnostic_keys(value):
             item = value[key]
             if item in ("", None, [], {}):
                 continue
@@ -1575,6 +1809,27 @@ def _append_structured_value(lines: list[str], value: Any, *, indent: int) -> No
                 lines.append(f"{prefix}- {item}")
         return
     lines.append(f"{prefix}{value}")
+
+
+def _ordered_diagnostic_keys(value: dict[Any, Any]) -> list[Any]:
+    preferred = [
+        "row",
+        "section",
+        "symbol",
+        "date",
+        "listing_exchange",
+        "listing_exchange_raw",
+        "listing_exchange_normalized",
+        "mapped_classification",
+        "execution_exchange",
+        "review_status",
+        "code",
+        "reason",
+    ]
+    keys = list(value)
+    ordered = [key for key in preferred if key in value]
+    ordered.extend(sorted(key for key in keys if key not in preferred))
+    return ordered
 
 
 def write_standardized_reports(

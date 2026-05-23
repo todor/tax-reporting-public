@@ -133,11 +133,14 @@ def test_cfd_financing_negative_is_netted_to_appendix5_by_default(tmp_path: Path
     assert result.summary.appendix_5.purchase_eur == Decimal("2")
     assert result.summary.appendix_5.wins_eur == Decimal("19")
     assert result.summary.appendix_5.losses_eur == Decimal("2")
+    assert result.summary.appendix_5.rows == 1
     assert result.summary.appendix_6_code_606_eur == Decimal("0")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "CFD financing / CFD interest корекциите са третирани като част от CFD trading economics" in text
     assert "Положителните CFD financing стойности увеличават продажната страна" in text
     assert "CFD financing policy: netted_to_appendix_5" in text
+    assert "Appendix 5 non-trade adjustment rows not counted as trades: 1" in text
+    assert "Appendix 5 CFD financing adjustment rows not counted as trades: 1" in text
 
 
 def test_cfd_financing_positive_is_netted_to_appendix5_by_default(tmp_path: Path) -> None:
@@ -148,6 +151,7 @@ def test_cfd_financing_positive_is_netted_to_appendix5_by_default(tmp_path: Path
 
     assert result.summary.appendix_5.sale_price_eur == Decimal("22")
     assert result.summary.appendix_5.wins_eur == Decimal("22")
+    assert result.summary.appendix_5.rows == 1
     assert result.summary.appendix_6_code_606_eur == Decimal("0")
 
 
@@ -182,10 +186,13 @@ def test_negative_payment_in_lieu_is_netted_to_appendix5_by_default(tmp_path: Pa
     assert result.summary.appendix_5.purchase_eur == Decimal("9")
     assert result.summary.appendix_5.wins_eur == Decimal("19")
     assert result.summary.appendix_5.losses_eur == Decimal("9")
+    assert result.summary.appendix_5.rows == 1
     assert result.summary.appendix_6_code_606_eur == Decimal("0")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Отрицателният Payment in Lieu of Dividend (PIL) е третиран като short/synthetic exposure economics" in text
     assert "PIL policy: negative_pil_netted_to_appendix_5" in text
+    assert "Appendix 5 non-trade adjustment rows not counted as trades: 1" in text
+    assert "Appendix 5 negative PIL adjustment rows not counted as trades: 1" in text
 
 
 def test_no_net_pil_skips_negative_payment_in_lieu(tmp_path: Path) -> None:
@@ -246,6 +253,28 @@ def test_non_cfd_fees_are_not_treated_as_cfd_financing(tmp_path: Path) -> None:
     assert result.summary.cfd_financing_rows == 0
     assert result.summary.appendix_5.sale_price_eur == Decimal("19")
     assert result.summary.appendix_5.purchase_eur == Decimal("0")
+
+
+def test_outside_tax_year_cfd_financing_and_pil_are_detected_but_not_included(tmp_path: Path) -> None:
+    rows = _cfd_rows()
+    rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2024-01-24", "Long CFD Interest for 24-JAN-2024", "-2"])
+    rows.append(["Dividends", "Data", "USD", "2024-11-29", "ECCC(US2698097035) Payment in Lieu of Dividend (Ordinary Dividend)", "-10"])
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.cfd_financing_detected_rows == 1
+    assert result.summary.cfd_financing_rows == 0
+    assert result.summary.cfd_financing_outside_tax_year_rows == 1
+    assert result.summary.pil_detected_rows == 1
+    assert result.summary.pil_negative_rows == 0
+    assert result.summary.pil_outside_tax_year_rows == 1
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "CFD financing rows detected in statement: 1" in text
+    assert "CFD financing rows included in tax year: 0" in text
+    assert "CFD financing rows outside tax year ignored: 1" in text
+    assert "PIL rows detected in statement: 1" in text
+    assert "PIL rows included in tax year: 0" in text
+    assert "PIL rows outside tax year ignored: 1" in text
 
 
 def test_cli_flags_for_cfd_financing_and_pil_are_supported(tmp_path: Path) -> None:

@@ -488,6 +488,17 @@ def _is_option_expiry_code(code: str) -> bool:
     return "EP" in _code_tokens(code)
 
 
+def _option_trade_detail(ctx: _TradeRowContext, *, reason: str) -> dict[str, str]:
+    return {
+        "row": str(ctx.row_number),
+        "section": "Trades",
+        "symbol": ctx.symbol,
+        "date": ctx.trade_date.isoformat(),
+        "code": ctx.code or "-",
+        "reason": reason,
+    }
+
+
 def _sum_closedlot_basis_and_quantity_eur(
     *,
     rows: list[list[str]],
@@ -693,6 +704,7 @@ def _process_closing_trade_row(
         normalized_symbol = ctx.symbol
         symbol_for_messages = ctx.symbol
         listing_exchange = ""
+        listing_exchange_raw = ""
         listing_exchange_class = None
         symbol_is_eu_listed = False
         appendix_target = APPENDIX_5
@@ -703,6 +715,7 @@ def _process_closing_trade_row(
         normalized_symbol = ctx.symbol
         symbol_for_messages = ctx.symbol
         listing_exchange = ""
+        listing_exchange_raw = ""
         listing_exchange_class = None
         symbol_is_eu_listed = False
         appendix_target = APPENDIX_5
@@ -717,6 +730,7 @@ def _process_closing_trade_row(
         symbol_for_messages = normalized_symbol or ctx.symbol
         missing_symbol_mapping = instrument is None
         listing_exchange = instrument.listing_exchange_normalized if instrument is not None else ""
+        listing_exchange_raw = instrument.listing_exchange if instrument is not None else ""
         listing_exchange_class = instrument.listing_exchange_class if instrument is not None else None
         symbol_is_eu_listed: bool | None = None if instrument is None else instrument.is_eu_listed
 
@@ -755,8 +769,13 @@ def _process_closing_trade_row(
             and appendix_target == APPENDIX_REVIEW
         )
         if not skip_duplicate_review_warning:
+            listing_for_warning = listing_exchange_raw or "<missing from Financial Instrument Information>"
+            mapped_classification = listing_exchange_class or "MISSING"
             summary.warnings.append(
-                f"row {ctx.row_number}: {reason} (symbol={symbol_for_messages}, execution_exchange={ctx.execution_exchange_norm or '<EMPTY>'})"
+                f"row {ctx.row_number}: {reason} "
+                f"(symbol={symbol_for_messages}, listing_exchange={listing_for_warning}, "
+                f"mapped_classification={mapped_classification}, "
+                f"execution_exchange={ctx.execution_exchange_norm or '<EMPTY>'})"
             )
         logger.debug(
             "row %s marked REVIEW_REQUIRED: %s (symbol=%s, execution_exchange=%s)",
@@ -818,16 +837,15 @@ def _process_closing_trade_row(
                     summary.option_closedlot_realized_pl_by_currency.get(currency, ZERO)
                     + closedlot_realized_pl_sum
                 )
-        if tax_exempt_mode == TAX_MODE_EXECUTION_EXCHANGE and appendix_target == APPENDIX_REVIEW:
-            summary.review_rows += 1
-            summary.review_exchanges.add(ctx.execution_exchange_norm or "<EMPTY>")
-            _sum_bucket(summary.review, sale_price_component_eur, purchase_component_eur, pnl_eur)
+        if review_required:
             summary.review_entries.append(
                 ReviewEntry(
                     row_number=ctx.row_number,
                     symbol=symbol_for_messages,
                     trade_date=ctx.trade_date.isoformat(),
                     listing_exchange=listing_exchange or "<MISSING>",
+                    listing_exchange_raw=listing_exchange_raw or "<missing from Financial Instrument Information>",
+                    mapped_listing_classification=listing_exchange_class or "MISSING",
                     execution_exchange=ctx.execution_exchange_norm or "<EMPTY>",
                     reason=reason,
                     proceeds_eur=closing_proceeds_eur,
@@ -835,6 +853,10 @@ def _process_closing_trade_row(
                     pnl_eur=pnl_eur,
                 )
             )
+        if tax_exempt_mode == TAX_MODE_EXECUTION_EXCHANGE and appendix_target == APPENDIX_REVIEW:
+            summary.review_rows += 1
+            summary.review_exchanges.add(ctx.execution_exchange_norm or "<EMPTY>")
+            _sum_bucket(summary.review, sale_price_component_eur, purchase_component_eur, pnl_eur)
         elif appendix_target == APPENDIX_13:
             _sum_bucket(summary.appendix_13, sale_price_component_eur, purchase_component_eur, pnl_eur)
         else:
@@ -1027,8 +1049,17 @@ def process_trades_section(
             if option_exercise_assignment:
                 summary.option_exercise_assignment_rows += 1
                 summary.option_exercise_assignment_without_closedlot_rows += 1
+                summary.option_exercise_assignment_details.append(
+                    _option_trade_detail(
+                        ctx,
+                        reason="exercise/assignment code without attached ClosedLot; no standalone option taxable event",
+                    )
+                )
             elif _is_option_asset(ctx.asset_category) and _is_option_expiry_code(ctx.code):
                 summary.option_unhandled_trade_rows += 1
+                summary.option_unhandled_trade_details.append(
+                    _option_trade_detail(ctx, reason="expiry-style option row without attached ClosedLot")
+                )
             summary.ignored_non_closing_trade_rows += 1
             _set_non_closing_trade_extras(
                 ctx=ctx,
@@ -1043,6 +1074,12 @@ def process_trades_section(
             if option_exercise_assignment:
                 summary.option_exercise_assignment_rows += 1
                 summary.option_exercise_assignment_without_closedlot_rows += 1
+                summary.option_exercise_assignment_details.append(
+                    _option_trade_detail(
+                        ctx,
+                        reason="exercise/assignment code without attached ClosedLot; no standalone option taxable event",
+                    )
+                )
                 summary.ignored_non_closing_trade_rows += 1
                 _set_non_closing_trade_extras(
                     ctx=ctx,
@@ -1052,6 +1089,9 @@ def process_trades_section(
                 continue
             if _is_option_asset(ctx.asset_category):
                 summary.option_unhandled_trade_rows += 1
+                summary.option_unhandled_trade_details.append(
+                    _option_trade_detail(ctx, reason="closing option row without attached ClosedLot")
+                )
                 summary.ignored_non_closing_trade_rows += 1
                 _set_non_closing_trade_extras(
                     ctx=ctx,
