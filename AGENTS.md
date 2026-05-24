@@ -10,6 +10,7 @@ This repo contains tax analyzers (IBKR, Binance, etc.) that produce Bulgarian ta
 - Small analyzers may stay single-file.
 - Larger analyzers must be split into coherent modules.
 - Do not create large monolithic files.
+- Use the `tax-commit-message` skill when asked for commit messages or summaries of local changes.
 
 ---
 
