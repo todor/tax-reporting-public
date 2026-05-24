@@ -31,6 +31,7 @@ def normalize_report(text: str) -> str:
         normalized,
     )
     normalized = normalized.replace("__FILE_URI__", "file://")
+    normalized = re.sub(r"(<(?:REPO|OUTPUT)>)[/\\]", r"\1/", normalized)
     return normalized
 
 

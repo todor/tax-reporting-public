@@ -23,7 +23,9 @@ def test_normalize_report_rewrites_repo_specific_file_uris() -> None:
             "  declaration: file:///Users/example/tax-reporting/output/examples/ibkr/report.txt",
             "  declaration: file:///D:/a/tax-reporting/tax-reporting/output/examples/kraken/report.txt",
             "- ibkr: /Users/example/tax-reporting/examples/inputs/plain-ibkr.csv",
+            "- binance: D:\\a\\tax-reporting-public\\tax-reporting-public\\examples\\inputs\\binance.csv",
             "  declaration: /Users/example/tax-reporting/output/examples/plain/report.txt",
+            "  diagnostics: D:\\a\\tax-reporting-public\\tax-reporting-public\\output\\examples\\aggregated_tax_report_2025.diagnostics.txt",
             "- output_dir: /Users/example/tax-reporting/output/examples",
         ]
     )
@@ -35,7 +37,9 @@ def test_normalize_report_rewrites_repo_specific_file_uris() -> None:
             "  declaration: file://<OUTPUT>/ibkr/report.txt",
             "  declaration: file://<OUTPUT>/kraken/report.txt",
             "- ibkr: <REPO>/examples/inputs/plain-ibkr.csv",
+            "- binance: <REPO>/examples/inputs/binance.csv",
             "  declaration: <OUTPUT>/plain/report.txt",
+            "  diagnostics: <OUTPUT>/aggregated_tax_report_2025.diagnostics.txt",
             "- output_dir: <OUTPUT>",
         ]
     )
