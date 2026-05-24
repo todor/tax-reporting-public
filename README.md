@@ -404,6 +404,24 @@ uvx git+ssh://git@github.com/<owner>/<repo>.git
 uv tool install git+ssh://git@github.com/<owner>/<repo>.git
 ```
 
+### Release Notes
+
+Public release notes are stored under `docs/public-releases/v<version>.md`.
+
+Release tags use `v<version>`, normally based on `project.version` in `pyproject.toml`.
+
+Maintainers can ask Codex to generate release notes with:
+
+```text
+$tax-release-notes public
+```
+
+The generated release notes file can be used when creating a GitHub release:
+
+```bash
+gh release create "$TAG" --title "$TAG" --notes-file docs/public-releases/"$TAG".md
+```
+
 ## Unified CLI Reference
 
 Single analyzer mode:
