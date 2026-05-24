@@ -5,6 +5,10 @@ import sys
 from pathlib import Path
 
 
+def _normalize_placeholder_path(match: re.Match[str]) -> str:
+    return match.group(0).replace("\\", "/")
+
+
 def normalize_report(text: str) -> str:
     normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     normalized = re.sub(
@@ -31,7 +35,7 @@ def normalize_report(text: str) -> str:
         normalized,
     )
     normalized = normalized.replace("__FILE_URI__", "file://")
-    normalized = re.sub(r"(<(?:REPO|OUTPUT)>)[/\\]", r"\1/", normalized)
+    normalized = re.sub(r"<(?:REPO|OUTPUT)>[^\s]*", _normalize_placeholder_path, normalized)
     return normalized
 
 

@@ -25,6 +25,7 @@ def test_normalize_report_rewrites_repo_specific_file_uris() -> None:
             "- ibkr: /Users/example/tax-reporting/examples/inputs/plain-ibkr.csv",
             "- binance: D:\\a\\tax-reporting-public\\tax-reporting-public\\examples\\inputs\\binance.csv",
             "  declaration: /Users/example/tax-reporting/output/examples/plain/report.txt",
+            "  declaration: D:\\a\\tax-reporting-public\\tax-reporting-public\\output\\examples\\ibkr\\sample_1\\ibkr_activity_declaration_2025.txt",
             "  diagnostics: D:\\a\\tax-reporting-public\\tax-reporting-public\\output\\examples\\aggregated_tax_report_2025.diagnostics.txt",
             "- output_dir: /Users/example/tax-reporting/output/examples",
         ]
@@ -39,6 +40,7 @@ def test_normalize_report_rewrites_repo_specific_file_uris() -> None:
             "- ibkr: <REPO>/examples/inputs/plain-ibkr.csv",
             "- binance: <REPO>/examples/inputs/binance.csv",
             "  declaration: <OUTPUT>/plain/report.txt",
+            "  declaration: <OUTPUT>/ibkr/sample_1/ibkr_activity_declaration_2025.txt",
             "  diagnostics: <OUTPUT>/aggregated_tax_report_2025.diagnostics.txt",
             "- output_dir: <OUTPUT>",
         ]
