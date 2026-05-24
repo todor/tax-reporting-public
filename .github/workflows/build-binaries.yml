@@ -266,8 +266,8 @@ jobs:
           name: release-assets
           path: dist/release
 
-      - name: Resolve version
-        id: version
+      - name: Resolve release metadata
+        id: release
         shell: bash
         run: |
           VERSION_OVERRIDE="${{ inputs.version_override }}"
@@ -280,22 +280,85 @@ jobs:
           else
             VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           fi
+          TAG="v${VERSION}"
+          if [[ "$GITHUB_REPOSITORY" == */tax-reporting-public ]]; then
+            RELEASE_TYPE="public"
+            RELEASE_NOTES_FILE="docs/public-releases/${TAG}.md"
+          else
+            RELEASE_TYPE="private"
+            RELEASE_NOTES_FILE="docs/private-releases/${TAG}.md"
+          fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "release_type=${RELEASE_TYPE}" >> "$GITHUB_OUTPUT"
+          echo "release_notes_file=${RELEASE_NOTES_FILE}" >> "$GITHUB_OUTPUT"
+          echo "repository: ${GITHUB_REPOSITORY}"
+          echo "ref name: ${GITHUB_REF_NAME}"
+          echo "resolved version: ${VERSION}"
+          echo "resolved tag: ${TAG}"
+          echo "detected release type: ${RELEASE_TYPE}"
+          echo "release notes file: ${RELEASE_NOTES_FILE}"
 
-      - name: Create release if needed
+      - name: Validate release notes
         shell: bash
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "$TAG" --notes "Release $TAG"
+          RELEASE_NOTES_FILE="${{ steps.release.outputs.release_notes_file }}"
+          RELEASE_TYPE="${{ steps.release.outputs.release_type }}"
+          TAG="${{ steps.release.outputs.tag }}"
+
+          print_release_notes_help() {
+            cat <<EOF
+
+          Generate the release notes with the release-notes skill/tool, commit the markdown file, and rerun this workflow.
+
+          Public releases use:
+            docs/public-releases/<tag>.md
+
+          Private releases use:
+            docs/private-releases/<tag>.md
+
+          Current detected release type:
+            ${RELEASE_TYPE}
+
+          Current tag:
+            ${TAG}
+          EOF
+          }
+
+          if [[ "$RELEASE_NOTES_FILE" != *.md ]]; then
+            echo "Release notes file must have .md extension: ${RELEASE_NOTES_FILE}"
+            print_release_notes_help
+            exit 1
+          fi
+
+          if [ ! -f "$RELEASE_NOTES_FILE" ]; then
+            echo "Missing release notes file: ${RELEASE_NOTES_FILE}"
+            print_release_notes_help
+            exit 1
+          fi
+
+          if [ ! -s "$RELEASE_NOTES_FILE" ]; then
+            echo "Release notes file is empty: ${RELEASE_NOTES_FILE}"
+            print_release_notes_help
+            exit 1
+          fi
+
+      - name: Create or update release notes
+        shell: bash
+        run: |
+          TAG="${{ steps.release.outputs.tag }}"
+          RELEASE_NOTES_FILE="${{ steps.release.outputs.release_notes_file }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file "$RELEASE_NOTES_FILE"
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file "$RELEASE_NOTES_FILE"
           fi
 
       - name: Check existing release assets
         id: conflicts
         shell: bash
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
+          TAG="${{ steps.release.outputs.tag }}"
           mapfile -t EXISTING < <(gh release view "$TAG" --json assets --jq '.assets[].name')
           CONFLICTS=()
           for asset in \
@@ -324,7 +387,7 @@ jobs:
       - name: Upload release assets
         shell: bash
         run: |
-          TAG="${{ steps.version.outputs.tag }}"
+          TAG="${{ steps.release.outputs.tag }}"
           gh release upload "$TAG" \
             dist/release/tax-reporting-windows-x64.zip \
             dist/release/tax-reporting-macos-arm64.tar.gz \
@@ -383,7 +446,7 @@ jobs:
       - collect-release-assets
       - upload-release
       - publish-pypi
-    if: success() || failure()
+    if: ${{ always() }}
     steps:
       - uses: actions/checkout@v5
 
@@ -401,11 +464,28 @@ jobs:
             VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
           fi
           TAG="v${VERSION}"
+          if [ "${{ inputs.upload_to_release }}" = "true" ]; then
+            RELEASE_NOTES_REQUIRED="true"
+            if [[ "$GITHUB_REPOSITORY" == */tax-reporting-public ]]; then
+              RELEASE_TYPE="public"
+              RELEASE_NOTES_FILE="docs/public-releases/${TAG}.md"
+            else
+              RELEASE_TYPE="private"
+              RELEASE_NOTES_FILE="docs/private-releases/${TAG}.md"
+            fi
+          else
+            RELEASE_NOTES_REQUIRED="false"
+            RELEASE_TYPE="not applicable"
+            RELEASE_NOTES_FILE="none"
+          fi
           {
             echo "## tax-reporting release workflow"
             echo
             echo "- version: ${VERSION}"
             echo "- release tag: ${TAG}"
+            echo "- detected release type: ${RELEASE_TYPE}"
+            echo "- release notes required: ${RELEASE_NOTES_REQUIRED}"
+            echo "- release notes file: ${RELEASE_NOTES_FILE}"
             echo "- built artifacts:"
             echo "  - tax-reporting-windows-x64.zip"
             echo "  - tax-reporting-macos-arm64.tar.gz"

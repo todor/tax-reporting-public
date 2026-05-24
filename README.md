@@ -397,7 +397,7 @@ tax-reporting --help
 
 Important: these commands only work once the package is available on PyPI or another configured index.
 
-Private usage before publishing:
+Git install before publishing:
 
 ```bash
 uvx git+ssh://git@github.com/<owner>/<repo>.git
@@ -406,9 +406,17 @@ uv tool install git+ssh://git@github.com/<owner>/<repo>.git
 
 ### Release Notes
 
+GitHub Release notes are the canonical release notes for released binaries.
 Public release notes are stored under `docs/public-releases/v<version>.md`.
 
 Release tags use `v<version>`, normally based on `project.version` in `pyproject.toml`.
+
+When creating a GitHub Release in the public repository, the Build Binaries
+workflow requires the matching committed Markdown file:
+
+```text
+docs/public-releases/<tag>.md
+```
 
 Maintainers can ask Codex to generate release notes with:
 
@@ -416,11 +424,9 @@ Maintainers can ask Codex to generate release notes with:
 $tax-release-notes public
 ```
 
-The generated release notes file can be used when creating a GitHub release:
-
-```bash
-gh release create "$TAG" --title "$TAG" --notes-file docs/public-releases/"$TAG".md
-```
+PyPI/TestPyPI publishing does not upload separate per-release notes from this
+workflow. PyPI users should be directed to GitHub Releases or the changelog via
+the README and project URLs.
 
 ## Unified CLI Reference
 
