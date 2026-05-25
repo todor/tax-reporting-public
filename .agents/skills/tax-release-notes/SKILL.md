@@ -161,13 +161,11 @@ Useful commands:
 
 ## Release notes file content
 
-The generated release notes file should be standalone Markdown.
+The generated release notes file should be standalone Markdown containing only the release body.
 
-Start the file with:
+Start the file directly with the generated release note sections, such as `## Highlights`.
 
-`# <target tag>`
-
-Then include the generated release note sections.
+Do not include a top-level `# <target tag>` or release-title heading. GitHub Releases already show the release title supplied by `gh release create --title`, so adding the tag as an H1 in the notes body creates a duplicate heading.
 
 Do not include the Codex metadata summary inside the release notes file.
 
