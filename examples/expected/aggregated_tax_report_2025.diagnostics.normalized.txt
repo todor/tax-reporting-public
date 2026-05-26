@@ -39,7 +39,7 @@ Analyzer inputs
 - <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv -> kraken (auto-detected from filename tokens)
 
 Auxiliary/manual inputs
-- <REPO>/examples/inputs/spb8-input-file.csv -> spb8-input (explicit --spb8-input-file)
+- <REPO>/examples/inputs/spb8-input-file.csv -> spb8-input (auto-detected from filename tokens)
 
 Per-analyzer status
 ibkr
