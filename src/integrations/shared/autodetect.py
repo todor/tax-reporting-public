@@ -21,6 +21,9 @@ class DetectionItem:
     path: Path
     analyzer_alias: str | None
     reason: str
+    known_noise: bool = False
+    related_to_supported_analyzer: bool = False
+    ignored_kind: str = "ordinary_unmatched"
 
 
 @dataclass(slots=True)
@@ -51,6 +54,29 @@ def _is_opening_state_sidecar(path: Path) -> bool:
     return path.name.lower().endswith(_STATE_SIDECAR_SUFFIX)
 
 
+def _is_known_noise_file(path: Path) -> bool:
+    name = path.name.lower()
+    if name in {".ds_store", "thumbs.db", "desktop.ini"}:
+        return True
+    if name.startswith("._"):
+        return True
+    if name.endswith((".swp", ".swo", "~", ".tmp", ".bak")):
+        return True
+    return False
+
+
+def _related_definition_aliases(*, definitions: list[AnalyzerDefinition], path: Path, tokens: set[str]) -> list[str]:
+    suffix = path.suffix.strip().lower()
+    aliases: list[str] = []
+    for definition in definitions:
+        suffix_matches = not definition.input_suffixes or suffix in definition.input_suffixes
+        token_hits = any(any(token in tokens for token in token_set) for token_set in definition.detection_token_sets)
+        alias_hits = definition.alias in tokens or any(alias in tokens for alias in definition.aliases)
+        if suffix_matches and (token_hits or alias_hits):
+            aliases.append(definition.alias)
+    return sorted(set(aliases))
+
+
 def detect_analyzer_inputs(
     *,
     input_dir: Path,
@@ -70,7 +96,24 @@ def detect_analyzer_inputs(
     for path in sorted(input_dir.iterdir()):
         if not path.is_file():
             ignored_items.append(
-                DetectionItem(path=path, analyzer_alias=None, reason="not a regular file")
+                DetectionItem(
+                    path=path,
+                    analyzer_alias=None,
+                    reason="not a regular file",
+                    ignored_kind="not_regular_file",
+                )
+            )
+            continue
+
+        if _is_known_noise_file(path):
+            ignored_items.append(
+                DetectionItem(
+                    path=path,
+                    analyzer_alias=None,
+                    reason="known OS/editor service file ignored",
+                    known_noise=True,
+                    ignored_kind="known_noise",
+                )
             )
             continue
 
@@ -83,6 +126,8 @@ def detect_analyzer_inputs(
                         "state sidecar files (*.state.json) are not analyzed as input reports; "
                         "they are used only as opening state for matching stateful analyzer inputs"
                     ),
+                    known_noise=True,
+                    ignored_kind="state_sidecar",
                 )
             )
             continue
@@ -93,6 +138,7 @@ def detect_analyzer_inputs(
                     path=path,
                     analyzer_alias=None,
                     reason=f"does not match include-pattern {include_pattern!r}",
+                    ignored_kind="include_pattern",
                 )
             )
             continue
@@ -105,6 +151,19 @@ def detect_analyzer_inputs(
         ]
 
         if not matches:
+            related_aliases = _related_definition_aliases(definitions=definitions, path=path, tokens=tokens)
+            if related_aliases:
+                joined = ", ".join(related_aliases)
+                ignored_items.append(
+                    DetectionItem(
+                        path=path,
+                        analyzer_alias=related_aliases[0] if len(related_aliases) == 1 else None,
+                        reason=f"looked related to supported analyzer(s) [{joined}] but no analyzer input pattern matched",
+                        related_to_supported_analyzer=True,
+                        ignored_kind="related_unmatched",
+                    )
+                )
+                continue
             ignored_items.append(
                 DetectionItem(path=path, analyzer_alias=None, reason="no analyzer alias matched")
             )

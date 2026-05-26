@@ -573,11 +573,12 @@ Display currency rule (all analyzers, single + aggregate):
 TXT output boundary:
 
 - main TXT reports are Bulgarian and taxpayer/accountant-facing
-- main TXT reports contain declaration sections, deduplicated actionable errors/warnings/manual-review items near the top, assumptions, and what to do next
+- main TXT reports use a two-level structure: compact settings/modes/checks near the top, clean declaration values in the middle, and detailed methodology notes at the bottom
+- main TXT reports contain declaration sections, deduplicated actionable errors/warnings/manual-review items near the top, analyzer assumptions, and what to do next
 - diagnostics TXT reports contain sorted technical/audit/debug details, raw parser messages, normal filesystem paths, and tracebacks when useful
 - stdout is intentionally short: status, main report path, diagnostics path, and summary counts
 - expected analyzer issues use structured diagnostic codes; free-form warnings are only a defensive fallback and should not appear in normal reports for known conditions
-- analyzer settings or interpretation notes that affect tax treatment or auditability are emitted as structured main-report notes so both individual and aggregate reports show them
+- analyzer settings or interpretation notes that affect tax treatment or auditability are emitted as structured main-report notes so both individual and aggregate reports show them; compact audit/config/check notes belong near the top, while detailed methodology notes belong in the bottom methodology section
 - analyzer-specific warning/manual-review sections are normalized into the shared report structure instead of being rendered as duplicate body sections
 
 Aggregate output:

@@ -14,12 +14,14 @@ from integrations.fund.shared.fund_ir_models import FundAnalysisSummary
 from integrations.ibkr.appendices.declaration_text import analysis_settings_main_report_notes
 from integrations.ibkr.models import AnalysisSummary as IbkrAnalysisSummary
 from integrations.shared.aggregation import render_aggregated_report
-from integrations.shared.autodetect import InputDetectionError, detect_analyzer_inputs
+from integrations.shared.autodetect import DetectionItem, InputDetectionError, detect_analyzer_inputs
 from integrations.shared.contracts import (
     AnalysisDiagnostic,
+    AnalyzerReportDetail,
     AnalyzerDefinition,
     AnalyzerRunContext,
     AppendixRecord,
+    GeneratedArtifact,
     MainReportNote,
     TaxAnalysisResult,
 )
@@ -34,7 +36,7 @@ from integrations.shared.result_builders import (
 from integrations.shared.reporting import render_action_items, render_diagnostics_report, render_main_report
 from integrations.shared.rendering.common import TECHNICAL_DETAILS_SEPARATOR
 from integrations.shared.spb8 import SPB8Row
-from integrations.p2p.shared.appendix6_models import P2PAppendix6Result
+from integrations.p2p.shared.appendix6_models import InformativeRow, P2PAppendix6Result
 
 
 @dataclass(slots=True)
@@ -63,6 +65,7 @@ def _make_fake_definition(
     spb8_rows: list[SPB8Row] | None = None,
     spb8_notes: list[str] | None = None,
     main_report_notes: list[MainReportNote] | None = None,
+    raw_report_text: str = "ok\n",
     aggregate_mode_option_name: str | None = None,
     supports_opening_state: bool = False,
 ) -> AnalyzerDefinition:
@@ -90,7 +93,7 @@ def _make_fake_definition(
         run_capture.contexts.append(context)
         output_path = context.output_dir / f"{alias}_declaration.txt"
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text("ok\n", encoding="utf-8")
+        output_path.write_text(raw_report_text, encoding="utf-8")
         return TaxAnalysisResult(
             analyzer_alias=alias,
             input_path=context.input_path,
@@ -116,6 +119,561 @@ def _make_fake_definition(
         run=run,
         supports_opening_state=supports_opening_state,
     )
+
+
+def _render_aggregate_main_and_diagnostics(
+    *,
+    tax_year: int,
+    results: list[TaxAnalysisResult],
+    tmp_path: Path,
+) -> tuple[str, str]:
+    detected_inputs: dict[str, list[Path]] = {}
+    detected_input_items: list[tuple[Path, str, str]] = []
+    for result in results:
+        detected_inputs.setdefault(result.analyzer_alias, []).append(result.input_path)
+        detected_input_items.append((result.input_path, result.analyzer_alias, "test"))
+    raw = render_aggregated_report(
+        tax_year=tax_year,
+        detected_inputs=detected_inputs,
+        detected_input_items=detected_input_items,
+        ignored_inputs=[],
+        ignored_input_items=[],
+        analyzer_results=results,
+        analyzer_errors={},
+    )
+    main = render_main_report(
+        status="OK",
+        tax_year=tax_year,
+        raw_declaration_text=raw,
+        diagnostics=[],
+        diagnostics_path=tmp_path / "aggregated.diagnostics.txt",
+    )
+    diagnostics = render_diagnostics_report(
+        title="aggregate diagnostics",
+        status="OK",
+        raw_declaration_text=raw,
+        diagnostics=[],
+    )
+    return main, diagnostics
+
+
+def _assert_aggregate_preserves_report_detail_ids(
+    *,
+    results: list[TaxAnalysisResult],
+    main: str,
+    diagnostics: str,
+) -> None:
+    for result in results:
+        for detail in result.report_details:
+            for line in detail.lines:
+                if not line:
+                    continue
+                if detail.visibility == "MAIN":
+                    assert line in main
+                    assert line not in diagnostics
+                else:
+                    assert line in diagnostics
+                    assert line not in main
+
+
+def test_generated_row_level_audit_artifact_renders_in_aggregate_outputs(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "coinbase_enriched_2025.csv"
+    result = TaxAnalysisResult(
+        analyzer_alias="coinbase",
+        input_path=(tmp_path / "coinbase.csv").resolve(),
+        tax_year=2025,
+        output_paths={
+            "declaration_txt": tmp_path / "coinbase_declaration.txt",
+            "diagnostics_txt": tmp_path / "coinbase_declaration.diagnostics.txt",
+        },
+        appendices=[],
+        diagnostics=[],
+        generated_artifacts=[
+            GeneratedArtifact(
+                artifact_type="row_level_audit_csv",
+                label="row-level audit CSV",
+                path=artifact_path,
+                show_in_main=True,
+                show_in_diagnostics=True,
+            )
+        ],
+    )
+
+    main, diagnostics = _render_aggregate_main_and_diagnostics(
+        tax_year=2025,
+        results=[result],
+        tmp_path=tmp_path,
+    )
+
+    assert "Помощни файлове за проверка" in main
+    assert "CSV файл за проверка на обработените редове" in main
+    assert str(artifact_path.resolve()) in main
+    assert "file://" not in main
+
+    assert "Generated artifacts" not in diagnostics
+    assert f"- row_level_audit_csv: {artifact_path.resolve()}" in diagnostics
+    assert f"coinbase — {result.input_path.name}: row-level audit CSV" not in diagnostics
+    assert "Debug artifacts\n  - row_level_audit_csv" not in diagnostics
+
+
+def test_generated_artifact_sections_are_omitted_when_empty(tmp_path: Path) -> None:
+    result = TaxAnalysisResult(
+        analyzer_alias="coinbase",
+        input_path=(tmp_path / "coinbase.csv").resolve(),
+        tax_year=2025,
+        output_paths={"declaration_txt": tmp_path / "coinbase_declaration.txt"},
+        appendices=[],
+        diagnostics=[],
+    )
+
+    main, diagnostics = _render_aggregate_main_and_diagnostics(
+        tax_year=2025,
+        results=[result],
+        tmp_path=tmp_path,
+    )
+
+    assert "Помощни файлове за проверка" not in main
+    assert "Generated artifacts" not in diagnostics
+    assert "row_level_audit_csv" not in diagnostics
+
+
+def test_individual_diagnostics_render_generated_artifacts_only_when_present(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "rows_audit.csv"
+
+    rendered = render_diagnostics_report(
+        title="coinbase analyzer diagnostics",
+        status="OK",
+        raw_declaration_text="",
+        diagnostics=[],
+        generated_artifacts=[
+            GeneratedArtifact(
+                artifact_type="row_level_audit_csv",
+                label="row-level audit CSV",
+                path=artifact_path,
+                show_in_main=True,
+                show_in_diagnostics=True,
+            )
+        ],
+    )
+
+    assert "Generated artifacts" in rendered
+    assert f"- row_level_audit_csv: {artifact_path.resolve()}" in rendered
+    assert "Debug artifacts" not in rendered
+    assert "file://" not in rendered
+
+    without_artifacts = render_diagnostics_report(
+        title="coinbase analyzer diagnostics",
+        status="OK",
+        raw_declaration_text="",
+        diagnostics=[],
+    )
+    assert "Generated artifacts" not in without_artifacts
+
+
+def test_shared_result_builders_expose_row_level_audit_artifacts_generically(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "kraken_enriched.csv"
+
+    result = build_crypto_result(
+        analyzer_alias="kraken",
+        input_path=tmp_path / "kraken.csv",
+        tax_year=2025,
+        output_paths={
+            "enriched_ir_csv": artifact_path,
+            "declaration_txt": tmp_path / "kraken.txt",
+        },
+        summary=IrAnalysisSummary(),
+    )
+
+    assert result.generated_artifacts == [
+        GeneratedArtifact(
+            artifact_type="row_level_audit_csv",
+            label="row-level audit CSV",
+            path=artifact_path.resolve(),
+            show_in_main=True,
+            show_in_diagnostics=True,
+        )
+    ]
+
+
+def test_aggregate_report_detail_visibility_renders_by_classification(tmp_path: Path) -> None:
+    result = TaxAnalysisResult(
+        analyzer_alias="kraken",
+        input_path=tmp_path / "kraken.csv",
+        tax_year=2025,
+        output_paths={"declaration_txt": tmp_path / "kraken_declaration.txt"},
+        appendices=[],
+        diagnostics=[],
+        report_details=[
+            AnalyzerReportDetail(
+                key="main_note",
+                title="Main detail",
+                lines=("MAIN visible note",),
+                visibility="MAIN",
+                analyzer_alias="kraken",
+            ),
+            AnalyzerReportDetail(
+                key="diagnostics_note",
+                title="Diagnostics detail",
+                lines=("DIAGNOSTICS visible note",),
+                visibility="DIAGNOSTICS",
+                analyzer_alias="kraken",
+            ),
+            AnalyzerReportDetail(
+                key="debug_note",
+                title="Debug detail",
+                lines=("DEBUG artifact path: /tmp/debug.json",),
+                visibility="DEBUG",
+                analyzer_alias="kraken",
+            ),
+        ],
+    )
+
+    main, diagnostics = _render_aggregate_main_and_diagnostics(tax_year=2025, results=[result], tmp_path=tmp_path)
+
+    assert "MAIN visible note" in main
+    assert "DIAGNOSTICS visible note" not in main
+    assert "DEBUG artifact path" not in main
+    assert "MAIN visible note" not in diagnostics
+    assert "DIAGNOSTICS visible note" in diagnostics
+    assert "DEBUG artifact path: /tmp/debug.json" in diagnostics
+    with pytest.raises(ValueError):
+        AnalyzerReportDetail(
+            key="bad",
+            title="Bad",
+            lines=("x",),
+            visibility="UNKNOWN",  # type: ignore[arg-type]
+        )
+
+
+def test_aggregate_rendering_preserves_all_structured_report_detail_ids(tmp_path: Path) -> None:
+    ibkr_result = TaxAnalysisResult(
+        analyzer_alias="ibkr",
+        input_path=tmp_path / "ibkr_one.csv",
+        tax_year=2025,
+        output_paths={"declaration_txt": tmp_path / "ibkr_declaration.txt"},
+        appendices=[],
+        diagnostics=[],
+        report_details=[
+            AnalyzerReportDetail(
+                key="ibkr_main_assumption",
+                title="IBKR main assumption",
+                lines=("IBKR MAIN invariant note",),
+                visibility="MAIN",
+                analyzer_alias="ibkr",
+            ),
+            AnalyzerReportDetail(
+                key="ibkr_market_counters",
+                title="IBKR market counters",
+                lines=("IBKR DIAGNOSTICS invariant counter: 17",),
+                visibility="DIAGNOSTICS",
+                analyzer_alias="ibkr",
+            ),
+        ],
+    )
+    kraken_result = TaxAnalysisResult(
+        analyzer_alias="kraken",
+        input_path=tmp_path / "kraken_one.csv",
+        tax_year=2025,
+        output_paths={"declaration_txt": tmp_path / "kraken_declaration.txt"},
+        appendices=[],
+        diagnostics=[],
+        report_details=[
+            AnalyzerReportDetail(
+                key="kraken_opening_state",
+                title="Kraken opening state",
+                lines=("Kraken MAIN invariant note",),
+                visibility="MAIN",
+                analyzer_alias="kraken",
+            ),
+            AnalyzerReportDetail(
+                key="kraken_debug_state",
+                title="Kraken debug state",
+                lines=("Kraken DEBUG invariant path: /tmp/kraken-debug.json",),
+                visibility="DEBUG",
+                analyzer_alias="kraken",
+            ),
+        ],
+    )
+
+    results = [ibkr_result, kraken_result]
+    main, diagnostics = _render_aggregate_main_and_diagnostics(
+        tax_year=2025,
+        results=results,
+        tmp_path=tmp_path,
+    )
+
+    _assert_aggregate_preserves_report_detail_ids(results=results, main=main, diagnostics=diagnostics)
+
+
+def test_aggregate_main_ignored_input_summary_uses_detection_classification(tmp_path: Path) -> None:
+    ordinary = tmp_path / "notes.txt"
+    related = tmp_path / "ibkr-not-an-activity.csv"
+    noise = tmp_path / ".DS_Store"
+    raw = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={},
+        detected_input_items=[],
+        ignored_inputs=[(ordinary, "no analyzer alias matched"), (related, "looked related"), (noise, "noise")],
+        ignored_input_items=[
+            DetectionItem(path=ordinary, analyzer_alias=None, reason="no analyzer alias matched"),
+            DetectionItem(
+                path=related,
+                analyzer_alias="ibkr",
+                reason="looked related to supported analyzer(s) [ibkr] but no analyzer input pattern matched",
+                related_to_supported_analyzer=True,
+                ignored_kind="related_unmatched",
+            ),
+            DetectionItem(
+                path=noise,
+                analyzer_alias=None,
+                reason="known OS/editor service file ignored",
+                known_noise=True,
+                ignored_kind="known_noise",
+            ),
+        ],
+        analyzer_results=[],
+        analyzer_errors={},
+    )
+    main = render_main_report(
+        status="WARNING",
+        tax_year=2025,
+        raw_declaration_text=raw,
+        diagnostics=[
+            AnalysisDiagnostic(
+                severity="WARNING",
+                analyzer_alias="aggregate",
+                code="IGNORED_RELATED_INPUT",
+                message="Ignored files looked related to supported analyzers.",
+                params={"count": 1},
+            )
+        ],
+        diagnostics_path=tmp_path / "aggregated.diagnostics.txt",
+    )
+    diagnostics = render_diagnostics_report(
+        title="aggregate diagnostics",
+        status="WARNING",
+        raw_declaration_text=raw,
+        diagnostics=[],
+    )
+
+    assert "Файлове, намерени в папката, но неанализирани: 2" in main
+    assert "notes.txt" in main
+    assert "ibkr-not-an-activity.csv" in main
+    assert ".DS_Store" not in main
+    assert "ВНИМАНИЕ" in main
+    assert str(ordinary.resolve()) not in main
+    assert str(ordinary.resolve()) in diagnostics
+    assert "related_to_supported_analyzer: yes" in diagnostics
+    assert "known_noise: yes" in diagnostics
+
+
+def test_aggregate_diagnostics_separates_input_categories_and_decision_rows(tmp_path: Path) -> None:
+    analyzer_input = tmp_path / "ibkr.csv"
+    auxiliary_input = tmp_path / "spb8-input-file.csv"
+    ignored = tmp_path / ".DS_Store"
+    result = TaxAnalysisResult(
+        analyzer_alias="ibkr",
+        input_path=analyzer_input,
+        tax_year=2025,
+        output_paths={
+            "declaration_txt": tmp_path / "ibkr_declaration.txt",
+            "diagnostics_txt": tmp_path / "ibkr_declaration.diagnostics.txt",
+        },
+        appendices=[],
+        diagnostics=[],
+        report_details=[
+            AnalyzerReportDetail(
+                key="input_detection",
+                title="Input detection context",
+                lines=(
+                    f"- full input path: {analyzer_input}",
+                    "- analyzer alias: ibkr",
+                    "- detection reason: auto-detected from filename tokens",
+                ),
+                visibility="DIAGNOSTICS",
+                analyzer_alias="ibkr",
+                source_path=analyzer_input,
+                category="audit",
+            )
+        ],
+        policy_audit_lines=[
+            "- Futures policy: Mark-to-Market Performance Summary / cash-settled MTM",
+            "- Futures MTM rows count: 3",
+            "- CFD financing rows included in tax year: 9",
+        ],
+    )
+    raw = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={"ibkr": [analyzer_input]},
+        detected_input_items=[
+            (analyzer_input, "ibkr", "auto-detected from filename tokens"),
+            (auxiliary_input, "spb8-input", "auto-detected from filename tokens"),
+        ],
+        ignored_inputs=[(ignored, "known OS/editor service file ignored")],
+        ignored_input_items=[
+            DetectionItem(
+                path=ignored,
+                analyzer_alias=None,
+                reason="known OS/editor service file ignored",
+                known_noise=True,
+                ignored_kind="known_noise",
+            )
+        ],
+        analyzer_results=[result],
+        analyzer_errors={},
+    )
+    diagnostics = render_diagnostics_report(
+        title="aggregate diagnostics",
+        status="OK",
+        raw_declaration_text=raw,
+        diagnostics=[],
+        tax_year=2025,
+        extra_lines=[
+            "- analyzer_input_count: 1",
+            "- auxiliary_input_count: 1",
+            "- ignored_input_count: 1",
+            "- successful_analyzer_input_count: 1",
+            "- failed_analyzer_input_count: 0",
+            "- warning_count: 0",
+            "- error_count: 0",
+        ],
+    )
+
+    assert "- analyzer_input_count: 1" in diagnostics
+    assert "- auxiliary_input_count: 1" in diagnostics
+    assert "- ignored_input_count: 1" in diagnostics
+    assert "Analyzer inputs\n- " in diagnostics
+    assert f"{analyzer_input} -> ibkr" in diagnostics
+    assert "Auxiliary/manual inputs\n- " in diagnostics
+    assert f"{auxiliary_input} -> spb8-input" in diagnostics
+    assert "Per-input diagnostics summary" in diagnostics
+    assert "spb8-input-file.csv\n- input_path" not in diagnostics
+    per_input_block = diagnostics.split("ibkr: ibkr.csv", 1)[1]
+    interpretation = per_input_block.split("Tax calculation summary", 1)[0]
+    assert "full input path" not in interpretation
+    assert "analyzer alias" not in interpretation
+    decisions = per_input_block.split("Tax treatment decisions", 1)[1].split("Validation / sanity checks", 1)[0]
+    calculation = per_input_block.split("Tax calculation summary", 1)[1].split("Tax treatment decisions", 1)[0]
+    assert "Futures policy: Mark-to-Market" in decisions
+    assert "Futures MTM rows count: 3" not in decisions
+    assert "CFD financing rows included in tax year: 9" not in decisions
+    assert "Futures MTM rows count: 3" in calculation
+    assert "CFD financing rows included in tax year: 9" in calculation
+
+
+def test_aggregate_diagnostics_do_not_render_localized_main_report_notes(tmp_path: Path) -> None:
+    input_path = tmp_path / "kraken.csv"
+    result = TaxAnalysisResult(
+        analyzer_alias="kraken",
+        input_path=input_path,
+        tax_year=2025,
+        output_paths={"declaration_txt": tmp_path / "kraken.txt"},
+        appendices=[],
+        diagnostics=[],
+        main_report_notes=[
+            MainReportNote(
+                section_title="Анализаторни допускания и проверки",
+                text='kraken — kraken.csv: Начално състояние: отчетът се третира като "since inception".',
+                analyzer_alias="kraken",
+                source_path=input_path,
+                category="setting",
+            )
+        ],
+        report_details=[
+            AnalyzerReportDetail(
+                key="localized_main_note",
+                title="Localized main note",
+                lines=("Потребителска бележка за основния отчет.",),
+                visibility="MAIN",
+                analyzer_alias="kraken",
+                source_path=input_path,
+            ),
+            AnalyzerReportDetail(
+                key="technical_summary",
+                title="Technical summary",
+                lines=(
+                    "- opening_state: none (since inception)",
+                    "- rows included in declaration (tax year): 61",
+                    "- manual check overrides (Review Status non-empty): 1",
+                ),
+                visibility="DIAGNOSTICS",
+                analyzer_alias="kraken",
+                source_path=input_path,
+            ),
+        ],
+    )
+    raw = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={"kraken": [input_path]},
+        detected_input_items=[(input_path, "kraken", "auto-detected from filename tokens")],
+        ignored_inputs=[],
+        ignored_input_items=[],
+        analyzer_results=[result],
+        analyzer_errors={},
+    )
+    diagnostics = render_diagnostics_report(
+        title="aggregate diagnostics",
+        status="OK",
+        raw_declaration_text=raw,
+        diagnostics=[],
+        tax_year=2025,
+    )
+
+    assert "Потребителска бележка" not in diagnostics
+    assert "Начално състояние" not in diagnostics
+    assert "kraken — kraken.csv" not in diagnostics
+    assert "opening_state: none (since inception)" in diagnostics
+    assert "rows included in declaration (tax year): 61" in diagnostics
+    assert "manual check overrides (Review Status non-empty): 1" in diagnostics
+
+
+def test_p2p_individual_main_notes_propagate_to_aggregate_main(tmp_path: Path) -> None:
+    input_path = tmp_path / "iuvo_report.pdf"
+    p2p = P2PAppendix6Result(
+        platform="iuvo",
+        tax_year=2025,
+        part1_rows=[],
+        aggregate_code_603=Decimal("0"),
+        aggregate_code_606=Decimal("0"),
+        taxable_code_603=Decimal("0"),
+        taxable_code_606=Decimal("0"),
+        withheld_tax=Decimal("0"),
+        informative_rows=[
+            InformativeRow("Secondary-market mode used", "appendix_6"),
+            InformativeRow("Early withdraw fees iuvoSAVE", Decimal("2")),
+        ],
+        informational_messages=[
+            "Iuvo Early withdraw fees iuvoSAVE is informational only and is not mapped to Appendix 6 totals",
+        ],
+    )
+    result = build_p2p_result(
+        analyzer_alias="iuvo",
+        input_path=input_path,
+        tax_year=2025,
+        output_paths={"declaration_txt": tmp_path / "iuvo.txt"},
+        result=p2p,
+    )
+
+    raw = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={"iuvo": [input_path]},
+        detected_input_items=[(input_path, "iuvo", "test")],
+        ignored_inputs=[],
+        ignored_input_items=[],
+        analyzer_results=[result],
+        analyzer_errors={},
+    )
+    main = render_main_report(
+        status="OK",
+        tax_year=2025,
+        raw_declaration_text=raw,
+        diagnostics=[],
+        diagnostics_path=tmp_path / "aggregated.diagnostics.txt",
+    )
+
+    assert "Iuvo: Early withdraw fees iuvoSAVE са само информативни" in main
+    assert "Информативни стойности в индивидуалния отчет" in main
+    assert "Използван режим за вторичен пазар" in main
 
 
 def test_single_analyzer_mode_runs_selected_analyzer(
@@ -161,7 +719,9 @@ def test_single_analyzer_mode_runs_selected_analyzer(
     assert "Изчисления и визуализация" in declaration
     assert "Диагностика" in declaration
     assert TECHNICAL_DETAILS_SEPARATOR not in declaration
-    assert "Technical Details" in diagnostics
+    assert "Diagnostics" in diagnostics
+    assert "Run summary" in diagnostics
+    assert "Technical Details" not in diagnostics
 
 
 def test_single_stateful_analyzer_uses_generic_opening_state_json(
@@ -396,7 +956,7 @@ def test_diagnostics_report_renders_common_fields_readably() -> None:
     )
 
     assert "Structured diagnostics" not in rendered
-    assert "Diagnostics\n[ERROR] [binance_futures] MISSING_REQUIRED_COLUMNS" in rendered
+    assert "Diagnostic messages\n[ERROR] [binance_futures] MISSING_REQUIRED_COLUMNS" in rendered
     assert "message: missing required columns" in rendered
     assert "file: /tmp/Binance-Futures-Trade-History.csv" in rendered
     assert "filename: Binance-Futures-Trade-History.csv" not in rendered
@@ -777,7 +1337,8 @@ def test_aggregate_spb8_rows_and_notes_render_under_one_heading() -> None:
     assert "- CFD позициите не се декларират в Приложение 8" in rendered
     assert "- При CFD не се използва пълният notional/номинал на договора" in rendered
     assert "- CFD financing / CFD interest корекциите са включени в Приложение 5." in rendered
-    assert "Policy details" in rendered
+    assert "Policy details" not in rendered
+    assert "Tax treatment decisions" in rendered
     assert "- CFD financing policy: netted_to_appendix_5" in rendered
 
 
@@ -796,13 +1357,13 @@ def test_aggregate_report_renders_generic_main_report_notes_near_top() -> None:
                     values={"trade_count": 1},
                 )
             ],
-            diagnostics=[],
-            main_report_notes=[
-                MainReportNote(
-                    section_title="Настройки на анализа",
-                    text="Alpha използва режим A.",
-                    analyzer_alias="alpha",
-                    category="setting",
+                diagnostics=[],
+                main_report_notes=[
+                    MainReportNote(
+                        section_title="Alpha — режими, класификации и проверки",
+                        text="Alpha използва режим A.",
+                        analyzer_alias="alpha",
+                        category="setting",
                 )
             ],
         ),
@@ -812,13 +1373,13 @@ def test_aggregate_report_renders_generic_main_report_notes_near_top() -> None:
             tax_year=2025,
             output_paths={},
             appendices=[],
-            diagnostics=[],
-            main_report_notes=[
-                MainReportNote(
-                    section_title="Настройки на анализа",
-                    text="Beta използва режим B.",
-                    analyzer_alias="beta",
-                    category="setting",
+                diagnostics=[],
+                main_report_notes=[
+                    MainReportNote(
+                        section_title="Beta — режими, класификации и проверки",
+                        text="Beta използва режим B.",
+                        analyzer_alias="beta",
+                        category="setting",
                 )
             ],
         ),
@@ -832,13 +1393,82 @@ def test_aggregate_report_renders_generic_main_report_notes_near_top() -> None:
         analyzer_errors={},
     )
 
-    assert "Настройки на анализа\n- Alpha използва режим A.\n- Beta използва режим B." in rendered
-    assert rendered.index("Настройки на анализа") < rendered.index("Приложение 5")
+    assert "Настройки, режими и проверки на анализа" in rendered
+    assert "Alpha — режими, класификации и проверки\n- Alpha използва режим A." in rendered
+    assert "Beta — режими, класификации и проверки\n- Beta използва режим B." in rendered
+    assert rendered.index("Настройки, режими и проверки на анализа") < rendered.index("Приложение 5")
+
+
+def test_aggregate_report_renders_generic_methodology_notes_at_bottom(tmp_path: Path) -> None:
+    result = TaxAnalysisResult(
+        analyzer_alias="alpha",
+        input_path=Path("/tmp/alpha.csv"),
+        tax_year=2025,
+        output_paths={},
+        appendices=[
+            AppendixRecord(
+                appendix="5",
+                table="2",
+                code="5082",
+                values={
+                    "sale_value_eur": Decimal("10"),
+                    "acquisition_value_eur": Decimal("6"),
+                    "profit_eur": Decimal("4"),
+                    "loss_eur": Decimal("0"),
+                    "trade_count": 1,
+                    "net_result_eur": Decimal("4"),
+                },
+            )
+        ],
+        diagnostics=[],
+        main_report_notes=[
+            MainReportNote(
+                section_title="Alpha — режими, класификации и проверки",
+                text="Alpha compact audit summary.",
+                analyzer_alias="alpha",
+                category="setting",
+            ),
+            MainReportNote(
+                section_title="Alpha detailed methodology",
+                text="Alpha long methodology explains how the compact summary affects declaration values.",
+                analyzer_alias="alpha",
+                category="methodology",
+            ),
+        ],
+    )
+
+    raw = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={},
+        ignored_inputs=[],
+        analyzer_results=[result],
+        analyzer_errors={},
+    )
+    rendered = render_main_report(
+        status="OK",
+        tax_year=2025,
+        raw_declaration_text=raw,
+        diagnostics=[],
+        diagnostics_path=tmp_path / "aggregated.diagnostics.txt",
+    )
+
+    assert "Настройки, режими и проверки на анализа" in rendered
+    assert "Alpha compact audit summary." in rendered
+    assert "Подробни методологични бележки" in rendered
+    assert (
+        "Следващите бележки поясняват използваните режими и методи от горното обобщение"
+        in rendered
+    )
+    assert "Alpha detailed methodology" in rendered
+    assert "Alpha long methodology explains how the compact summary affects declaration values." in rendered
+    assert rendered.index("Alpha compact audit summary.") < rendered.index("Приложение 5")
+    assert rendered.index("Приложение 5") < rendered.index("Подробни методологични бележки")
+    assert "Методологични бележки" not in rendered
 
 
 def test_aggregate_report_deduplicates_identical_main_report_notes() -> None:
     note = MainReportNote(
-        section_title="Настройки на анализа",
+        section_title="Alpha — режими, класификации и проверки",
         text="Един и същ режим за няколко входа.",
         analyzer_alias="alpha",
         category="setting",
@@ -871,11 +1501,18 @@ def test_aggregate_report_deduplicates_identical_main_report_notes() -> None:
         analyzer_results=results,
         analyzer_errors={},
     )
+    main = render_main_report(
+        status="OK",
+        tax_year=2025,
+        raw_declaration_text=rendered,
+        diagnostics=[],
+        diagnostics_path=Path("/tmp/aggregate.diagnostics.txt"),
+    )
 
-    assert rendered.count("Един и същ режим за няколко входа.") == 1
+    assert main.count("Един и същ режим за няколко входа.") == 1
 
 
-def test_aggregate_report_includes_ibkr_tax_exempt_mode_setting() -> None:
+def test_aggregate_report_deduplicates_ibkr_tax_exempt_mode_setting() -> None:
     notes = analysis_settings_main_report_notes(
         IbkrAnalysisSummary(tax_year=2025, tax_exempt_mode="listed_symbol")
     )
@@ -897,9 +1534,76 @@ def test_aggregate_report_includes_ibkr_tax_exempt_mode_setting() -> None:
         analyzer_errors={},
     )
 
-    assert "Настройки на анализа" in rendered
-    assert "Класификация на IBKR сделките за данъчно освобождаване: listed_symbol." in rendered
+    assert "IBKR — класификация на пазари" in rendered
+    assert "Режим за данъчно освобождаване: listed_symbol." in rendered
+    assert "Класификация на IBKR сделките за данъчно освобождаване: listed_symbol." not in rendered
     assert "борсата на изпълнение е само информативна" in rendered
+
+
+def test_ibkr_instrument_method_summaries_are_top_only_and_methodology_is_bottom(tmp_path: Path) -> None:
+    notes = analysis_settings_main_report_notes(
+        IbkrAnalysisSummary(
+            tax_year=2025,
+            tax_exempt_mode="listed_symbol",
+            cfd_trade_rows=1,
+            cfd_financing_rows=1,
+            futures_mtm_rows=1,
+            option_closedlot_rows=1,
+        )
+    )
+    result = TaxAnalysisResult(
+        analyzer_alias="ibkr",
+        input_path=Path("/tmp/ibkr.csv"),
+        tax_year=2025,
+        output_paths={},
+        appendices=[
+            AppendixRecord(
+                appendix="5",
+                table="2",
+                code="508",
+                values={
+                    "sale_value_eur": Decimal("10"),
+                    "acquisition_value_eur": Decimal("6"),
+                    "profit_eur": Decimal("4"),
+                    "loss_eur": Decimal("0"),
+                    "trade_count": 1,
+                    "net_result_eur": Decimal("4"),
+                },
+            )
+        ],
+        diagnostics=[],
+        main_report_notes=notes,
+        policy_notes=["CFD detailed methodology."],
+    )
+    raw = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={},
+        ignored_inputs=[],
+        analyzer_results=[result],
+        analyzer_errors={},
+    )
+    rendered = render_main_report(
+        status="OK",
+        tax_year=2025,
+        raw_declaration_text=raw,
+        diagnostics=[],
+        diagnostics_path=tmp_path / "aggregate.diagnostics.txt",
+    )
+
+    assert "IBKR — използвани методи за инструменти" in rendered
+    assert "CFD/PIL: използва се реализиран икономически резултат" in rendered
+    assert "Фючърси: използва се Mark-to-Market Performance Summary" in rendered
+    assert "Опции: използват се реализирани резултати" in rendered
+    assert "Подробни методологични бележки" in rendered
+    assert "CFD и PIL" in rendered
+    assert "CFD detailed methodology." in rendered
+    assert "Фючърси — IBKR daily cash-settled MTM" in rendered
+    assert "Опции върху акции и индекси" in rendered
+    assert rendered.index("IBKR — използвани методи за инструменти") < rendered.index("Приложение 5")
+    assert rendered.index("Приложение 5") < rendered.index("Подробни методологични бележки")
+    assert rendered.index("CFD и PIL") < rendered.index("Фючърси — IBKR daily cash-settled MTM")
+    top_area = rendered[: rendered.index("Приложение 5")]
+    assert "IBKR фючърсите се отчитат по дневна mark-to-market сетълмент логика" not in top_area
 
 
 def test_known_family_warnings_use_structured_diagnostics_not_unclassified(tmp_path: Path) -> None:
@@ -2353,6 +3057,58 @@ def test_aggregate_mode_auto_detected_spb8_parse_error_is_visible_in_diagnostics
         "(auto-detected from filename tokens)"
     ) in diagnostics
     assert "[ERROR] [spb8]" in diagnostics
+
+
+def test_aggregate_mode_attaches_individual_technical_details_as_structured_details(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+    debug_path = tmp_path / "debug" / "state-debug.json"
+    raw_report_text = "\n".join(
+        [
+            "ok",
+            "",
+            TECHNICAL_DETAILS_SEPARATOR,
+            "",
+            "Audit Data",
+            "- processed rows: 7",
+            f"- debug artifact: {debug_path}",
+            "",
+        ]
+    )
+    fake = _make_fake_definition(
+        alias="kraken",
+        group="crypto",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        raw_report_text=raw_report_text,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+    (tmp_path / "kraken_report.csv").write_text("x\n", encoding="utf-8")
+
+    out_dir = tmp_path / "out"
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert code == 0
+    main = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
+    diagnostics = (out_dir / "aggregated_tax_report_2025.diagnostics.txt").read_text(encoding="utf-8")
+    assert "Complete individual diagnostics" not in diagnostics
+    assert "Tax calculation summary" in diagnostics
+    assert "- processed rows: 7" in diagnostics
+    assert "Debug artifacts" in diagnostics
+    assert f"- debug artifact: {debug_path}" in diagnostics
+    assert "- processed rows: 7" not in main
+    assert str(debug_path) not in main
 
 
 def test_aggregate_mode_generates_spb8_template_rows_for_ibkr_analyzer_data(

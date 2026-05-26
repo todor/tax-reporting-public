@@ -37,13 +37,33 @@ from integrations.shared.spb8 import (
     render_spb8_section,
 )
 
-from .contracts import AnalysisDiagnostic, AnalyzerStatus, AppendixRecord, MainReportNote, TaxAnalysisResult
+from .autodetect import DetectionItem
+from .contracts import (
+    AnalysisDiagnostic,
+    AnalyzerStatus,
+    AppendixRecord,
+    GeneratedArtifact,
+    MainReportNote,
+    TaxAnalysisResult,
+)
 
 ZERO = Decimal("0")
 
 
 def _format_path(path: Path) -> str:
     return str(path.expanduser().resolve())
+
+
+def _visible_generated_artifacts(
+    result: TaxAnalysisResult,
+    *,
+    main: bool,
+) -> list[GeneratedArtifact]:
+    return [
+        artifact
+        for artifact in result.generated_artifacts
+        if (artifact.show_in_main if main else artifact.show_in_diagnostics)
+    ]
 
 
 def _status_banner(global_status: AnalyzerStatus) -> str:
@@ -295,14 +315,31 @@ def _render_detected_inputs(
 ) -> None:
     if not detected_inputs and not detected_input_items:
         return
-    lines.extend(["", "Detected inputs"])
+    analyzer_aliases = set(detected_inputs)
     if detected_input_items is not None:
-        for path, alias, reason in detected_input_items:
-            lines.append(f"- {_format_path(path)} -> {alias} ({reason})")
+        analyzer_items = [
+            (path, alias, reason)
+            for path, alias, reason in detected_input_items
+            if alias in analyzer_aliases
+        ]
+        auxiliary_items = [
+            (path, alias, reason)
+            for path, alias, reason in detected_input_items
+            if alias not in analyzer_aliases
+        ]
+        if analyzer_items:
+            lines.extend(["", "Analyzer inputs"])
+            for path, alias, reason in analyzer_items:
+                lines.append(f"- {_format_path(path)} -> {alias} ({reason})")
+        if auxiliary_items:
+            lines.extend(["", "Auxiliary/manual inputs"])
+            for path, alias, reason in auxiliary_items:
+                lines.append(f"- {_format_path(path)} -> {alias} ({reason})")
         return
+    lines.extend(["", "Analyzer inputs"])
     for alias in sorted(detected_inputs):
         for path in detected_inputs[alias]:
-            lines.append(f"- {alias}: {_format_path(path)}")
+            lines.append(f"- {_format_path(path)} -> {alias}")
 
 
 def _render_ignored_inputs(lines: list[str], ignored_inputs: list[tuple[Path, str]]) -> None:
@@ -311,6 +348,144 @@ def _render_ignored_inputs(lines: list[str], ignored_inputs: list[tuple[Path, st
     lines.extend(["", "Ignored inputs"])
     for path, reason in ignored_inputs:
         lines.append(f"- {_format_path(path)}: {reason}")
+
+
+def _render_ignored_input_items(lines: list[str], ignored_input_items: list[DetectionItem] | None) -> None:
+    if not ignored_input_items:
+        return
+    lines.extend(["", "Ignored input details"])
+    for item in ignored_input_items:
+        suffix = item.path.suffix or "<none>"
+        lines.append(f"- path: {_format_path(item.path)}")
+        lines.append(f"  reason: {item.reason}")
+        lines.append(f"  extension: {suffix}")
+        lines.append(f"  kind: {item.ignored_kind}")
+        lines.append(f"  known_noise: {'yes' if item.known_noise else 'no'}")
+        lines.append(f"  ordinary_unmatched: {'yes' if item.ignored_kind == 'ordinary_unmatched' else 'no'}")
+        lines.append(
+            "  related_to_supported_analyzer: "
+            f"{'yes' if item.related_to_supported_analyzer else 'no'}"
+        )
+        lines.append(f"  analyzer_alias: {item.analyzer_alias or '-'}")
+        lines.append(
+            "  main_output_notice: "
+            f"{'suppressed known-noise notice' if item.known_noise else 'visible in ignored input summary'}"
+        )
+
+
+def _display_alias_bg(alias: str) -> str:
+    names = {
+        "ibkr": "IBKR",
+        "kraken": "Kraken",
+        "coinbase": "Coinbase",
+        "binance_futures": "Binance Futures",
+        "crypto_com": "Crypto.com",
+        "finexify": "Finexify",
+        "karol": "Karol",
+        "spb8-input": "СПБ-8 input",
+        "spb8": "СПБ-8",
+    }
+    return names.get(alias, alias.replace("_", " ").title())
+
+
+def _compact_input_label(path: Path) -> str:
+    return path.name
+
+
+def _render_generated_artifacts_main(analyzer_results: list[TaxAnalysisResult]) -> list[str]:
+    entries: list[tuple[str, str, GeneratedArtifact]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for result in analyzer_results:
+        for artifact in _visible_generated_artifacts(result, main=True):
+            path_text = _format_path(artifact.path)
+            key = (result.analyzer_alias, result.input_path.name, path_text)
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append((result.analyzer_alias, result.input_path.name, artifact))
+    if not entries:
+        return []
+
+    lines = ["Помощни файлове за проверка"]
+    for alias, input_name, artifact in sorted(
+        entries,
+        key=lambda item: (_display_alias_bg(item[0]), item[1], _format_path(item[2].path)),
+    ):
+        lines.append(f"- {_display_alias_bg(alias)} — {input_name}")
+        lines.append(f"  CSV файл за проверка на обработените редове: {_format_path(artifact.path)}")
+    return lines
+
+
+def _processed_input_inventory_lines(detected_input_items: list[DetectedInputDisplay] | None) -> list[str]:
+    if not detected_input_items:
+        return []
+    grouped: dict[str, list[Path]] = defaultdict(list)
+    for path, alias, _reason in detected_input_items:
+        grouped[alias].append(path)
+    lines = ["Анализирани входни файлове"]
+    for alias in sorted(grouped):
+        lines.append(f"- {_display_alias_bg(alias)}:")
+        for path in sorted(grouped[alias], key=lambda item: item.name):
+            lines.append(f"  - {_compact_input_label(path)}")
+    return lines
+
+
+def _ignored_input_summary_lines(ignored_input_items: list[DetectionItem] | None) -> list[str]:
+    if ignored_input_items is None:
+        return []
+    visible = [item for item in ignored_input_items if not item.known_noise]
+    related = [item for item in visible if item.related_to_supported_analyzer]
+    lines = ["Игнорирани входни файлове"]
+    if not ignored_input_items:
+        lines.append("- Няма игнорирани входни файлове.")
+        return lines
+    if not visible:
+        lines.extend(
+            [
+                "- Игнорирани са само системни/служебни файлове, които не се анализират.",
+                "- Пълните пътища и причините са в diagnostics файла.",
+            ]
+        )
+        return lines
+    lines.append(f"- Файлове, намерени в папката, но неанализирани: {len(visible)}")
+    for item in sorted(visible, key=lambda value: value.path.name)[:10]:
+        lines.append(f"- {item.path.name}")
+    if len(visible) > 10:
+        lines.append(f"- ... още {len(visible) - 10} файла")
+    if related:
+        lines.append(
+            "ВНИМАНИЕ: "
+            f"{len(related)} файл(а) изглеждат свързани с поддържан анализатор, "
+            "но не бяха анализирани. Проверете diagnostics файла преди да използвате резултатите."
+        )
+    lines.append("- Пълните пътища и причините са в diagnostics файла.")
+    return lines
+
+
+def _run_completeness_risk(
+    *,
+    global_status: AnalyzerStatus,
+    ignored_input_items: list[DetectionItem] | None,
+) -> bool:
+    if global_status in {"ERROR", "NEEDS_REVIEW", "WARNING"}:
+        return True
+    return any(item.related_to_supported_analyzer for item in ignored_input_items or [])
+
+
+def _run_assumption_lines(
+    *,
+    tax_year: int,
+    display_currency: str,
+    analyzer_results: list[TaxAnalysisResult],
+) -> list[str]:
+    aliases = sorted({result.analyzer_alias for result in analyzer_results})
+    lines = ["Настройки, режими и проверки на анализа"]
+    lines.append(f"- Данъчна година: {tax_year}")
+    lines.append("- Изчислителна валута: EUR.")
+    lines.append(f"- Валута за визуализация в TXT: {display_currency}.")
+    if aliases:
+        lines.append("- Използвани анализатори/платформи: " + ", ".join(_display_alias_bg(alias) for alias in aliases) + ".")
+    return lines
 
 
 def _merge_status(base: AnalyzerStatus, incoming: AnalyzerStatus) -> AnalyzerStatus:
@@ -341,6 +516,8 @@ def _aggregate_main_report_notes(analyzer_results: list[TaxAnalysisResult]) -> l
     seen: set[tuple[str, str]] = set()
     for result in analyzer_results:
         for note in result.main_report_notes:
+            if note.category == "duplicate_individual_context":
+                continue
             section_title = note.section_title.strip()
             text = note.text.strip()
             if not section_title or not text:
@@ -353,20 +530,27 @@ def _aggregate_main_report_notes(analyzer_results: list[TaxAnalysisResult]) -> l
     return notes
 
 
-def _render_main_report_notes(notes: list[MainReportNote]) -> list[str]:
-    if not notes:
+def _render_top_main_report_notes(notes: list[MainReportNote]) -> list[str]:
+    top_notes = [note for note in notes if note.category != "methodology"]
+    if not top_notes:
         return []
     grouped: dict[str, list[str]] = defaultdict(list)
     seen_by_section: dict[str, set[str]] = defaultdict(set)
-    for note in notes:
+    ordered_section_titles: list[str] = []
+    for note in top_notes:
         section_title = note.section_title.strip()
         text = note.text.strip()
-        if not section_title or not text or text in seen_by_section[section_title]:
+        if not section_title or not text:
             continue
-        seen_by_section[section_title].add(text)
+        seen = seen_by_section[section_title]
+        if text in seen:
+            continue
+        if not seen:
+            ordered_section_titles.append(section_title)
+        seen.add(text)
         grouped[section_title].append(text)
     lines: list[str] = []
-    for section_title in sorted(grouped):
+    for section_title in ordered_section_titles:
         if lines:
             lines.append("")
         lines.append(section_title)
@@ -379,17 +563,234 @@ def _render_main_report_notes(notes: list[MainReportNote]) -> list[str]:
     return lines
 
 
-def _render_policy_audit_lines(lines: list[str], analyzer_results: list[TaxAnalysisResult]) -> None:
-    rendered_any = False
-    for result in analyzer_results:
-        audit_lines = [line for line in result.policy_audit_lines if line.strip()]
-        if not audit_lines:
+def _render_methodology_report_notes(notes: list[MainReportNote]) -> list[str]:
+    methodology_notes = [note for note in notes if note.category == "methodology"]
+    if not methodology_notes:
+        return []
+    grouped: dict[str, list[str]] = defaultdict(list)
+    seen_by_section: dict[str, set[str]] = defaultdict(set)
+    ordered_section_titles: list[str] = []
+    for note in methodology_notes:
+        section_title = note.section_title.strip()
+        text = note.text.strip()
+        if not section_title or not text:
             continue
-        if not rendered_any:
-            lines.extend(["", "Policy details"])
-            rendered_any = True
-        lines.append(result.analyzer_alias)
-        lines.extend(audit_lines)
+        seen = seen_by_section[section_title]
+        if text in seen:
+            continue
+        if not seen:
+            ordered_section_titles.append(section_title)
+        seen.add(text)
+        grouped[section_title].append(text)
+    lines = ["Методологични бележки"]
+    for section_title in ordered_section_titles:
+        lines.append("")
+        lines.append(section_title)
+        lines.extend(f"- {text}" for text in grouped[section_title])
+    return lines
+
+
+def _detail_category_for_line(line: str, *, current_block: str | None = None) -> str:
+    stripped = line.strip()
+    lowered = stripped.casefold()
+    if "debug" in lowered or "_debug" in lowered or "artifact" in lowered or "sanity report:" in lowered:
+        return "Debug artifacts"
+    if current_block == "Validation / sanity checks":
+        return "Validation / sanity checks"
+    if (
+        "sanity" in lowered
+        or lowered.startswith("- checked ")
+        or "validation" in lowered
+        or "mismatch" in lowered
+    ):
+        return "Validation / sanity checks"
+    if (
+        "date format" in lowered
+        or "opening_state" in lowered
+        or "opening state" in lowered
+        or "начално състояние" in lowered
+        or "report alias" in lowered
+        or "detection reason" in lowered
+        or "full input path" in lowered
+    ):
+        return "Input interpretation"
+    if (
+        "processed" in lowered
+        or "included" in lowered
+        or "ignored" in lowered
+        or "skipped" in lowered
+        or "rows" in lowered
+        or "count" in lowered
+        or "total" in lowered
+        or "paid eur" in lowered
+        or "rate:" in lowered
+        or "редове" in lowered
+        or "брой" in lowered
+        or "сума" in lowered
+    ) and " policy:" not in lowered and " policy" not in lowered:
+        return "Tax calculation summary"
+    if (
+        "policy" in lowered
+        or "режим" in lowered
+        or "третира" in lowered
+        or "realization" in lowered
+        or "classification" in lowered
+        or "tax-exempt" in lowered
+        or "appendix 5 mapping" in lowered
+        or "appendix 8 dividend list mode" in lowered
+        or "ledger" in lowered
+        or "state reconstruction" in lowered
+        or "markets" in lowered
+        or "market classification" in lowered
+        or "invalid/unreadable market" in lowered
+        or "selected mode:" in lowered
+        or "пазар" in lowered
+        or "cfd" in lowered
+        or "pil" in lowered
+        or "futures" in lowered
+        or "option" in lowered
+        or "опции" in lowered
+        or "фючърси" in lowered
+    ):
+        return "Tax treatment decisions"
+    if (
+        "review status" in lowered
+        or "override" in lowered
+    ):
+        return "Analyzer-specific audit"
+    return "Analyzer-specific audit"
+
+
+def _add_grouped_detail_line(
+    grouped: dict[str, list[str]],
+    seen: dict[str, set[str]],
+    category: str,
+    line: str,
+) -> None:
+    cleaned = line.rstrip()
+    if not cleaned or cleaned in {"Audit Data", "Sanity Check", "Technical Details", "Analyzer technical details"}:
+        return
+    if cleaned.startswith("- full input path:") or cleaned.startswith("- analyzer alias:"):
+        return
+    if cleaned in seen[category]:
+        return
+    seen[category].add(cleaned)
+    grouped[category].append(cleaned)
+
+
+def _group_report_details(result: TaxAnalysisResult) -> dict[str, list[str]]:
+    grouped: dict[str, list[str]] = {
+        "Input interpretation": [],
+        "Tax calculation summary": [],
+        "Tax treatment decisions": [],
+        "Analyzer-specific audit": [],
+        "Validation / sanity checks": [],
+        "Debug artifacts": [],
+    }
+    seen: dict[str, set[str]] = {category: set() for category in grouped}
+    for line in result.policy_audit_lines:
+        category = _detail_category_for_line(line)
+        _add_grouped_detail_line(grouped, seen, category, line)
+    for detail in result.report_details:
+        if detail.category == "complete_individual_diagnostics":
+            continue
+        if detail.visibility == "MAIN":
+            continue
+        if detail.category == "debug" or detail.visibility == "DEBUG":
+            for line in detail.lines:
+                _add_grouped_detail_line(grouped, seen, "Debug artifacts", line)
+            continue
+        if detail.category == "audit" or detail.key == "input_detection":
+            for line in detail.lines:
+                _add_grouped_detail_line(grouped, seen, "Input interpretation", line)
+            continue
+        current_block: str | None = None
+        for line in detail.lines:
+            if line.strip() == "Sanity Check":
+                current_block = "Validation / sanity checks"
+                continue
+            if line.strip() == "Audit Data":
+                current_block = None
+                continue
+            category = _detail_category_for_line(line, current_block=current_block)
+            _add_grouped_detail_line(grouped, seen, category, line)
+    return grouped
+
+
+def _render_result_diagnostics_summary(result: TaxAnalysisResult) -> list[str]:
+    diagnostics = normalize_diagnostics(result.diagnostics)
+    if not diagnostics:
+        return []
+    lines = ["Warnings/errors for this input"]
+    for diagnostic in diagnostics:
+        code = f" {diagnostic.code}" if diagnostic.code else ""
+        lines.append(f"- [{diagnostic.severity}]{code}: {diagnostic.message}")
+    return lines
+
+
+def _render_per_input_details(lines: list[str], analyzer_results: list[TaxAnalysisResult]) -> None:
+    if not analyzer_results:
+        return
+    lines.extend(["", "Per-input diagnostics summary"])
+    for result in sorted(analyzer_results, key=lambda item: (item.analyzer_alias, _format_path(item.input_path))):
+        lines.append("")
+        lines.append(f"{result.analyzer_alias}: {result.input_path.name}")
+        lines.append(f"- input_path: {_format_path(result.input_path)}")
+        lines.append(f"- analyzer_alias: {result.analyzer_alias}")
+        lines.append(f"- status: {result.status}")
+        declaration_path = result.output_paths.get("declaration_txt")
+        diagnostics_path = result.output_paths.get("diagnostics_txt")
+        if declaration_path is not None:
+            lines.append(f"- declaration_path: {_format_path(declaration_path)}")
+            lines.append(f"- output_dir: {_format_path(declaration_path.parent)}")
+        if diagnostics_path is not None:
+            lines.append(f"- diagnostics_path: {_format_path(diagnostics_path)}")
+        artifact_lines = dict.fromkeys(
+            f"- {artifact.artifact_type}: {_format_path(artifact.path)}"
+            for artifact in _visible_generated_artifacts(result, main=False)
+        )
+        lines.extend(artifact_lines)
+        grouped = _group_report_details(result)
+        for section_title in (
+            "Input interpretation",
+            "Tax calculation summary",
+            "Tax treatment decisions",
+            "Validation / sanity checks",
+            "Analyzer-specific audit",
+            "Debug artifacts",
+        ):
+            section_lines = grouped[section_title]
+            if not section_lines:
+                continue
+            lines.append(section_title)
+            lines.extend(f"  {line}" for line in section_lines)
+            if section_title == "Debug artifacts":
+                if not any("Debug artifacts are verification-only" in line for line in section_lines):
+                    lines.append("  - Debug artifacts are verification-only and not production tax outputs.")
+        diagnostic_lines = _render_result_diagnostics_summary(result)
+        if diagnostic_lines:
+            lines.extend(diagnostic_lines)
+
+
+def _render_main_report_details(analyzer_results: list[TaxAnalysisResult]) -> list[str]:
+    details = [
+        detail
+        for result in analyzer_results
+        for detail in result.report_details
+        if detail.visibility == "MAIN"
+    ]
+    if not details:
+        return []
+    lines = ["Допълнителни бележки от анализаторите"]
+    seen: set[tuple[str, tuple[str, ...]]] = set()
+    for detail in sorted(details, key=lambda item: (item.title, item.key)):
+        key = (detail.title, detail.lines)
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(f"- {detail.title}:")
+        lines.extend(f"  - {line}" for line in detail.lines if line.strip())
+    return lines
 
 
 def _render_per_analyzer_status(
@@ -703,6 +1104,7 @@ def render_aggregated_report(
     analyzer_errors: dict[str, list[str]],
     detected_input_items: list[DetectedInputDisplay] | None = None,
     analyzer_error_diagnostics: list[AnalysisDiagnostic] | None = None,
+    ignored_input_items: list[DetectionItem] | None = None,
     display_currency: str = "EUR",
     cache_dir: str | Path | None = None,
     spb8_rows: list[SPB8Row] | None = None,
@@ -726,6 +1128,8 @@ def render_aggregated_report(
     global_status = _global_status(list(statuses.values()))
     if spb8_needs_review and global_status in {"OK", "WARNING"}:
         global_status = "NEEDS_REVIEW"
+    if any(item.related_to_supported_analyzer for item in ignored_input_items or []) and global_status == "OK":
+        global_status = "WARNING"
     aggregated = aggregate_appendix_records(analyzer_results)
     aggregated_spb8_rows = aggregate_spb8_rows(spb8_rows or [])
     main_report_notes = _aggregate_main_report_notes(analyzer_results)
@@ -740,11 +1144,34 @@ def render_aggregated_report(
     )
     if status_reasons:
         lines.extend(["", *status_reasons])
+    if _run_completeness_risk(global_status=global_status, ignored_input_items=ignored_input_items):
+        lines.extend(["", "ВНИМАНИЕ: Отчетът може да е непълен или да изисква ръчна проверка."])
     lines.append("")
-    main_report_note_lines = _render_main_report_notes(main_report_notes)
-    if main_report_note_lines:
-        lines.extend(main_report_note_lines)
+    top_settings_lines = _run_assumption_lines(
+        tax_year=tax_year,
+        display_currency=display_currency,
+        analyzer_results=analyzer_results,
+    )
+    top_main_report_note_lines = _render_top_main_report_notes(main_report_notes)
+    if top_main_report_note_lines:
+        top_settings_lines.extend(["", *top_main_report_note_lines])
+    top_detail_lines = _render_main_report_details(analyzer_results)
+    if top_detail_lines:
+        top_settings_lines.extend(["", *top_detail_lines])
+
+    for section_lines in (
+        _processed_input_inventory_lines(detected_input_items),
+        _ignored_input_summary_lines(ignored_input_items),
+        top_settings_lines,
+    ):
+        if not section_lines:
+            continue
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.extend(section_lines)
+    if lines and lines[-1] != "":
         lines.append("")
+    methodology_report_note_lines = _render_methodology_report_notes(main_report_notes)
     for section_lines in (
         _build_appendix5_lines(aggregated, money_context=money_context),
         _build_appendix13_lines(aggregated, money_context=money_context),
@@ -760,7 +1187,9 @@ def render_aggregated_report(
             notes=spb8_notes,
             aggregate=bool(aggregated_spb8_rows),
         ),
+        _render_generated_artifacts_main(analyzer_results),
         ["CFD и PIL", *(f"- {note}" for note in policy_notes)] if policy_notes else [],
+        methodology_report_note_lines,
     ):
         if not section_lines:
             continue
@@ -770,19 +1199,37 @@ def render_aggregated_report(
 
     _append_appendix8_part1_note(lines, aggregated=aggregated)
 
+    result_diagnostics = [diagnostic for result in analyzer_results for diagnostic in normalize_diagnostics(result.diagnostics)]
+    all_report_diagnostics = [*result_diagnostics, *(analyzer_error_diagnostics or [])]
+    analyzer_input_count = sum(len(paths) for paths in detected_inputs.values())
+    auxiliary_input_count = max(0, len(detected_input_items or []) - analyzer_input_count)
+    successful_analyzer_input_count = sum(1 for result in analyzer_results if result.status != "ERROR")
+    failed_analyzer_input_count = sum(len(errors) for errors in analyzer_errors.values())
+    failed_analyzer_input_count += sum(1 for result in analyzer_results if result.status == "ERROR")
+    warning_count = sum(1 for diagnostic in all_report_diagnostics if diagnostic.severity == "WARNING")
+    error_count = sum(1 for diagnostic in all_report_diagnostics if diagnostic.severity == "ERROR")
     technical_lines: list[str] = [
-        "Aggregated Report",
+        "Aggregate calculation summary",
         f"- tax year: {tax_year}",
         f"- global status: {global_status}",
+        f"- analyzer input count: {analyzer_input_count}",
+        f"- auxiliary input count: {auxiliary_input_count}",
+        f"- ignored input count: {len(ignored_inputs)}",
+        f"- successful analyzer input count: {successful_analyzer_input_count}",
+        f"- failed analyzer input count: {failed_analyzer_input_count}",
+        f"- warning count: {warning_count}",
+        f"- error count: {error_count}",
     ]
     technical_lines.extend(f"- {line}" for line in display_currency_technical_lines(money_context))
-    _render_policy_audit_lines(technical_lines, analyzer_results)
+    technical_lines.extend(["", "Input inventory"])
     _render_detected_inputs(technical_lines, detected_inputs, detected_input_items)
     _render_ignored_inputs(technical_lines, ignored_inputs)
+    _render_ignored_input_items(technical_lines, ignored_input_items)
     _render_per_analyzer_status(
         technical_lines,
         run_statuses=_run_statuses_from_results(analyzer_results, analyzer_errors, analyzer_error_diagnostics or []),
     )
+    _render_per_input_details(technical_lines, analyzer_results)
 
     append_technical_details(lines, technical_lines)
     return "\n".join(lines).rstrip() + "\n"

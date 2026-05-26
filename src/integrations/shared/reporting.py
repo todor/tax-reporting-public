@@ -9,7 +9,7 @@ from typing import Any
 
 from integrations.shared.rendering.common import TECHNICAL_DETAILS_SEPARATOR
 
-from .contracts import AnalysisDiagnostic, AnalyzerStatus, UserFacingTaxError
+from .contracts import AnalysisDiagnostic, AnalyzerStatus, GeneratedArtifact, UserFacingTaxError
 
 
 STATUS_BANNER_BG: dict[AnalyzerStatus, str] = {
@@ -103,6 +103,7 @@ _KNOWN_DIAGNOSTIC_CODES = {
     "IBKR_FUTURES_MISSING_MTM_ROWS",
     "IBKR_UNSUPPORTED_BASE_CURRENCY",
     "INPUT_FILE_MISSING",
+    "IGNORED_RELATED_INPUT",
     "INVALID_TAX_YEAR",
     "MISSING_CSV_HEADER",
     "MISSING_REQUIRED_COLUMNS",
@@ -185,6 +186,7 @@ class MainReportNotes:
     cfd_pil: list[str] = field(default_factory=list)
     futures: list[str] = field(default_factory=list)
     options: list[str] = field(default_factory=list)
+    methodology: list[tuple[str, list[str]]] = field(default_factory=list)
     appendix8: list[str] = field(default_factory=list)
     general: list[str] = field(default_factory=list)
 
@@ -228,8 +230,42 @@ def _extract_note_block(
     return remaining, notes
 
 
+def _extract_methodology_note_sections(lines: list[str]) -> tuple[list[str], list[tuple[str, list[str]]]]:
+    remaining: list[str] = []
+    sections: list[tuple[str, list[str]]] = []
+    index = 0
+    while index < len(lines):
+        if lines[index] != "Методологични бележки":
+            remaining.append(lines[index])
+            index += 1
+            continue
+
+        index += 1
+        while index < len(lines):
+            while index < len(lines) and lines[index].strip() == "":
+                index += 1
+            if index >= len(lines):
+                break
+            section_title = lines[index].strip()
+            index += 1
+            notes: list[str] = []
+            while index < len(lines) and lines[index].strip() != "":
+                notes.append(_strip_bullet_prefix(lines[index]))
+                index += 1
+            if section_title and notes:
+                sections.append((section_title, notes))
+
+        if remaining and remaining[-1].strip() != "":
+            remaining.append("")
+
+    while remaining and remaining[-1].strip() == "":
+        remaining.pop()
+    return remaining, sections
+
+
 def extract_main_report_notes(body: str) -> tuple[str, MainReportNotes]:
     lines = body.splitlines()
+    lines, methodology_notes = _extract_methodology_note_sections(lines)
     lines, spb8_notes = _extract_note_block(lines, title="Забележки за СПБ-8", bullet_lines=True)
     lines, forex_notes = _extract_note_block(lines, title="Forex операции", bullet_lines=True)
     lines, cfd_pil_notes = _extract_note_block(lines, title="CFD и PIL", bullet_lines=True)
@@ -255,6 +291,7 @@ def extract_main_report_notes(body: str) -> tuple[str, MainReportNotes]:
             cfd_pil=cfd_pil_notes,
             futures=futures_notes,
             options=options_notes,
+            methodology=methodology_notes,
             appendix8=appendix8_specific_notes,
             general=general_notes,
         ),
@@ -832,6 +869,15 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
             ]
         )
         return lines
+
+    if diagnostic.code == "IGNORED_RELATED_INPUT":
+        count = _diagnostic_count(diagnostic)
+        return [
+            f"Има {count} входни файл(а), които изглеждат свързани с поддържан анализатор, но не са анализирани.",
+            "Какво да направите:",
+            "- Проверете diagnostics файла за пълните пътища и причините.",
+            "- Ако файлът трябва да участва в декларацията, поправете името/формата или го подайте с --analyzer-input.",
+        ]
 
     if diagnostic.code == "IBKR_INCOMPLETE_CLOSED_LOTS":
         closing_trade_count = params.get("closing_trade_count")
@@ -1540,6 +1586,7 @@ def render_assumptions_section(*, notes: MainReportNotes, diagnostics_path: Path
         _notes_subsection("CFD и PIL", notes.cfd_pil),
         _notes_subsection("Фючърси — IBKR daily cash-settled MTM", notes.futures),
         _notes_subsection("Опции върху акции и индекси", notes.options),
+        *(_notes_subsection(title, section_notes) for title, section_notes in notes.methodology),
         _notes_subsection("Приложение 8", notes.appendix8),
         _notes_subsection(
             "Изчисления и визуализация",
@@ -1560,15 +1607,17 @@ def render_assumptions_section(*, notes: MainReportNotes, diagnostics_path: Path
     sections = [section for section in sections if section]
     if not sections:
         return []
-    meaningful_group_sections = {
-        section[0]
-        for section in sections
-        if section[0] not in {"Изчисления и визуализация", "Диагностика"}
-    }
     lines = _join_sections(sections)
-    if len(meaningful_group_sections) < 2:
-        return lines
-    return ["Бележки и допускания", "", *lines]
+    return [
+        "Подробни методологични бележки",
+        "",
+        (
+            "Следващите бележки поясняват използваните режими и методи от горното "
+            "обобщение и описват как те влияят върху декларативните стойности."
+        ),
+        "",
+        *lines,
+    ]
 
 
 def _visible_note_count(section_lines: list[str]) -> int:
@@ -1618,29 +1667,205 @@ def render_main_report(
     return "\n".join(lines).rstrip() + "\n"
 
 
+_DIAGNOSTIC_SECTION_HEADINGS = {
+    "Input inventory",
+    "Analyzer inputs",
+    "Auxiliary/manual inputs",
+    "Ignored inputs",
+    "Ignored input details",
+    "Opening state resolution",
+    "Aggregate calculation summary",
+    "Per-analyzer status",
+    "Per-input diagnostics summary",
+    "Detailed per-input diagnostics",
+}
+
+
+def _compact_decimal_precision(line: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        value = match.group(0)
+        if "." not in value:
+            return value
+        integer, fraction = value.split(".", 1)
+        if len(fraction) <= 6:
+            return value
+        fraction = fraction[:6].rstrip("0")
+        return integer if not fraction else f"{integer}.{fraction}"
+
+    return re.sub(r"(?<![\w.])-?\d+\.\d{7,}(?![\w.])", replace, line)
+
+
+def _clean_diagnostics_line(line: str) -> str:
+    return _compact_decimal_precision(line.rstrip())
+
+
+def _is_prestructured_diagnostics(technical_lines: list[str]) -> bool:
+    return any(line.strip() in _DIAGNOSTIC_SECTION_HEADINGS for line in technical_lines)
+
+
+def _append_unique_line(target: list[str], line: str, seen: set[str]) -> None:
+    cleaned = _clean_diagnostics_line(line)
+    if not cleaned or cleaned in {"Technical Details", "Analyzer technical details", "Audit Data"}:
+        return
+    if cleaned in seen:
+        return
+    seen.add(cleaned)
+    target.append(cleaned)
+
+
+def _technical_line_category(line: str, *, current_block: str | None) -> str:
+    stripped = line.strip()
+    lowered = stripped.casefold()
+    if "debug" in lowered or "_debug" in lowered or "artifact" in lowered or "sanity report:" in lowered:
+        return "Debug artifacts"
+    if current_block == "Validation / sanity checks":
+        return "Validation / sanity checks"
+    if (
+        "sanity" in lowered
+        or lowered.startswith("- checked ")
+        or "validation" in lowered
+        or "mismatch" in lowered
+    ):
+        return "Validation / sanity checks"
+    if (
+        "date format" in lowered
+        or "opening_state" in lowered
+        or "opening state" in lowered
+        or "начално състояние" in lowered
+        or "report alias" in lowered
+        or lowered.startswith("- source:")
+        or "input_path:" in lowered
+    ):
+        return "Input interpretation"
+    if (
+        "processed" in lowered
+        or "included" in lowered
+        or "ignored" in lowered
+        or "skipped" in lowered
+        or "rows" in lowered
+        or "count" in lowered
+        or "total" in lowered
+        or "paid eur" in lowered
+        or "rate:" in lowered
+        or "редове" in lowered
+        or "брой" in lowered
+        or "сума" in lowered
+    ) and " policy:" not in lowered and " policy" not in lowered:
+        return "Tax calculation summary"
+    if (
+        "policy" in lowered
+        or "режим" in lowered
+        or "третира" in lowered
+        or "realization" in lowered
+        or "classification" in lowered
+        or "tax-exempt" in lowered
+        or "appendix 5 mapping" in lowered
+        or "appendix 8 dividend list mode" in lowered
+        or "ledger" in lowered
+        or "state reconstruction" in lowered
+        or "markets" in lowered
+        or "market classification" in lowered
+        or "selected mode:" in lowered
+        or "пазар" in lowered
+        or "cfd" in lowered
+        or "pil" in lowered
+        or "futures" in lowered
+        or "option" in lowered
+        or "опции" in lowered
+        or "фючърси" in lowered
+    ):
+        return "Tax treatment decisions"
+    return "Analyzer-specific audit"
+
+
+def _render_normalized_technical_sections(technical_lines: list[str]) -> list[str]:
+    if not technical_lines:
+        return []
+    if _is_prestructured_diagnostics(technical_lines):
+        return [_clean_diagnostics_line(line) for line in technical_lines]
+
+    grouped: dict[str, list[str]] = {
+        "Input interpretation": [],
+        "Tax calculation summary": [],
+        "Tax treatment decisions": [],
+        "Analyzer-specific audit": [],
+        "Validation / sanity checks": [],
+        "Debug artifacts": [],
+    }
+    seen_by_category: dict[str, set[str]] = {category: set() for category in grouped}
+    current_block: str | None = None
+    for raw_line in technical_lines:
+        stripped = raw_line.strip()
+        if stripped == "Sanity Check":
+            current_block = "Validation / sanity checks"
+            continue
+        if stripped in {"Audit Data", "Technical Details", "Analyzer technical details"}:
+            current_block = None
+            continue
+        category = _technical_line_category(stripped, current_block=current_block)
+        _append_unique_line(grouped[category], raw_line, seen_by_category[category])
+
+    lines: list[str] = []
+    for category, category_lines in grouped.items():
+        if not category_lines:
+            continue
+        if lines:
+            lines.append("")
+        lines.append(category)
+        lines.extend(category_lines)
+        if category == "Debug artifacts":
+            notice = "- Debug artifacts are verification-only and not production tax outputs."
+            if notice not in seen_by_category[category]:
+                lines.append(notice)
+    return lines
+
+
+def _render_generated_artifacts_diagnostics(artifacts: list[GeneratedArtifact] | None) -> list[str]:
+    visible = [artifact for artifact in artifacts or [] if artifact.show_in_diagnostics]
+    if not visible:
+        return []
+    lines = ["Generated artifacts"]
+    seen: set[tuple[str, str]] = set()
+    for artifact in visible:
+        key = (artifact.artifact_type, format_path(artifact.path))
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(f"- {artifact.artifact_type}: {format_path(artifact.path)}")
+    return lines if len(lines) > 1 else []
+
+
 def render_diagnostics_report(
     *,
     title: str,
     status: AnalyzerStatus,
     raw_declaration_text: str,
     diagnostics: list[AnalysisDiagnostic],
+    tax_year: int | None = None,
     extra_lines: list[str] | None = None,
+    generated_artifacts: list[GeneratedArtifact] | None = None,
     exception: BaseException | None = None,
 ) -> str:
     _declaration_text, technical_lines = split_technical_details(raw_declaration_text)
     diagnostics = normalize_diagnostics(diagnostics)
     lines: list[str] = [
-        "Technical Details",
+        "Diagnostics",
         "",
-        title,
+        "Run summary",
+        f"- title: {title}",
         f"- status: {status}",
     ]
+    if tax_year is not None:
+        lines.append(f"- tax_year: {tax_year}")
     if extra_lines:
-        lines.extend(extra_lines)
+        lines.extend(_clean_diagnostics_line(line) for line in extra_lines)
     if technical_lines:
-        lines.extend(["", "Analyzer technical details", *technical_lines])
+        lines.extend(["", *_render_normalized_technical_sections(technical_lines)])
+    generated_artifact_lines = _render_generated_artifacts_diagnostics(generated_artifacts)
+    if generated_artifact_lines:
+        lines.extend(["", *generated_artifact_lines])
     if diagnostics:
-        lines.extend(["", "Diagnostics"])
+        lines.extend(["", "Diagnostic messages"])
         for index, diagnostic in enumerate(diagnostics):
             if index:
                 lines.append("")
@@ -1841,6 +2066,7 @@ def write_standardized_reports(
     diagnostics: list[AnalysisDiagnostic],
     diagnostics_title: str,
     diagnostics_extra_lines: list[str] | None = None,
+    generated_artifacts: list[GeneratedArtifact] | None = None,
     assumption_notes: list[str] | None = None,
     exception: BaseException | None = None,
 ) -> Path:
@@ -1862,7 +2088,9 @@ def write_standardized_reports(
             status=status,
             raw_declaration_text=raw_report_text,
             diagnostics=diagnostics,
+            tax_year=tax_year,
             extra_lines=diagnostics_extra_lines,
+            generated_artifacts=generated_artifacts,
             exception=exception,
         ),
         encoding="utf-8",

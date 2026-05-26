@@ -11,6 +11,7 @@ from .cli_helpers import CliMode
 
 DiagnosticSeverity = Literal["INFO", "WARNING", "MANUAL_REVIEW", "ERROR"]
 AnalyzerStatus = Literal["OK", "WARNING", "NEEDS_REVIEW", "ERROR"]
+ReportDetailVisibility = Literal["MAIN", "DIAGNOSTICS", "DEBUG"]
 AppendixValue = Decimal | int | str
 
 
@@ -57,13 +58,55 @@ class AppendixRecord:
 
 @dataclass(frozen=True, slots=True)
 class MainReportNote:
-    """Human-facing note/setting that must be visible in individual and aggregate reports."""
+    """Human-facing note/setting that must be visible in individual and aggregate reports.
+
+    Default categories render as compact audit/config/check summaries near the top.
+    Use category="methodology" for detailed bottom methodology notes.
+    """
 
     section_title: str
     text: str
     analyzer_alias: str | None = None
     source_path: Path | None = None
     category: str = "info"
+
+
+@dataclass(frozen=True, slots=True)
+class AnalyzerReportDetail:
+    """Structured analyzer detail with explicit aggregate visibility."""
+
+    key: str
+    title: str
+    lines: tuple[str, ...]
+    visibility: ReportDetailVisibility
+    analyzer_alias: str | None = None
+    source_path: Path | None = None
+    category: str = "diagnostics"
+
+    def __post_init__(self) -> None:
+        if self.visibility not in {"MAIN", "DIAGNOSTICS", "DEBUG"}:
+            raise ValueError(f"unsupported report detail visibility: {self.visibility!r}")
+        if not self.key.strip():
+            raise ValueError("report detail key must not be empty")
+        if not self.title.strip():
+            raise ValueError("report detail title must not be empty")
+
+
+@dataclass(frozen=True, slots=True)
+class GeneratedArtifact:
+    """Analyzer-generated support artifact surfaced by shared report renderers."""
+
+    artifact_type: str
+    label: str
+    path: Path
+    show_in_main: bool = False
+    show_in_diagnostics: bool = True
+
+    def __post_init__(self) -> None:
+        if not self.artifact_type.strip():
+            raise ValueError("generated artifact type must not be empty")
+        if not self.label.strip():
+            raise ValueError("generated artifact label must not be empty")
 
 
 @dataclass(slots=True)
@@ -78,6 +121,8 @@ class TaxAnalysisResult:
     spb8_notes: list[str] = field(default_factory=list)
     spb8_corporate_actions_present: bool = False
     main_report_notes: list[MainReportNote] = field(default_factory=list)
+    report_details: list[AnalyzerReportDetail] = field(default_factory=list)
+    generated_artifacts: list[GeneratedArtifact] = field(default_factory=list)
     policy_notes: list[str] = field(default_factory=list)
     policy_audit_lines: list[str] = field(default_factory=list)
 

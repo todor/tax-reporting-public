@@ -1,75 +1,45 @@
-Technical Details
+Diagnostics
 
-Aggregated tax report diagnostics
+Run summary
+- title: Aggregated tax report diagnostics
 - status: OK
+- tax_year: 2025
 - output_dir: <OUTPUT>
-- detected_inputs_count: 3
-- ignored_inputs_count: 0
+- analyzer_input_count: 3
+- auxiliary_input_count: 1
+- ignored_input_count: 0
+- successful_analyzer_input_count: 3
+- failed_analyzer_input_count: 0
+- warning_count: 0
+- error_count: 0
 - opening_state_resolution:
   - <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv -> kraken: Opening state: none (since inception)
 
-Analyzer technical details
-Aggregated Report
+Aggregate calculation summary
 - tax year: 2025
 - global status: OK
+- analyzer input count: 3
+- auxiliary input count: 1
+- ignored input count: 0
+- successful analyzer input count: 3
+- failed analyzer input count: 0
+- warning count: 0
+- error count: 0
 - Display currency: BGN
 - Calculations currency: EUR
 - Display FX source: BNB
 - Display FX date: 2025-12-31
 - Display FX pair: EUR/BGN
 
-Policy details
-ibkr
-- CFD trades policy: Appendix 5 / Table 2 / code 508
-- CFD holdings policy: excluded_from_appendix_8
-- CFD SPB-8 policy: excluded_from_spb8
-- CFD financing policy: netted_to_appendix_5
-- PIL policy: negative_pil_netted_to_appendix_5
-- Positive PIL policy: appendix_6_code_606
-- CFD trade rows count: 5
-- CFD open position rows excluded from Appendix 8/SPB-8: 0
-- Appendix 5 non-trade adjustment rows not counted as trades: 10
-- Appendix 5 CFD financing adjustment rows not counted as trades: 9
-- Appendix 5 negative PIL adjustment rows not counted as trades: 1
-- CFD financing rows detected in statement: 9
-- CFD financing rows included in tax year: 9
-- CFD financing rows outside tax year ignored: 0
-- CFD financing positive EUR total: 0
-- CFD financing negative EUR total: 12.68427532045218653972993563
-- CFD financing negative skipped EUR total: 0
-- PIL rows detected in statement: 1
-- PIL rows included in tax year: 1
-- PIL rows outside tax year ignored: 0
-- Positive PIL EUR total: 0
-- Negative PIL EUR total: 28.45414386730953099195737871
-- Futures policy: Mark-to-Market Performance Summary / cash-settled MTM
-- Futures Appendix 5 mapping: positive MTM to sale value; negative MTM to acquisition value
-- Futures Trades rows policy: not used for taxable Futures P/L to avoid double counting
-- Futures Cash Report / Cash Settling MTM policy: not used for taxable Futures P/L
-- Futures SPB-8 policy: excluded_from_spb8
-- Futures Trades rows count: 6
-- Futures MTM rows count: 3
-- Futures MTM total EUR: -433.0725670
-- Futures MTM positive EUR total: 0
-- Futures MTM negative EUR total: 433.0725670
-- Futures MTM rows with non-zero Other: 0
-- Futures MTM Other EUR total: 0
-- Equity/index options policy: Appendix 5 / Table 2 / code 508
-- Equity/index options calculation source: Trades/ClosedLot
-- Equity/index options MTM policy: ignored for tax calculation
-- Equity/index options SPB-8 policy: excluded_from_spb8
-- Equity/index option Trade rows count: 10
-- Equity/index option ClosedLot rows included: 5
-- Equity/index option open position rows excluded from Appendix 8/SPB-8: 0
-- Equity/index option exercise/assignment rows without ClosedLot: 0
-- Equity/index option unhandled Trade rows: 0
-- Equity/index option ClosedLot realized P/L USD total: -101.588980
+Input inventory
 
-Detected inputs
+Analyzer inputs
 - <REPO>/examples/inputs/ibkr_activity_statement_sample_sanitized.csv -> ibkr (auto-detected from filename tokens)
 - <REPO>/examples/inputs/ibkr_activity_statement_sample_synthetic.csv -> ibkr (auto-detected from filename tokens)
 - <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv -> kraken (auto-detected from filename tokens)
-- <REPO>/examples/inputs/spb8-input-file.csv -> spb8-input (auto-detected from filename tokens)
+
+Auxiliary/manual inputs
+- <REPO>/examples/inputs/spb8-input-file.csv -> spb8-input (explicit --spb8-input-file)
 
 Per-analyzer status
 ibkr
@@ -83,3 +53,229 @@ kraken
 - OK
   source: <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv
   declaration: <OUTPUT>/kraken/kraken_report_since_inception_sample_sanitized_declaration.txt
+
+Per-input diagnostics summary
+
+ibkr: ibkr_activity_statement_sample_sanitized.csv
+- input_path: <REPO>/examples/inputs/ibkr_activity_statement_sample_sanitized.csv
+- analyzer_alias: ibkr
+- status: OK
+- declaration_path: <OUTPUT>/ibkr/ibkr_activity_statement_sample_sanitized_1/ibkr_activity_declaration_2025.txt
+- output_dir: <OUTPUT>/ibkr/ibkr_activity_statement_sample_sanitized_1
+- diagnostics_path: <OUTPUT>/ibkr/ibkr_activity_statement_sample_sanitized_1/ibkr_activity_declaration_2025.diagnostics.txt
+- row_level_audit_csv: <OUTPUT>/ibkr/ibkr_activity_statement_sample_sanitized_1/ibkr_activity_modified_2025.csv
+Input interpretation
+  - detection reason: auto-detected from filename tokens
+  - report alias: -
+  - IBKR report date format: M/D/YYYY
+  - IBKR report date format reason: no slash date values found; defaulted to IBKR M/D/YYYY
+Tax calculation summary
+  - processed trades (in tax year): 82
+  - ignored rows without token C: 208
+  - unknown Review Status rows: 0
+  - interest processed rows: 26
+  - interest total rows skipped: 4
+  - interest taxable rows: 16
+  - interest non-taxable rows: 10
+  - interest unknown rows: 0
+  - dividends processed rows: 8
+  - dividends total rows skipped: 2
+  - dividends cash rows: 8
+  - dividends lieu rows: 0
+  - dividends unknown rows: 0
+  - withholding processed rows: 10
+  - withholding total rows skipped: 4
+  - withholding dividend rows: 7
+  - withholding non-dividend rows: 3
+  - positive dividend withholding rows: 0
+  - open positions summary rows: 5
+  - Appendix 8 Part I rows: 4
+  - dividend tax rate: 0.05
+  - interest withholding detail paid EUR: 2.045903
+  - interest withholding Mark-to-Market paid EUR: 2.052034
+  - positive interest withholding rows: 0
+Tax treatment decisions
+  - market classification mode: OPEN_WORLD MODE
+  - In listed_symbol mode, execution exchange does not participate in classification and is informational only.
+  - additional CLI EU-regulated markets: -
+  - EU-regulated markets found in report: BVME.ETF, IBIS, IBIS2, SBF
+  - EU non-regulated markets found in report: -
+  - non-EU markets found in report: NASDAQ, NYSE
+  - unmapped markets found in report: -
+  - invalid/unreadable market values found in report: -
+  - selected mode: listed_symbol
+  - Appendix 8 dividend list mode: company
+Validation / sanity checks
+  - Sanity checks: PASS
+  - Checked Trade rows (entry + exit): 166
+  - Checked ClosedLot rows: 84
+  - Checked SubTotal rows: 54
+  - Checked Total rows: 3
+  - Ignored Forex rows: 0
+Analyzer-specific audit
+  - tax year: 2025
+  - trades outside tax year: 0
+  - review overrides (TAXABLE/NON-TAXABLE): 2
+  - Appendix 8 withholding buckets with non-positive net tax paid: 0
+  - interest withholding source found: YES
+  - interest withholding detail source found: YES
+  - interest withholding Mark-to-Market source found: YES
+  - Appendix 9 withholding buckets with non-positive net tax paid: 0
+  - Display currency: BGN
+  - Calculations currency: EUR
+  - Display FX source: BNB
+  - Display FX date: 2025-12-31
+  - Display FX pair: EUR/BGN
+Debug artifacts
+  - tax credit debug report: <OUTPUT>/ibkr/ibkr_activity_statement_sample_sanitized_1/_tax_credit_debug/ibkr_activity_2025/tax_credit_country_debug.json
+  - Sanity-check debug artifacts path: <OUTPUT>/ibkr/ibkr_activity_statement_sample_sanitized_1/_sanity_debug/ibkr_activity_2025
+  - Debug artifacts are verification-only and not production tax outputs.
+  - Sanity report: <OUTPUT>/ibkr/ibkr_activity_statement_sample_sanitized_1/_sanity_debug/ibkr_activity_2025/sanity_report.json
+
+ibkr: ibkr_activity_statement_sample_synthetic.csv
+- input_path: <REPO>/examples/inputs/ibkr_activity_statement_sample_synthetic.csv
+- analyzer_alias: ibkr
+- status: OK
+- declaration_path: <OUTPUT>/ibkr/ibkr_activity_statement_sample_synthetic_2/ibkr_activity_declaration_2025.txt
+- output_dir: <OUTPUT>/ibkr/ibkr_activity_statement_sample_synthetic_2
+- diagnostics_path: <OUTPUT>/ibkr/ibkr_activity_statement_sample_synthetic_2/ibkr_activity_declaration_2025.diagnostics.txt
+- row_level_audit_csv: <OUTPUT>/ibkr/ibkr_activity_statement_sample_synthetic_2/ibkr_activity_modified_2025.csv
+Input interpretation
+  - detection reason: auto-detected from filename tokens
+  - report alias: -
+  - IBKR report date format: M/D/YYYY
+  - IBKR report date format reason: found unambiguous slash date '9/26/2025'
+Tax calculation summary
+  - CFD trade rows count: 5
+  - CFD open position rows excluded from Appendix 8/SPB-8: 0
+  - Appendix 5 non-trade adjustment rows not counted as trades: 10
+  - Appendix 5 CFD financing adjustment rows not counted as trades: 9
+  - Appendix 5 negative PIL adjustment rows not counted as trades: 1
+  - CFD financing rows detected in statement: 9
+  - CFD financing rows included in tax year: 9
+  - CFD financing rows outside tax year ignored: 0
+  - CFD financing positive EUR total: 0
+  - CFD financing negative EUR total: 12.684275
+  - CFD financing negative skipped EUR total: 0
+  - PIL rows detected in statement: 1
+  - PIL rows included in tax year: 1
+  - PIL rows outside tax year ignored: 0
+  - Positive PIL EUR total: 0
+  - Negative PIL EUR total: 28.454143
+  - Futures Trades rows count: 6
+  - Futures MTM rows count: 3
+  - Futures MTM total EUR: -433.072567
+  - Futures MTM positive EUR total: 0
+  - Futures MTM negative EUR total: 433.072567
+  - Futures MTM rows with non-zero Other: 0
+  - Futures MTM Other EUR total: 0
+  - Equity/index option Trade rows count: 10
+  - Equity/index option ClosedLot rows included: 5
+  - Equity/index option open position rows excluded from Appendix 8/SPB-8: 0
+  - Equity/index option exercise/assignment rows without ClosedLot: 0
+  - Equity/index option unhandled Trade rows: 0
+  - Equity/index option ClosedLot realized P/L USD total: -101.588980
+  - processed trades (in tax year): 95
+  - ignored rows without token C: 242
+  - unknown Review Status rows: 0
+  - interest processed rows: 26
+  - interest total rows skipped: 4
+  - interest taxable rows: 16
+  - interest non-taxable rows: 10
+  - interest unknown rows: 0
+  - dividends processed rows: 9
+  - dividends total rows skipped: 2
+  - dividends cash rows: 8
+  - dividends lieu rows: 0
+  - dividends unknown rows: 0
+  - withholding processed rows: 10
+  - withholding total rows skipped: 4
+  - withholding dividend rows: 7
+  - withholding non-dividend rows: 3
+  - positive dividend withholding rows: 0
+  - open positions summary rows: 5
+  - Appendix 8 Part I rows: 4
+  - dividend tax rate: 0.05
+  - interest withholding detail paid EUR: 2.045903
+  - interest withholding Mark-to-Market paid EUR: 2.052034
+  - positive interest withholding rows: 0
+Tax treatment decisions
+  - CFD trades policy: Appendix 5 / Table 2 / code 508
+  - CFD holdings policy: excluded_from_appendix_8
+  - CFD SPB-8 policy: excluded_from_spb8
+  - CFD financing policy: netted_to_appendix_5
+  - PIL policy: negative_pil_netted_to_appendix_5
+  - Positive PIL policy: appendix_6_code_606
+  - Futures policy: Mark-to-Market Performance Summary / cash-settled MTM
+  - Futures Appendix 5 mapping: positive MTM to sale value; negative MTM to acquisition value
+  - Futures Trades rows policy: not used for taxable Futures P/L to avoid double counting
+  - Futures Cash Report / Cash Settling MTM policy: not used for taxable Futures P/L
+  - Futures SPB-8 policy: excluded_from_spb8
+  - Equity/index options policy: Appendix 5 / Table 2 / code 508
+  - Equity/index options calculation source: Trades/ClosedLot
+  - Equity/index options MTM policy: ignored for tax calculation
+  - Equity/index options SPB-8 policy: excluded_from_spb8
+  - market classification mode: OPEN_WORLD MODE
+  - In listed_symbol mode, execution exchange does not participate in classification and is informational only.
+  - additional CLI EU-regulated markets: -
+  - EU-regulated markets found in report: BVME.ETF, IBIS, IBIS2, SBF
+  - EU non-regulated markets found in report: -
+  - non-EU markets found in report: NASDAQ, NYSE
+  - unmapped markets found in report: -
+  - invalid/unreadable market values found in report: -
+  - selected mode: listed_symbol
+  - Appendix 8 dividend list mode: company
+Validation / sanity checks
+  - Sanity checks: PASS
+  - Checked Trade rows (entry + exit): 182
+  - Checked ClosedLot rows: 93
+  - Checked SubTotal rows: 60
+  - Checked Total rows: 4
+  - Ignored Forex rows: 0
+Analyzer-specific audit
+  - tax year: 2025
+  - trades outside tax year: 0
+  - review overrides (TAXABLE/NON-TAXABLE): 2
+  - Appendix 8 withholding buckets with non-positive net tax paid: 0
+  - interest withholding source found: YES
+  - interest withholding detail source found: YES
+  - interest withholding Mark-to-Market source found: YES
+  - Appendix 9 withholding buckets with non-positive net tax paid: 0
+  - Display currency: BGN
+  - Calculations currency: EUR
+  - Display FX source: BNB
+  - Display FX date: 2025-12-31
+  - Display FX pair: EUR/BGN
+Debug artifacts
+  - tax credit debug report: <OUTPUT>/ibkr/ibkr_activity_statement_sample_synthetic_2/_tax_credit_debug/ibkr_activity_2025/tax_credit_country_debug.json
+  - Sanity-check debug artifacts path: <OUTPUT>/ibkr/ibkr_activity_statement_sample_synthetic_2/_sanity_debug/ibkr_activity_2025
+  - Debug artifacts are verification-only and not production tax outputs.
+  - Sanity report: <OUTPUT>/ibkr/ibkr_activity_statement_sample_synthetic_2/_sanity_debug/ibkr_activity_2025/sanity_report.json
+
+kraken: kraken_report_since_inception_sample_sanitized.csv
+- input_path: <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv
+- analyzer_alias: kraken
+- status: OK
+- declaration_path: <OUTPUT>/kraken/kraken_report_since_inception_sample_sanitized_declaration.txt
+- output_dir: <OUTPUT>/kraken
+- diagnostics_path: <OUTPUT>/kraken/kraken_report_since_inception_sample_sanitized_declaration.diagnostics.txt
+- row_level_audit_csv: <OUTPUT>/kraken/kraken_report_since_inception_sample_sanitized_modified.csv
+Input interpretation
+  - detection reason: auto-detected from filename tokens
+  - opening_state: none (since inception)
+  - opening state year end: -
+  - rows ignored (<= opening state year): 0
+Tax calculation summary
+  - processed rows: 76
+  - rows applied to ledger/state: 67
+  - rows included in declaration (tax year): 61
+  - rows ignored (> tax year): 0
+  - ignored fiat Deposit/Withdraw rows: 2
+Analyzer-specific audit
+  - tax year: 2025
+  - manual check overrides (Review Status non-empty): 1
+  - Display currency: BGN
+  - Calculations currency: EUR
+  - Display FX source: BNB
+  - Display FX date: 2025-12-31
+  - Display FX pair: EUR/BGN

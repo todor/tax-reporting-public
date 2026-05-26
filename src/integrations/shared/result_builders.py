@@ -16,8 +16,15 @@ from integrations.ibkr.appendices.declaration_text import (
 )
 from integrations.ibkr.models import AnalysisSummary as IbkrAnalysisSummary
 from integrations.p2p.shared.appendix6_models import P2PAppendix6Result
+from integrations.p2p.shared.appendix6_renderer import (
+    _fmt_informative_value,
+    _is_informative_value_empty_or_zero,
+    _split_label_and_currency,
+    _translate_info_label_bg,
+    _translate_tax_message_bg,
+)
 
-from .contracts import AnalysisDiagnostic, AppendixRecord, TaxAnalysisResult
+from .contracts import AnalysisDiagnostic, AppendixRecord, GeneratedArtifact, MainReportNote, TaxAnalysisResult
 from .reporting import normalize_diagnostics
 
 
@@ -25,6 +32,7 @@ _ROW_RE = re.compile(r"row (?P<row>\d+)")
 _P2P_YEAR_RE = re.compile(
     r"reporting year in PDF \((?P<report_year>[^)]+)\) differs from requested tax year \((?P<tax_year>[^)]+)\)"
 )
+_ANALYZER_ASSUMPTIONS_SECTION = "Анализаторни допускания и проверки"
 
 
 def _output_paths_to_path_map(paths: dict[str, str | Path]) -> dict[str, Path]:
@@ -32,6 +40,23 @@ def _output_paths_to_path_map(paths: dict[str, str | Path]) -> dict[str, Path]:
         key: (value if isinstance(value, Path) else Path(value)).expanduser().resolve()
         for key, value in paths.items()
     }
+
+
+_ROW_LEVEL_AUDIT_OUTPUT_KEYS = frozenset({"modified_csv", "detailed_csv", "enriched_ir_csv"})
+
+
+def _generated_artifacts_from_output_paths(paths: dict[str, Path]) -> list[GeneratedArtifact]:
+    return [
+        GeneratedArtifact(
+            artifact_type="row_level_audit_csv",
+            label="row-level audit CSV",
+            path=path,
+            show_in_main=True,
+            show_in_diagnostics=True,
+        )
+        for key, path in sorted(paths.items())
+        if key in _ROW_LEVEL_AUDIT_OUTPUT_KEYS
+    ]
 
 
 def _row_from_message(message: str) -> str:
@@ -260,6 +285,120 @@ def _binance_futures_warning_diagnostic(*, analyzer_alias: str, warning: str) ->
     )
 
 
+def _crypto_main_report_notes(*, analyzer_alias: str, input_path: Path, summary: IrAnalysisSummary) -> list[MainReportNote]:
+    state_text = (
+        'няма подадено начално състояние; отчетът се третира като "since inception".'
+        if summary.opening_state_year_end is None
+        else f"използвано е начално състояние към края на {summary.opening_state_year_end}."
+    )
+    lines = [
+        f"{analyzer_alias} — {input_path.name}: Начално състояние: {state_text}",
+        (
+            f"{analyzer_alias} — {input_path.name}: Редове, включени в декларацията за данъчната година: "
+            f"{summary.rows_included_in_tax_year}."
+        ),
+    ]
+    if summary.rows_ignored_before_or_equal_opening_state_year or summary.rows_ignored_after_tax_year:
+        lines.append(
+            f"{analyzer_alias} — {input_path.name}: Игнорирани редове извън обхвата: "
+            f"{summary.rows_ignored_before_or_equal_opening_state_year} преди/до началното състояние, "
+            f"{summary.rows_ignored_after_tax_year} след данъчната година."
+        )
+    if summary.manual_check_overrides_rows:
+        lines.append(
+            f"{analyzer_alias} — {input_path.name}: Ръчни Review Status overrides: "
+            f"{summary.manual_check_overrides_rows}."
+        )
+    return [
+        MainReportNote(
+            section_title=_ANALYZER_ASSUMPTIONS_SECTION,
+            text=line,
+            analyzer_alias=analyzer_alias,
+            source_path=input_path,
+            category="setting",
+        )
+        for line in lines
+    ]
+
+
+def _fund_main_report_notes(*, analyzer_alias: str, input_path: Path, summary: FundAnalysisSummary) -> list[MainReportNote]:
+    state_text = (
+        'няма подадено начално състояние; отчетът се третира като "since inception".'
+        if summary.opening_state_year_end is None
+        else f"използвано е начално състояние към края на {summary.opening_state_year_end}."
+    )
+    lines = [
+        f"{analyzer_alias} — {input_path.name}: Начално състояние: {state_text}",
+        (
+            f"{analyzer_alias} — {input_path.name}: Редове, включени в декларацията за данъчната година: "
+            f"{summary.rows_included_in_tax_year}."
+        ),
+    ]
+    if summary.rows_ignored_before_or_equal_opening_state_year or summary.rows_ignored_after_tax_year:
+        lines.append(
+            f"{analyzer_alias} — {input_path.name}: Игнорирани редове извън обхвата: "
+            f"{summary.rows_ignored_before_or_equal_opening_state_year} преди/до началното състояние, "
+            f"{summary.rows_ignored_after_tax_year} след данъчната година."
+        )
+    return [
+        MainReportNote(
+            section_title=_ANALYZER_ASSUMPTIONS_SECTION,
+            text=line,
+            analyzer_alias=analyzer_alias,
+            source_path=input_path,
+            category="setting",
+        )
+        for line in lines
+    ]
+
+
+def _p2p_main_report_notes(
+    *,
+    analyzer_alias: str,
+    input_path: Path,
+    result: P2PAppendix6Result,
+) -> list[MainReportNote]:
+    notes: list[MainReportNote] = []
+    processing_messages = [*result.warnings, *result.informational_messages]
+    for message in processing_messages:
+        translated = _translate_tax_message_bg(message)
+        if translated is None:
+            translated = "Има обработваща бележка; вижте diagnostics файла за техническия детайл."
+        notes.append(
+            MainReportNote(
+                section_title=_ANALYZER_ASSUMPTIONS_SECTION,
+                text=f"{analyzer_alias} — {input_path.name}: {translated}",
+                analyzer_alias=analyzer_alias,
+                source_path=input_path,
+                category="review" if message in result.warnings else "info",
+            )
+        )
+    informative_values: list[str] = []
+    for info in result.informative_rows:
+        if _is_informative_value_empty_or_zero(info.value):
+            continue
+        base_label, _currency = _split_label_and_currency(info.label)
+        label = _translate_info_label_bg(base_label)
+        text = f"{label}: {_fmt_informative_value(info.value)}"
+        if text not in informative_values:
+            informative_values.append(text)
+    if informative_values:
+        notes.append(
+            MainReportNote(
+                section_title=_ANALYZER_ASSUMPTIONS_SECTION,
+                text=(
+                    f"{analyzer_alias} — {input_path.name}: Информативни стойности в индивидуалния отчет: "
+                    f"{', '.join(informative_values[:8])}"
+                    + ("." if len(informative_values) <= 8 else f" и още {len(informative_values) - 8}.")
+                ),
+                analyzer_alias=analyzer_alias,
+                source_path=input_path,
+                category="info",
+            )
+        )
+    return notes
+
+
 def build_crypto_result(
     *,
     analyzer_alias: str,
@@ -270,6 +409,7 @@ def build_crypto_result(
     declaration_code: str = "5082",
 ) -> TaxAnalysisResult:
     diagnostics = _crypto_summary_diagnostics(analyzer_alias=analyzer_alias, summary=summary)
+    normalized_output_paths = _output_paths_to_path_map(output_paths)
 
     bucket = summary.appendix_5
     appendices = [
@@ -292,9 +432,15 @@ def build_crypto_result(
         analyzer_alias=analyzer_alias,
         input_path=input_path.resolve(),
         tax_year=tax_year,
-        output_paths=_output_paths_to_path_map(output_paths),
+        output_paths=normalized_output_paths,
         appendices=appendices,
         diagnostics=diagnostics,
+        generated_artifacts=_generated_artifacts_from_output_paths(normalized_output_paths),
+        main_report_notes=_crypto_main_report_notes(
+            analyzer_alias=analyzer_alias,
+            input_path=input_path.resolve(),
+            summary=summary,
+        ),
     )
 
 
@@ -308,6 +454,7 @@ def build_fund_result(
     declaration_code: str,
 ) -> TaxAnalysisResult:
     diagnostics = _fund_summary_diagnostics(analyzer_alias=analyzer_alias, summary=summary)
+    normalized_output_paths = _output_paths_to_path_map(output_paths)
 
     bucket = summary.appendix_5
     appendices = [
@@ -330,9 +477,15 @@ def build_fund_result(
         analyzer_alias=analyzer_alias,
         input_path=input_path.resolve(),
         tax_year=tax_year,
-        output_paths=_output_paths_to_path_map(output_paths),
+        output_paths=normalized_output_paths,
         appendices=appendices,
         diagnostics=diagnostics,
+        generated_artifacts=_generated_artifacts_from_output_paths(normalized_output_paths),
+        main_report_notes=_fund_main_report_notes(
+            analyzer_alias=analyzer_alias,
+            input_path=input_path.resolve(),
+            summary=summary,
+        ),
     )
 
 
@@ -349,6 +502,7 @@ def build_binance_futures_result(
     trade_count: int,
     warnings: list[str] | None = None,
 ) -> TaxAnalysisResult:
+    normalized_output_paths = _output_paths_to_path_map(output_paths)
     diagnostics = [
         _binance_futures_warning_diagnostic(analyzer_alias=analyzer_alias, warning=warning)
         for warning in (warnings or [])
@@ -373,9 +527,10 @@ def build_binance_futures_result(
         analyzer_alias=analyzer_alias,
         input_path=input_path.resolve(),
         tax_year=tax_year,
-        output_paths=_output_paths_to_path_map(output_paths),
+        output_paths=normalized_output_paths,
         appendices=appendices,
         diagnostics=diagnostics,
+        generated_artifacts=_generated_artifacts_from_output_paths(normalized_output_paths),
     )
 
 
@@ -387,6 +542,7 @@ def build_p2p_result(
     output_paths: dict[str, str | Path],
     result: P2PAppendix6Result,
 ) -> TaxAnalysisResult:
+    normalized_output_paths = _output_paths_to_path_map(output_paths)
     diagnostics: list[AnalysisDiagnostic] = []
     diagnostics.extend(
         _p2p_warning_diagnostic(analyzer_alias=analyzer_alias, warning=warning)
@@ -458,9 +614,15 @@ def build_p2p_result(
         analyzer_alias=analyzer_alias,
         input_path=input_path.resolve(),
         tax_year=tax_year,
-        output_paths=_output_paths_to_path_map(output_paths),
+        output_paths=normalized_output_paths,
         appendices=appendices,
         diagnostics=diagnostics,
+        generated_artifacts=_generated_artifacts_from_output_paths(normalized_output_paths),
+        main_report_notes=_p2p_main_report_notes(
+            analyzer_alias=analyzer_alias,
+            input_path=input_path.resolve(),
+            result=result,
+        ),
     )
 
 
@@ -472,6 +634,7 @@ def build_ibkr_result(
     output_paths: dict[str, str | Path],
     summary: IbkrAnalysisSummary,
 ) -> TaxAnalysisResult:
+    normalized_output_paths = _output_paths_to_path_map(output_paths)
     legacy_diagnostics: list[AnalysisDiagnostic] = []
     legacy_diagnostics.extend(
         AnalysisDiagnostic(severity="WARNING", message=warning, analyzer_alias=analyzer_alias)
@@ -742,13 +905,14 @@ def build_ibkr_result(
         analyzer_alias=analyzer_alias,
         input_path=input_path.resolve(),
         tax_year=tax_year,
-        output_paths=_output_paths_to_path_map(output_paths),
+        output_paths=normalized_output_paths,
         appendices=appendices,
         diagnostics=diagnostics,
         spb8_rows=summary.spb8_rows,
         spb8_notes=summary.spb8_notes,
         spb8_corporate_actions_present=summary.spb8_corporate_actions_present,
         main_report_notes=analysis_settings_main_report_notes(summary),
+        generated_artifacts=_generated_artifacts_from_output_paths(normalized_output_paths),
         policy_notes=cfd_pil_policy_notes(summary),
         policy_audit_lines=(
             cfd_pil_policy_audit_lines(summary)

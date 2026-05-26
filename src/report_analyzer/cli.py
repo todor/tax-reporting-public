@@ -18,6 +18,7 @@ from integrations.shared.autodetect import (
 )
 from integrations.shared.contracts import (
     AnalysisDiagnostic,
+    AnalyzerReportDetail,
     AnalyzerRunContext,
     AnalyzerStatus,
     TaxAnalysisResult,
@@ -25,7 +26,9 @@ from integrations.shared.contracts import (
 from integrations.shared.reporting import (
     classify_exception,
     format_path,
+    normalize_diagnostics,
     print_operational_summary,
+    split_technical_details,
     write_standardized_reports,
 )
 from integrations.shared.registry import AnalyzerRegistryError, discover_analyzer_registry
@@ -163,6 +166,53 @@ def _append_spb8_to_declaration(
     else:
         updated = current + "\n\n" + new_block.rstrip() + "\n"
     declaration_path.write_text(updated, encoding="utf-8")
+
+
+def _with_generated_artifacts_section(result: TaxAnalysisResult, raw_report_text: str) -> str:
+    visible_artifacts = [artifact for artifact in result.generated_artifacts if artifact.show_in_main]
+    if not visible_artifacts:
+        return raw_report_text
+
+    lines = ["Помощни файлове за проверка"]
+    seen_paths: set[str] = set()
+    analyzer_label = _main_report_analyzer_label(result.analyzer_alias)
+    for artifact in sorted(visible_artifacts, key=lambda item: format_path(item.path)):
+        path_text = format_path(artifact.path)
+        if path_text in seen_paths:
+            continue
+        seen_paths.add(path_text)
+        lines.append(f"- {analyzer_label} — {result.input_path.name}")
+        lines.append(f"  CSV файл за проверка на обработените редове: {path_text}")
+    if len(lines) == 1:
+        return raw_report_text
+
+    section = "\n".join(lines)
+    current = raw_report_text.rstrip()
+    if TECHNICAL_DETAILS_SEPARATOR in current:
+        declaration_part, technical_part = current.split(TECHNICAL_DETAILS_SEPARATOR, 1)
+        return (
+            declaration_part.rstrip()
+            + "\n\n"
+            + section
+            + "\n\n"
+            + TECHNICAL_DETAILS_SEPARATOR
+            + technical_part.rstrip()
+            + "\n"
+        )
+    return current + "\n\n" + section + "\n"
+
+
+def _main_report_analyzer_label(alias: str) -> str:
+    names = {
+        "ibkr": "IBKR",
+        "kraken": "Kraken",
+        "coinbase": "Coinbase",
+        "binance_futures": "Binance Futures",
+        "crypto_com": "Crypto.com",
+        "finexify": "Finexify",
+        "karol": "Karol",
+    }
+    return names.get(alias, alias.replace("_", " ").title())
 
 
 def _spb8_rows_from_detected(detected: dict[str, list[Path]]) -> list[SPB8Row]:
@@ -435,6 +485,97 @@ def _opening_state_diagnostics_line(
     return f"- opening_state: {_opening_state_description(resolution)}"
 
 
+def _append_report_detail(
+    result: TaxAnalysisResult,
+    *,
+    key: str,
+    title: str,
+    lines: list[str],
+    visibility: str,
+    category: str = "diagnostics",
+) -> None:
+    result.report_details.append(
+        AnalyzerReportDetail(
+            key=key,
+            title=title,
+            lines=tuple(lines),
+            visibility=visibility,  # type: ignore[arg-type]
+            analyzer_alias=result.analyzer_alias,
+            source_path=result.input_path,
+            category=category,
+        )
+    )
+
+
+def _attach_detection_detail(
+    result: TaxAnalysisResult,
+    *,
+    detection_reason: str,
+) -> None:
+    _append_report_detail(
+        result,
+        key="input_detection",
+        title="Input detection context",
+        lines=[
+            f"- detection reason: {detection_reason or '-'}",
+        ],
+        visibility="DIAGNOSTICS",
+        category="audit",
+    )
+
+
+def _attach_opening_state_detail(
+    result: TaxAnalysisResult,
+    *,
+    input_path: Path,
+    resolution: _OpeningStateResolution | None,
+) -> None:
+    _append_report_detail(
+        result,
+        key="opening_state_resolution",
+        title="Opening state resolution",
+        lines=[_opening_state_diagnostics_line(input_path=input_path, resolution=resolution)],
+        visibility="DIAGNOSTICS",
+        category="audit",
+    )
+
+
+def _is_debug_technical_line(line: str) -> bool:
+    lowered = line.casefold()
+    return "debug" in lowered or "_debug" in lowered
+
+
+def _attach_analyzer_technical_details(result: TaxAnalysisResult, raw_report_text: str) -> None:
+    _declaration_text, technical_lines = split_technical_details(raw_report_text)
+    if not technical_lines:
+        return
+    diagnostics_lines: list[str] = []
+    debug_lines: list[str] = []
+    for line in technical_lines:
+        if _is_debug_technical_line(line):
+            debug_lines.append(line)
+        else:
+            diagnostics_lines.append(line)
+    if diagnostics_lines:
+        _append_report_detail(
+            result,
+            key="analyzer_technical_details",
+            title="Analyzer technical details",
+            lines=diagnostics_lines,
+            visibility="DIAGNOSTICS",
+            category="technical_audit",
+        )
+    if debug_lines:
+        _append_report_detail(
+            result,
+            key="analyzer_debug_artifacts",
+            title="Analyzer debug artifacts",
+            lines=debug_lines,
+            visibility="DEBUG",
+            category="debug",
+        )
+
+
 def _write_spb8_template(*, output_dir: Path, rows: list[SPB8Row]) -> Path:
     output_path = output_dir / "spb8-input-file.csv"
     write_spb8_csv(output_path, rows)
@@ -620,11 +761,38 @@ def _all_result_diagnostics(
     return diagnostics
 
 
+def _ignored_input_diagnostics(ignored_items: list[DetectionItem]) -> list[AnalysisDiagnostic]:
+    related_items = [item for item in ignored_items if item.related_to_supported_analyzer]
+    if not related_items:
+        return []
+    return [
+        AnalysisDiagnostic(
+            severity="WARNING",
+            analyzer_alias="aggregate",
+            code="IGNORED_RELATED_INPUT",
+            message="Ignored files looked related to supported analyzers.",
+            params={
+                "count": len(related_items),
+                "items": [
+                    {
+                        "path": format_path(item.path),
+                        "filename": item.path.name,
+                        "reason": item.reason,
+                        "analyzer_alias": item.analyzer_alias or "-",
+                    }
+                    for item in related_items
+                ],
+            },
+        )
+    ]
+
+
 def _global_status_from_results(
     results: list[TaxAnalysisResult],
     analyzer_errors: dict[str, list[str]],
     *,
     spb8_needs_review: bool = False,
+    ignored_related_input: bool = False,
 ) -> AnalyzerStatus:
     statuses: list[AnalyzerStatus] = [result.status for result in results]
     if analyzer_errors:
@@ -635,6 +803,8 @@ def _global_status_from_results(
         return "NEEDS_REVIEW"
     if spb8_needs_review:
         return "NEEDS_REVIEW"
+    if ignored_related_input:
+        return "WARNING"
     if any(status == "WARNING" for status in statuses):
         return "WARNING"
     return "OK"
@@ -808,6 +978,7 @@ def _run_single_mode(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001
             declaration_path = result.output_paths.get("declaration_txt", output_dir / "declaration.txt")
             raw_report_text = declaration_path.read_text(encoding="utf-8") if declaration_path.exists() else ""
+            raw_report_text = _with_generated_artifacts_section(result, raw_report_text)
             diagnostic = classify_exception(exc, analyzer_alias=result.analyzer_alias, input_path=args.spb8_input_file)
             diagnostics = _with_report_context(
                 [*result.diagnostics, diagnostic],
@@ -835,6 +1006,7 @@ def _run_single_mode(args: argparse.Namespace) -> int:
                         else []
                     ),
                 ],
+                generated_artifacts=result.generated_artifacts,
                 exception=exc,
             )
             print_operational_summary(
@@ -866,6 +1038,7 @@ def _run_single_mode(args: argparse.Namespace) -> int:
     declaration_path = result.output_paths.get("declaration_txt")
     if declaration_path is not None:
         raw_report_text = declaration_path.read_text(encoding="utf-8")
+        raw_report_text = _with_generated_artifacts_section(result, raw_report_text)
         diagnostics = _with_report_context(
             [*result.diagnostics, *extra_diagnostics],
             source_file=context.input_path,
@@ -880,6 +1053,7 @@ def _run_single_mode(args: argparse.Namespace) -> int:
             diagnostics_title=f"{result.analyzer_alias} analyzer diagnostics",
             diagnostics_extra_lines=[
                 f"- input_path: {format_path(context.input_path)}",
+                f"- declaration_path: {format_path(declaration_path)}",
                 f"- output_dir: {format_path(output_dir)}",
                 *(
                     [_opening_state_diagnostics_line(input_path=context.input_path, resolution=opening_state_resolution)]
@@ -887,6 +1061,7 @@ def _run_single_mode(args: argparse.Namespace) -> int:
                     else []
                 ),
             ],
+            generated_artifacts=result.generated_artifacts,
         )
         result.output_paths["diagnostics_txt"] = diagnostics_path
         print_operational_summary(
@@ -1006,7 +1181,10 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
     detected_input_items_for_report = [
         (item.path, item.analyzer_alias or "unknown", item.reason) for item in detected_items
     ]
-    if spb8_input_file is not None:
+    detection_reason_by_path = {
+        item.path.expanduser().resolve(): item.reason for item in detected_items
+    }
+    if _spb8_enabled(args) and spb8_input_file is not None:
         detected_input_items_for_report.append(
             (spb8_input_file, "spb8-input", spb8_detection_reason)
         )
@@ -1036,6 +1214,7 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
             analyzer_results=[],
             analyzer_errors={"spb8": [str(exc)]},
             detected_input_items=detected_input_items_for_report,
+            ignored_input_items=ignored_items,
             display_currency=str(args.display_currency),
             cache_dir=args.cache_dir,
         )
@@ -1109,6 +1288,16 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
             )
             try:
                 result = definition.run(context)
+                _attach_detection_detail(
+                    result,
+                    detection_reason=detection_reason_by_path.get(context.input_path, "explicit/aggregate input"),
+                )
+                if definition.supports_opening_state:
+                    _attach_opening_state_detail(
+                        result,
+                        input_path=context.input_path,
+                        resolution=resolution,
+                    )
                 result_extra_diagnostics: list[AnalysisDiagnostic] = []
                 result_spb8_needs_review = False
                 if _spb8_enabled(args):
@@ -1133,23 +1322,31 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
                     _append_spb8_to_declaration(result, rows=rows, notes=notes)
                 declaration_path = result.output_paths.get("declaration_txt")
                 if declaration_path is not None:
+                    raw_report_text = declaration_path.read_text(encoding="utf-8")
+                    _attach_analyzer_technical_details(result, raw_report_text)
+                    raw_report_text = _with_generated_artifacts_section(result, raw_report_text)
                     result_status = _status_with_spb8_review(
                         result.status,
                         spb8_needs_review=result_spb8_needs_review,
                     )
+                    if result_extra_diagnostics:
+                        result.diagnostics = normalize_diagnostics(
+                            [*result.diagnostics, *result_extra_diagnostics]
+                        )
                     diagnostics_path = write_standardized_reports(
                         main_report_path=declaration_path,
-                        raw_report_text=declaration_path.read_text(encoding="utf-8"),
+                        raw_report_text=raw_report_text,
                         status=result_status,
                         tax_year=args.tax_year,
                         diagnostics=_with_report_context(
-                            [*result.diagnostics, *result_extra_diagnostics],
+                            result.diagnostics,
                             source_file=context.input_path,
                             report_path=declaration_path,
                         ),
                         diagnostics_title=f"{result.analyzer_alias} analyzer diagnostics",
                         diagnostics_extra_lines=[
                             f"- input_path: {format_path(context.input_path)}",
+                            f"- declaration_path: {format_path(declaration_path)}",
                             f"- output_dir: {format_path(analyzer_output_dir)}",
                             *(
                                 [_opening_state_diagnostics_line(input_path=context.input_path, resolution=resolution)]
@@ -1157,6 +1354,7 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
                                 else []
                             ),
                         ],
+                        generated_artifacts=result.generated_artifacts,
                     )
                     result.output_paths["diagnostics_txt"] = diagnostics_path
                 analyzer_results.append(result)
@@ -1203,6 +1401,7 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
         analyzer_errors=analyzer_errors,
         detected_input_items=detected_input_items_for_report,
         analyzer_error_diagnostics=analyzer_error_diagnostics,
+        ignored_input_items=ignored_items,
         display_currency=str(args.display_currency),
         cache_dir=args.cache_dir,
         spb8_rows=spb8_rows,
@@ -1210,13 +1409,22 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
         spb8_needs_review=spb8_needs_review,
     )
     aggregated_report_path = output_dir / f"aggregated_tax_report_{args.tax_year}.txt"
+    ignored_diagnostics = _ignored_input_diagnostics(ignored_items)
 
     global_status = _global_status_from_results(
         analyzer_results,
         analyzer_errors,
         spb8_needs_review=spb8_needs_review,
+        ignored_related_input=bool(ignored_diagnostics),
     )
-    all_diagnostics = _all_result_diagnostics(analyzer_results, analyzer_error_diagnostics)
+    all_diagnostics = _all_result_diagnostics(analyzer_results, [*analyzer_error_diagnostics, *ignored_diagnostics])
+    analyzer_input_count = sum(len(paths) for paths in detected.values())
+    auxiliary_input_count = max(0, len(detected_input_items_for_report) - analyzer_input_count)
+    successful_analyzer_input_count = sum(1 for result in analyzer_results if result.status != "ERROR")
+    failed_analyzer_input_count = sum(len(errors) for errors in analyzer_errors.values())
+    failed_analyzer_input_count += sum(1 for result in analyzer_results if result.status == "ERROR")
+    warning_count = sum(1 for diagnostic in all_diagnostics if diagnostic.severity == "WARNING")
+    error_count = sum(1 for diagnostic in all_diagnostics if diagnostic.severity == "ERROR")
     diagnostics_path = write_standardized_reports(
         main_report_path=aggregated_report_path,
         raw_report_text=aggregated_report_text,
@@ -1226,8 +1434,13 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
         diagnostics_title="Aggregated tax report diagnostics",
         diagnostics_extra_lines=[
             f"- output_dir: {format_path(output_dir)}",
-            f"- detected_inputs_count: {sum(len(paths) for paths in detected.values())}",
-            f"- ignored_inputs_count: {len(ignored_items)}",
+            f"- analyzer_input_count: {analyzer_input_count}",
+            f"- auxiliary_input_count: {auxiliary_input_count}",
+            f"- ignored_input_count: {len(ignored_items)}",
+            f"- successful_analyzer_input_count: {successful_analyzer_input_count}",
+            f"- failed_analyzer_input_count: {failed_analyzer_input_count}",
+            f"- warning_count: {warning_count}",
+            f"- error_count: {error_count}",
             *opening_state_diagnostics_lines,
         ],
     )

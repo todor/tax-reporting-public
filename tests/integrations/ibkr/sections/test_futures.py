@@ -103,7 +103,8 @@ def test_futures_are_excluded_from_spb8_and_main_report_explains_policy(tmp_path
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Фючърси — IBKR daily cash-settled MTM" in text
     assert "Trades редовете за фючърси не се добавят отделно" in text
-    assert "Класификация на IBKR фючърси" in text
+    assert "IBKR — използвани методи за инструменти" in text
+    assert "Фючърси: използва се Mark-to-Market Performance Summary" in text
     assert "СПБ-8: IBKR фючърсите" not in text
 
 

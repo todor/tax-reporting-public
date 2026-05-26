@@ -814,7 +814,25 @@ def _tax_exempt_mode_description(tax_exempt_mode: str) -> str:
     return "Прегледайте избрания режим ръчно."
 
 
+def _classification_mode_description(mode: str) -> str:
+    if "OPEN_WORLD" in mode:
+        return "Неразпознатите пазари не се приемат автоматично за регулирани пазари и трябва да бъдат проверени."
+    if "CLOSED_WORLD" in mode:
+        return (
+            "Неразпознатите четими пазари се третират като нерегулирани, освен ако са вградени "
+            "като регулирани или са подадени с CLI override."
+        )
+    return "Прегледайте режима за класификация на пазарите ръчно."
+
+
+def _fmt_set_bg(values: set[str]) -> str:
+    cleaned = sorted(value for value in values if value.strip() != "")
+    return ", ".join(cleaned) if cleaned else "няма"
+
+
 def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainReportNote]:
+    market_section = "IBKR — класификация на пазари"
+    instrument_methods_section = "IBKR — използвани методи за инструменти"
     notes = [
         MainReportNote(
             section_title="Настройки на анализа",
@@ -823,16 +841,103 @@ def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainRe
                 f"{summary.tax_exempt_mode}. {_tax_exempt_mode_description(summary.tax_exempt_mode)}"
             ),
             analyzer_alias="ibkr",
-            category="setting",
+            category="duplicate_individual_context",
         )
     ]
+    notes.append(
+        MainReportNote(
+            section_title=market_section,
+            text=(
+                f"Режим за данъчно освобождаване: {summary.tax_exempt_mode}. "
+                f"{_tax_exempt_mode_description(summary.tax_exempt_mode)}"
+            ),
+            analyzer_alias="ibkr",
+            category="setting",
+        )
+    )
+    notes.append(
+        MainReportNote(
+            section_title=market_section,
+            text=(
+                f"Режим за класификация на пазарите: {summary.exchange_classification_mode or '-'}. "
+                f"{_classification_mode_description(summary.exchange_classification_mode)}"
+            ),
+            analyzer_alias="ibkr",
+            category="setting",
+        )
+    )
+    notes.append(
+        MainReportNote(
+            section_title=market_section,
+            text=(
+                "Разпознати регулирани пазари от ЕС в отчета: "
+                f"{_fmt_set_bg(summary.encountered_eu_regulated_exchanges)}."
+            ),
+            analyzer_alias="ibkr",
+            category="info",
+        )
+    )
+    notes.append(
+        MainReportNote(
+            section_title=market_section,
+            text=(
+                "Разпознати нерегулирани/други пазари от ЕС за целите на данъчното освобождаване: "
+                f"{_fmt_set_bg(summary.encountered_eu_non_regulated_exchanges)}."
+            ),
+            analyzer_alias="ibkr",
+            category="info",
+        )
+    )
+    notes.append(
+        MainReportNote(
+            section_title=market_section,
+            text=f"Разпознати пазари извън ЕС: {_fmt_set_bg(summary.encountered_non_eu_exchanges)}.",
+            analyzer_alias="ibkr",
+            category="info",
+        )
+    )
+    notes.append(
+        MainReportNote(
+            section_title=market_section,
+            text=(
+                "Неразпознати пазари: "
+                f"{_fmt_set_bg(summary.encountered_unmapped_exchanges)}; "
+                "невалидни/нечетими стойности: "
+                f"{_fmt_set_bg(summary.encountered_invalid_exchange_values)}."
+            ),
+            analyzer_alias="ibkr",
+            category="review" if summary.encountered_unmapped_exchanges or summary.encountered_invalid_exchange_values else "info",
+        )
+    )
+    if summary.report_date_format_label:
+        notes.append(
+            MainReportNote(
+                section_title=market_section,
+                text=f"Разпознат формат на датите в IBKR отчета: {summary.report_date_format_label}.",
+                analyzer_alias="ibkr",
+                category="info",
+            )
+        )
+    if cfd_pil_policy_notes(summary):
+        notes.append(
+            MainReportNote(
+                section_title=instrument_methods_section,
+                text=(
+                    "CFD/PIL: използва се реализиран икономически резултат и свързани "
+                    "CFD financing/PIL корекции; пълният notional/номинал не се използва "
+                    "като продажна/придобивна стойност."
+                ),
+                analyzer_alias="ibkr",
+                category="setting",
+            )
+        )
     if _has_futures_current_year_policy(summary):
         notes.append(
             MainReportNote(
-                section_title="Настройки на анализа",
+                section_title=instrument_methods_section,
                 text=(
-                    "Класификация на IBKR фючърси: използва се "
-                    "Mark-to-Market Performance Summary / cash-settled MTM за данъчната година."
+                    "Фючърси: използва се Mark-to-Market Performance Summary / "
+                    "cash-settled MTM за данъчната година."
                 ),
                 analyzer_alias="ibkr",
                 category="setting",
@@ -844,33 +949,52 @@ def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainRe
                     section_title="Фючърси — IBKR daily cash-settled MTM",
                     text=note,
                     analyzer_alias="ibkr",
-                    category="info",
+                    category="methodology",
                 )
             )
     if _has_options_current_year_policy(summary):
+        notes.append(
+            MainReportNote(
+                section_title=instrument_methods_section,
+                text=(
+                    "Опции: използват се реализирани резултати от затворени/изтекли опции; "
+                    "MTM стойностите не се използват за данъчната калкулация."
+                ),
+                analyzer_alias="ibkr",
+                category="setting",
+            )
+        )
         for note in options_policy_notes(summary):
             notes.append(
                 MainReportNote(
                     section_title="Опции върху акции и индекси",
                     text=note,
                     analyzer_alias="ibkr",
-                    category="info",
+                    category="methodology",
                 )
             )
     return notes
 
 
 def _append_configuration_section(lines: list[str], *, summary: AnalysisSummary) -> None:
-    settings = [
-        note.text
+    notes = [
+        note
         for note in analysis_settings_main_report_notes(summary)
-        if note.section_title == "Настройки на анализа"
+        if note.category not in {"methodology", "duplicate_individual_context"}
     ]
-    if not settings:
+    if not notes:
         return
-    lines.append("Настройки на анализа")
-    for text in settings:
-        lines.append(f"- {text}")
+    grouped: dict[str, list[str]] = {}
+    for note in notes:
+        grouped.setdefault(note.section_title, []).append(note.text)
+    lines.append("Настройки, режими и проверки на анализа")
+    for section_title, section_notes in grouped.items():
+        lines.append(section_title)
+        for text in section_notes:
+            lines.append(f"- {text}")
+        lines.append("")
+    if lines and lines[-1] == "":
+        lines.pop()
     lines.append("")
 
 
