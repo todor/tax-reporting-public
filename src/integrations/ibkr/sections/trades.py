@@ -341,6 +341,7 @@ def _set_forex_trade_extras(
     *,
     ctx: _TradeRowContext,
     tax_exempt_mode: str,
+    tax_year: int,
     row_extras: dict[int, list[str]],
     tax_treatment_reason: str,
     review_required: bool,
@@ -351,6 +352,7 @@ def _set_forex_trade_extras(
         "Comm/Fee (EUR)": _fmt(ctx.commission_eur, quant=DECIMAL_EIGHT),
         "Proceeds (EUR)": _fmt(ctx.proceeds_eur, quant=DECIMAL_EIGHT),
         "Tax Exempt Mode": tax_exempt_mode,
+        "Tax Year Scope": "IN_TAX_YEAR" if ctx.trade_date.year == tax_year else "OUTSIDE_TAX_YEAR",
         "Appendix Target": APPENDIX_IGNORED,
         "Tax Treatment Reason": tax_treatment_reason,
         "Review Required": "YES" if review_required else "NO",
@@ -450,6 +452,7 @@ def _set_non_closing_trade_extras(
     *,
     ctx: _TradeRowContext,
     tax_exempt_mode: str,
+    tax_year: int,
     row_extras: dict[int, list[str]],
 ) -> None:
     values: dict[str, str] = {
@@ -460,12 +463,49 @@ def _set_non_closing_trade_extras(
         "Realized P/L Wins (EUR)": _fmt(ZERO, quant=DECIMAL_EIGHT),
         "Realized P/L Losses (EUR)": _fmt(ZERO, quant=DECIMAL_EIGHT),
         "Tax Exempt Mode": tax_exempt_mode,
+        "Tax Year Scope": "IN_TAX_YEAR" if ctx.trade_date.year == tax_year else "OUTSIDE_TAX_YEAR",
         "Tax Treatment Reason": "Non-closing Trade row (informational only)",
         "Review Required": "NO",
     }
     if ctx.trade_basis_eur_from_trade is not None:
         values["Basis (EUR)"] = _fmt(ctx.trade_basis_eur_from_trade, quant=DECIMAL_EIGHT)
     _set_trade_extras(row_extras, row_idx=ctx.row_idx, values=values)
+
+
+def _effective_tax_exemption_market_classification(
+    *,
+    tax_exempt_mode: str,
+    listing_exchange_class: str | None,
+    execution_exchange_class: str,
+) -> str:
+    if listing_exchange_class is None:
+        return ""
+    if tax_exempt_mode == TAX_MODE_LISTED_SYMBOL:
+        return listing_exchange_class
+    if listing_exchange_class in {EXCHANGE_CLASS_EU_REGULATED, EXCHANGE_CLASS_UNMAPPED}:
+        return execution_exchange_class
+    return listing_exchange_class
+
+
+def _set_futures_trade_extras(
+    *,
+    row_idx: int,
+    trade_date: date,
+    tax_exempt_mode: str,
+    tax_year: int,
+    row_extras: dict[int, list[str]],
+) -> None:
+    _set_trade_extras(
+        row_extras,
+        row_idx=row_idx,
+        values={
+            "Tax Exempt Mode": tax_exempt_mode,
+            "Tax Year Scope": "IN_TAX_YEAR" if trade_date.year == tax_year else "OUTSIDE_TAX_YEAR",
+            "Appendix Target": APPENDIX_IGNORED,
+            "Tax Treatment Reason": "Futures trade not summed directly; Mark-to-Market Performance Summary is used",
+            "Review Required": "NO",
+        },
+    )
 
 
 def _is_trade_asset_supported_for_parsing(asset_category: str) -> bool:
@@ -883,7 +923,13 @@ def _process_closing_trade_row(
                 "YES" if symbol_is_eu_listed else "NO" if symbol_is_eu_listed is not None else ""
             ),
             "Execution Exchange Classification": ctx.execution_exchange_class,
+            "Tax Exemption Market Classification": _effective_tax_exemption_market_classification(
+                tax_exempt_mode=tax_exempt_mode,
+                listing_exchange_class=listing_exchange_class,
+                execution_exchange_class=ctx.execution_exchange_class,
+            ),
             "Tax Exempt Mode": tax_exempt_mode,
+            "Tax Year Scope": "IN_TAX_YEAR" if in_tax_year else "OUTSIDE_TAX_YEAR",
             "Appendix Target": appendix_target,
             "Tax Treatment Reason": reason,
             "Review Required": "YES" if review_required else "NO",
@@ -961,6 +1007,15 @@ def process_trades_section(
             if lowered == "trade":
                 summary.futures_trade_rows += 1
                 summary.appendix_5.rows += 1
+                field_idx = _trade_indexes(active_trades_header)
+                trade_date = _parse_trade_datetime(data[field_idx.date_time], row_number=row_number).date()
+                _set_futures_trade_extras(
+                    row_idx=row_idx,
+                    trade_date=trade_date,
+                    tax_exempt_mode=tax_exempt_mode,
+                    tax_year=tax_year,
+                    row_extras=row_extras,
+                )
             continue
 
         if not _is_forex_asset(asset_category) and not _is_trade_asset_supported_for_parsing(asset_category):
@@ -1033,6 +1088,7 @@ def process_trades_section(
             _set_forex_trade_extras(
                 ctx=ctx,
                 tax_exempt_mode=tax_exempt_mode,
+                tax_year=tax_year,
                 row_extras=row_extras,
                 tax_treatment_reason=reason,
                 review_required=review_required,
@@ -1064,6 +1120,7 @@ def process_trades_section(
             _set_non_closing_trade_extras(
                 ctx=ctx,
                 tax_exempt_mode=tax_exempt_mode,
+                tax_year=tax_year,
                 row_extras=row_extras,
             )
             continue
@@ -1084,6 +1141,7 @@ def process_trades_section(
                 _set_non_closing_trade_extras(
                     ctx=ctx,
                     tax_exempt_mode=tax_exempt_mode,
+                    tax_year=tax_year,
                     row_extras=row_extras,
                 )
                 continue
@@ -1096,6 +1154,7 @@ def process_trades_section(
                 _set_non_closing_trade_extras(
                     ctx=ctx,
                     tax_exempt_mode=tax_exempt_mode,
+                    tax_year=tax_year,
                     row_extras=row_extras,
                 )
                 continue

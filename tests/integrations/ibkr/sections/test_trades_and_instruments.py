@@ -429,6 +429,29 @@ def test_review_status_taxable_routes_row_to_appendix_5(tmp_path: Path) -> None:
     assert trade_row[2 + idx["Tax Treatment Reason"]] == "Review Status override: TAXABLE"
     assert trade_row[2 + idx["Review Required"]] == "NO"
 
+
+def test_modified_csv_shows_effective_tax_exemption_classification_and_tax_year_scope(tmp_path: Path) -> None:
+    rows = _base_rows()
+    rows[7][6] = "TGATE"
+    rows[8][6] = "TGATE"
+    rows[9][5] = "2024-02-10, 12:00:00"
+    rows[10][5] = "2023-02-09"
+
+    result = _run(tmp_path, rows, mode="execution_exchange")
+
+    output_rows = _read_rows(result.output_csv_path)
+    header, data_rows = _trades_header_and_data(output_rows)
+    idx = {c: i for i, c in enumerate(header[2:])}
+    assert "" not in header
+    bmw_trade = next(r for r in data_rows if r[2 + idx["Symbol"]] == "BMW" and r[2 + idx["DataDiscriminator"]] == "Trade")
+    tsla_trade = next(r for r in data_rows if r[2 + idx["Symbol"]] == "TSLA" and r[2 + idx["DataDiscriminator"]] == "Trade")
+
+    assert bmw_trade[2 + idx["Tax Exemption Market Classification"]] == "EU_NON_REGULATED"
+    assert bmw_trade[2 + idx["Tax Year Scope"]] == "IN_TAX_YEAR"
+    assert tsla_trade[2 + idx["Tax Exemption Market Classification"]] == "NON_EU"
+    assert tsla_trade[2 + idx["Tax Year Scope"]] == "OUTSIDE_TAX_YEAR"
+
+
 def test_review_status_non_taxable_routes_row_to_appendix_13(tmp_path: Path) -> None:
     rows = _rows_with_review_status(
         listing_exchange="NASDAQ",

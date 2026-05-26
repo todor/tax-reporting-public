@@ -49,7 +49,7 @@ from .models import (
 )
 from .sections.dividends import DividendsSectionResult, process_dividends_section
 from .sections.fees import FeesSectionResult, process_fees_section
-from .sections.futures import process_futures_mtm_section
+from .sections.futures import FuturesMtmSectionResult, process_futures_mtm_section
 from .sections.income import _appendix9_default_country
 from .sections.instruments import (
     _exchange_classification_mode_label,
@@ -121,6 +121,7 @@ CORPORATE_ACTIONS_SECTION = "Corporate Actions"
 @dataclass(slots=True)
 class _ProcessedSections:
     trades: TradesSectionResult
+    futures_mtm: FuturesMtmSectionResult
     fees: FeesSectionResult
     interest: InterestSectionResult
     dividends: DividendsSectionResult
@@ -208,7 +209,7 @@ def _process_sections(
         closed_world_mode=closed_world_mode,
         report_date_format=report_date_format,
     )
-    process_futures_mtm_section(
+    futures_mtm = process_futures_mtm_section(
         rows=rows,
         active_headers=active_headers,
         summary=summary,
@@ -262,6 +263,7 @@ def _process_sections(
     )
     return _ProcessedSections(
         trades=trades,
+        futures_mtm=futures_mtm,
         fees=fees,
         interest=interest,
         dividends=dividends,
@@ -807,6 +809,12 @@ def analyze_ibkr_activity_statement(
         open_positions_row_extras=processed.open_positions.row_extras,
         open_positions_row_base_len=processed.open_positions.row_base_len,
         open_positions_row_added_columns=processed.open_positions.row_added_columns,
+        fees_row_extras=processed.fees.row_extras,
+        fees_row_base_len=processed.fees.row_base_len,
+        fees_row_added_columns=processed.fees.row_added_columns,
+        futures_mtm_row_extras=processed.futures_mtm.row_extras,
+        futures_mtm_row_base_len=processed.futures_mtm.row_base_len,
+        futures_mtm_row_added_columns=processed.futures_mtm.row_added_columns,
     )
     validate_output_rows(
         output_rows=output_rows,
@@ -819,6 +827,10 @@ def analyze_ibkr_activity_statement(
         withholding_row_added_columns=processed.withholding.row_added_columns,
         open_positions_row_base_len=processed.open_positions.row_base_len,
         open_positions_row_added_columns=processed.open_positions.row_added_columns,
+        fees_row_base_len=processed.fees.row_base_len,
+        fees_row_added_columns=processed.fees.row_added_columns,
+        futures_mtm_row_base_len=processed.futures_mtm.row_base_len,
+        futures_mtm_row_added_columns=processed.futures_mtm.row_added_columns,
     )
 
     output_csv_path, declaration_txt_path = _output_paths(

@@ -13,6 +13,7 @@ from integrations.shared.result_builders import build_ibkr_result
 from tests.integrations.ibkr import support as h
 
 _run = h._run
+_read_rows = h._read_rows
 
 
 def _futures_rows(*, include_mtm: bool = True) -> list[list[str]]:
@@ -82,6 +83,49 @@ def test_futures_mtm_rows_contribute_to_appendix5_without_trade_or_cash_double_c
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "- Брой сделки: 2" in text
     assert "- Брой сделки: 3" not in text
+
+
+def test_modified_csv_annotates_futures_trades_and_mtm_source_rows(tmp_path: Path) -> None:
+    rows = _futures_rows()
+    for row in rows:
+        if row[:2] in (["Trades", "Header"], ["Trades", "Data"]):
+            row.insert(10, "")
+        if row[:2] in (["Mark-to-Market Performance Summary", "Header"], ["Mark-to-Market Performance Summary", "Data"]):
+            row.append("")
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    output_rows = _read_rows(result.output_csv_path)
+    trades_header = next(row for row in output_rows if row[:2] == ["Trades", "Header"])
+    assert "" not in trades_header
+    trade_idx = {c: i for i, c in enumerate(trades_header[2:])}
+    futures_trade = next(
+        row
+        for row in output_rows
+        if row[:2] == ["Trades", "Data"]
+        and row[2 + trade_idx["Asset Category"]] == "Futures"
+        and row[2 + trade_idx["DataDiscriminator"]] == "Trade"
+    )
+    assert futures_trade[2 + trade_idx["Appendix Target"]] == "IGNORED"
+    assert (
+        futures_trade[2 + trade_idx["Tax Treatment Reason"]]
+        == "Futures trade not summed directly; Mark-to-Market Performance Summary is used"
+    )
+    assert futures_trade[2 + trade_idx["Tax Year Scope"]] == "IN_TAX_YEAR"
+
+    mtm_header = next(row for row in output_rows if row[:2] == ["Mark-to-Market Performance Summary", "Header"])
+    assert "" not in mtm_header
+    mtm_idx = {c: i for i, c in enumerate(mtm_header[2:])}
+    mtm_row = next(
+        row
+        for row in output_rows
+        if row[:2] == ["Mark-to-Market Performance Summary", "Data"] and row[2 + mtm_idx["Symbol"]] == "FXXP DEC 24"
+    )
+    assert mtm_row[2 + mtm_idx["Amount (EUR)"]] == "-222.56000000"
+    assert mtm_row[2 + mtm_idx["Appendix Target"]] == "APPENDIX_5"
+    assert mtm_row[2 + mtm_idx["Tax Treatment Reason"]] == "Futures MTM total -> Appendix 5"
+    assert mtm_row[2 + mtm_idx["Tax Year Scope"]] == "IN_TAX_YEAR"
+    assert result.summary.appendix_5.purchase_eur == Decimal("433.0725670")
 
 
 def test_positive_futures_mtm_maps_to_appendix5_sale_side(tmp_path: Path) -> None:

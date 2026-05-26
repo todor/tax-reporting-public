@@ -124,7 +124,9 @@ ADDED_TRADES_COLUMNS = [
     "Listing Exchange",
     "Symbol Listed On EU Regulated Market",
     "Execution Exchange Classification",
+    "Tax Exemption Market Classification",
     "Tax Exempt Mode",
+    "Tax Year Scope",
     "Appendix Target",
     "Tax Treatment Reason",
     "Review Required",
@@ -493,6 +495,20 @@ ADDED_WITHHOLDING_COLUMNS = [
 ADDED_OPEN_POSITIONS_COLUMNS = [
     "Country",
     "Cost Basis (EUR)",
+]
+
+ADDED_FEES_COLUMNS = [
+    "Amount (EUR)",
+    "Appendix Target",
+    "Tax Treatment Reason",
+    "Tax Year Scope",
+]
+
+ADDED_FUTURES_MTM_COLUMNS = [
+    "Amount (EUR)",
+    "Appendix Target",
+    "Tax Treatment Reason",
+    "Tax Year Scope",
 ]
 
 FxRateProvider = Callable[[str, date], Decimal]

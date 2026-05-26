@@ -143,6 +143,32 @@ def test_cfd_financing_negative_is_netted_to_appendix5_by_default(tmp_path: Path
     assert "Appendix 5 CFD financing adjustment rows not counted as trades: 1" in text
 
 
+def test_modified_csv_annotates_cfd_financing_fee_rows(tmp_path: Path) -> None:
+    rows = _cfd_rows()
+    rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-24", "Long CFD Interest for 24-JAN-2025", "-2"])
+    rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2024-01-24", "Long CFD Interest for 24-JAN-2024", "-5"])
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    output_rows = _read_rows(result.output_csv_path)
+    fees_header = next(row for row in output_rows if row[:2] == ["Fees", "Header"])
+    fees_rows = [row for row in output_rows if row[:2] == ["Fees", "Data"]]
+    assert "" not in fees_header
+    idx = {c: i for i, c in enumerate(fees_header[2:])}
+    current_year = next(row for row in fees_rows if "2025" in row[2 + idx["Date"]])
+    previous_year = next(row for row in fees_rows if "2024" in row[2 + idx["Date"]])
+
+    assert current_year[2 + idx["Amount (EUR)"]] == "-2.00000000"
+    assert current_year[2 + idx["Appendix Target"]] == "APPENDIX_5"
+    assert current_year[2 + idx["Tax Treatment Reason"]] == "CFD financing netted to Appendix 5"
+    assert current_year[2 + idx["Tax Year Scope"]] == "IN_TAX_YEAR"
+    assert previous_year[2 + idx["Amount (EUR)"]] == ""
+    assert previous_year[2 + idx["Appendix Target"]] == "IGNORED"
+    assert previous_year[2 + idx["Tax Treatment Reason"]] == "CFD financing outside tax year"
+    assert previous_year[2 + idx["Tax Year Scope"]] == "OUTSIDE_TAX_YEAR"
+    assert result.summary.appendix_5.purchase_eur == Decimal("2")
+
+
 def test_cfd_financing_positive_is_netted_to_appendix5_by_default(tmp_path: Path) -> None:
     rows = _cfd_rows()
     rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-24", "Short CFD Interest", "3"])

@@ -6,9 +6,17 @@ from datetime import date
 from integrations.shared.contracts import UserFacingTaxError
 
 from ..appendices.declaration_text import _sum_bucket
-from ..constants import DECIMAL_TWO, FUTURES_ASSET_CATEGORY, FxRateProvider, ZERO
+from ..constants import (
+    ADDED_FUTURES_MTM_COLUMNS,
+    APPENDIX_5,
+    DECIMAL_EIGHT,
+    DECIMAL_TWO,
+    FUTURES_ASSET_CATEGORY,
+    FxRateProvider,
+    ZERO,
+)
 from ..models import AnalysisSummary, _ActiveHeader
-from ..shared import _optional_index, _parse_decimal, _to_eur
+from ..shared import _fmt, _optional_index, _parse_decimal, _to_eur
 
 MTM_SECTION = "Mark-to-Market Performance Summary"
 MTM_REQUIRED_COLUMNS = [
@@ -32,6 +40,13 @@ class _FuturesMtmIndexes:
     other: int
     total: int
     currency: int | None
+
+
+@dataclass(slots=True)
+class FuturesMtmSectionResult:
+    row_extras: dict[int, dict[str, str]]
+    row_base_len: dict[int, int]
+    row_added_columns: dict[int, list[str]]
 
 
 def _missing_required_columns(active_header: _ActiveHeader) -> list[str]:
@@ -86,12 +101,27 @@ def process_futures_mtm_section(
     summary: AnalysisSummary,
     fx_provider: FxRateProvider,
     tax_year: int,
-) -> None:
+) -> FuturesMtmSectionResult:
     futures_mtm_seen = False
     mtm_header_seen = False
+    row_extras: dict[int, dict[str, str]] = {}
+    row_base_len: dict[int, int] = {}
+    row_added_columns: dict[int, list[str]] = {}
     for row_idx, row in enumerate(rows):
         row_number = row_idx + 1
-        if len(row) < 2 or row[0] != MTM_SECTION or row[1] != "Data":
+        if len(row) < 2 or row[0] != MTM_SECTION:
+            continue
+        if row[1] == "Header":
+            active_header = active_headers.get(row_idx)
+            headers = active_header.headers if active_header is not None else row[2:]
+            row_base_len[row_idx] = 2 + len(headers)
+            row_added_columns[row_idx] = [col for col in ADDED_FUTURES_MTM_COLUMNS if col not in headers]
+            continue
+        active_header_for_row = active_headers.get(row_idx)
+        if active_header_for_row is not None:
+            row_base_len[row_idx] = 2 + len(active_header_for_row.headers)
+            row_added_columns[row_idx] = [col for col in ADDED_FUTURES_MTM_COLUMNS if col not in active_header_for_row.headers]
+        if row[1] != "Data":
             continue
         active_header = active_headers.get(row_idx)
         if active_header is None:
@@ -185,6 +215,17 @@ def process_futures_mtm_section(
             negative_abs = -total_eur
             summary.futures_mtm_negative_eur += negative_abs
             _sum_bucket(summary.appendix_5, ZERO, negative_abs, total_eur, count_row=False)
+        row_extras[row_idx] = {
+            "Amount (EUR)": _fmt(total_eur, quant=DECIMAL_EIGHT),
+            "Appendix Target": APPENDIX_5,
+            "Tax Treatment Reason": "Futures MTM total -> Appendix 5",
+            "Tax Year Scope": "IN_TAX_YEAR",
+        }
 
     if summary.futures_trade_rows > 0 and (not mtm_header_seen or not futures_mtm_seen):
         _raise_missing_mtm_rows()
+    return FuturesMtmSectionResult(
+        row_extras=row_extras,
+        row_base_len=row_base_len,
+        row_added_columns=row_added_columns,
+    )
