@@ -1539,24 +1539,31 @@ def render_review_summary(
 
 
 def render_action_items(diagnostics: list[AnalysisDiagnostic]) -> list[str]:
-    actionable = [
-        diagnostic
-        for diagnostic in normalize_diagnostics(diagnostics)
-        if diagnostic.severity in {"ERROR", "MANUAL_REVIEW", "WARNING"}
-    ]
+    actionable = [diagnostic for diagnostic in normalize_diagnostics(diagnostics) if diagnostic.severity in {"ERROR", "MANUAL_REVIEW", "WARNING"}]
     lines = ["Какво трябва да направите", ""]
     if not actionable:
         lines.append("- Няма задължителни действия.")
         return lines
-    for diagnostic in actionable:
-        rendered = user_message_lines_bg(diagnostic)
-        if not rendered:
+    groups = [
+        ("ERROR", "Грешки"),
+        ("MANUAL_REVIEW", "Изискват ръчен преглед"),
+        ("WARNING", "Предупреждения"),
+    ]
+    first_group = True
+    for severity, title in groups:
+        group_items = [diagnostic for diagnostic in actionable if diagnostic.severity == severity]
+        if not group_items:
             continue
-        lines.append(f"- {rendered[0]}")
-        for line in rendered[1:]:
-            if line.startswith("-"):
-                lines.append(f"  {line}")
-            else:
+        if not first_group:
+            lines.append("")
+        first_group = False
+        lines.append(title)
+        for diagnostic in group_items:
+            rendered = user_message_lines_bg(diagnostic)
+            if not rendered:
+                continue
+            lines.append(f"- {rendered[0]}")
+            for line in rendered[1:]:
                 lines.append(f"  {line}")
     return lines
 

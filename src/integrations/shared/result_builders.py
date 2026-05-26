@@ -20,11 +20,17 @@ from integrations.p2p.shared.appendix6_renderer import (
     _fmt_informative_value,
     _is_informative_value_empty_or_zero,
     _split_label_and_currency,
-    _translate_info_label_bg,
     _translate_tax_message_bg,
 )
 
-from .contracts import AnalysisDiagnostic, AppendixRecord, GeneratedArtifact, MainReportNote, TaxAnalysisResult
+from .contracts import (
+    AnalysisDiagnostic,
+    AnalyzerReportDetail,
+    AppendixRecord,
+    GeneratedArtifact,
+    MainReportNote,
+    TaxAnalysisResult,
+)
 from .reporting import normalize_diagnostics
 
 
@@ -32,7 +38,7 @@ _ROW_RE = re.compile(r"row (?P<row>\d+)")
 _P2P_YEAR_RE = re.compile(
     r"reporting year in PDF \((?P<report_year>[^)]+)\) differs from requested tax year \((?P<tax_year>[^)]+)\)"
 )
-_ANALYZER_ASSUMPTIONS_SECTION = "Анализаторни допускания и проверки"
+_ANALYZER_ASSUMPTIONS_SECTION = "Настройки и данъчни допускания"
 
 
 def _output_paths_to_path_map(paths: dict[str, str | Path]) -> dict[str, Path]:
@@ -286,28 +292,16 @@ def _binance_futures_warning_diagnostic(*, analyzer_alias: str, warning: str) ->
 
 
 def _crypto_main_report_notes(*, analyzer_alias: str, input_path: Path, summary: IrAnalysisSummary) -> list[MainReportNote]:
-    state_text = (
-        'няма подадено начално състояние; отчетът се третира като "since inception".'
-        if summary.opening_state_year_end is None
-        else f"използвано е начално състояние към края на {summary.opening_state_year_end}."
-    )
-    lines = [
-        f"{analyzer_alias} — {input_path.name}: Начално състояние: {state_text}",
-        (
-            f"{analyzer_alias} — {input_path.name}: Редове, включени в декларацията за данъчната година: "
-            f"{summary.rows_included_in_tax_year}."
-        ),
-    ]
+    lines = []
+    if summary.opening_state_year_end is None:
+        lines.append('Crypto отчети без начално състояние: третират се като "since inception".')
+    else:
+        lines.append(f"Crypto отчети с начално състояние: използвано е състояние към края на {summary.opening_state_year_end}.")
     if summary.rows_ignored_before_or_equal_opening_state_year or summary.rows_ignored_after_tax_year:
         lines.append(
-            f"{analyzer_alias} — {input_path.name}: Игнорирани редове извън обхвата: "
+            f"{analyzer_alias}: има игнорирани редове извън обхвата "
             f"{summary.rows_ignored_before_or_equal_opening_state_year} преди/до началното състояние, "
             f"{summary.rows_ignored_after_tax_year} след данъчната година."
-        )
-    if summary.manual_check_overrides_rows:
-        lines.append(
-            f"{analyzer_alias} — {input_path.name}: Ръчни Review Status overrides: "
-            f"{summary.manual_check_overrides_rows}."
         )
     return [
         MainReportNote(
@@ -322,21 +316,14 @@ def _crypto_main_report_notes(*, analyzer_alias: str, input_path: Path, summary:
 
 
 def _fund_main_report_notes(*, analyzer_alias: str, input_path: Path, summary: FundAnalysisSummary) -> list[MainReportNote]:
-    state_text = (
-        'няма подадено начално състояние; отчетът се третира като "since inception".'
-        if summary.opening_state_year_end is None
-        else f"използвано е начално състояние към края на {summary.opening_state_year_end}."
-    )
-    lines = [
-        f"{analyzer_alias} — {input_path.name}: Начално състояние: {state_text}",
-        (
-            f"{analyzer_alias} — {input_path.name}: Редове, включени в декларацията за данъчната година: "
-            f"{summary.rows_included_in_tax_year}."
-        ),
-    ]
+    lines = []
+    if summary.opening_state_year_end is None:
+        lines.append('Fund-style отчети без начално състояние: третират се като "since inception".')
+    else:
+        lines.append(f"Fund-style отчети с начално състояние: използвано е състояние към края на {summary.opening_state_year_end}.")
     if summary.rows_ignored_before_or_equal_opening_state_year or summary.rows_ignored_after_tax_year:
         lines.append(
-            f"{analyzer_alias} — {input_path.name}: Игнорирани редове извън обхвата: "
+            f"{analyzer_alias}: има игнорирани редове извън обхвата "
             f"{summary.rows_ignored_before_or_equal_opening_state_year} преди/до началното състояние, "
             f"{summary.rows_ignored_after_tax_year} след данъчната година."
         )
@@ -359,44 +346,72 @@ def _p2p_main_report_notes(
     result: P2PAppendix6Result,
 ) -> list[MainReportNote]:
     notes: list[MainReportNote] = []
-    processing_messages = [*result.warnings, *result.informational_messages]
-    for message in processing_messages:
-        translated = _translate_tax_message_bg(message)
-        if translated is None:
-            translated = "Има обработваща бележка; вижте diagnostics файла за техническия детайл."
-        notes.append(
-            MainReportNote(
-                section_title=_ANALYZER_ASSUMPTIONS_SECTION,
-                text=f"{analyzer_alias} — {input_path.name}: {translated}",
-                analyzer_alias=analyzer_alias,
-                source_path=input_path,
-                category="review" if message in result.warnings else "info",
-            )
+    notes.append(
+        MainReportNote(
+            section_title=_ANALYZER_ASSUMPTIONS_SECTION,
+            text="P2P лихви: Приложение 6, код 603.",
+            analyzer_alias=analyzer_alias,
+            category="setting",
         )
-    informative_values: list[str] = []
-    for info in result.informative_rows:
-        if _is_informative_value_empty_or_zero(info.value):
-            continue
-        base_label, _currency = _split_label_and_currency(info.label)
-        label = _translate_info_label_bg(base_label)
-        text = f"{label}: {_fmt_informative_value(info.value)}"
-        if text not in informative_values:
-            informative_values.append(text)
-    if informative_values:
+    )
+    secondary_market_modes = {
+        str(info.value)
+        for info in result.informative_rows
+        if _split_label_and_currency(info.label)[0] == "Secondary-market mode used"
+        and not _is_informative_value_empty_or_zero(info.value)
+    }
+    for mode in sorted(secondary_market_modes):
         notes.append(
             MainReportNote(
                 section_title=_ANALYZER_ASSUMPTIONS_SECTION,
                 text=(
-                    f"{analyzer_alias} — {input_path.name}: Информативни стойности в индивидуалния отчет: "
-                    f"{', '.join(informative_values[:8])}"
-                    + ("." if len(informative_values) <= 8 else f" и още {len(informative_values) - 8}.")
+                    f"P2P вторичен пазар: използван режим {mode}; положителен нетен резултат "
+                    "се третира като доход по Приложение 6, код 606; неположителен резултат се пропуска."
                 ),
                 analyzer_alias=analyzer_alias,
+                category="setting",
+            )
+        )
+    for message in result.informational_messages:
+        translated = _translate_tax_message_bg(message)
+        if translated is None:
+            continue
+        notes.append(
+            MainReportNote(
+                section_title="Специфични бележки от анализа",
+                text=translated,
+                analyzer_alias=analyzer_alias,
                 source_path=input_path,
-                category="info",
+                category="analysis_note",
             )
         )
     return notes
+
+
+def _p2p_report_details(
+    *,
+    analyzer_alias: str,
+    input_path: Path,
+    result: P2PAppendix6Result,
+) -> list[AnalyzerReportDetail]:
+    lines: list[str] = []
+    for info in result.informative_rows:
+        if _is_informative_value_empty_or_zero(info.value):
+            continue
+        lines.append(f"- {info.label}: {_fmt_informative_value(info.value)}")
+    if not lines:
+        return []
+    return [
+        AnalyzerReportDetail(
+            key="p2p_informative_source_values",
+            title="P2P informative source-report values",
+            lines=tuple(lines),
+            visibility="DIAGNOSTICS",
+            analyzer_alias=analyzer_alias,
+            source_path=input_path,
+            category="technical_audit",
+        )
+    ]
 
 
 def build_crypto_result(
@@ -619,6 +634,11 @@ def build_p2p_result(
         diagnostics=diagnostics,
         generated_artifacts=_generated_artifacts_from_output_paths(normalized_output_paths),
         main_report_notes=_p2p_main_report_notes(
+            analyzer_alias=analyzer_alias,
+            input_path=input_path.resolve(),
+            result=result,
+        ),
+        report_details=_p2p_report_details(
             analyzer_alias=analyzer_alias,
             input_path=input_path.resolve(),
             result=result,

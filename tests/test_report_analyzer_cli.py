@@ -467,6 +467,56 @@ def test_aggregate_main_ignored_input_summary_uses_detection_classification(tmp_
     assert "known_noise: yes" in diagnostics
 
 
+def test_aggregate_main_suppresses_include_pattern_ignored_inputs(tmp_path: Path) -> None:
+    selected = tmp_path / "[tax-analyzer] kraken.csv"
+    excluded = tmp_path / "Binance-Futures-Trade-History.csv"
+    noise = tmp_path / ".DS_Store"
+    raw = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={"kraken": [selected]},
+        detected_input_items=[(selected, "kraken", "auto-detected from filename tokens")],
+        ignored_inputs=[
+            (excluded, "does not match include-pattern '*[[]tax-analyzer[]]*'"),
+            (noise, "known OS/editor service file ignored"),
+        ],
+        ignored_input_items=[
+            DetectionItem(
+                path=excluded,
+                analyzer_alias=None,
+                reason="does not match include-pattern '*[[]tax-analyzer[]]*'",
+                ignored_kind="include_pattern",
+            ),
+            DetectionItem(
+                path=noise,
+                analyzer_alias=None,
+                reason="known OS/editor service file ignored",
+                known_noise=True,
+                ignored_kind="known_noise",
+            ),
+        ],
+        analyzer_results=[],
+        analyzer_errors={},
+    )
+    main = render_main_report(
+        status="OK",
+        tax_year=2025,
+        raw_declaration_text=raw,
+        diagnostics=[],
+        diagnostics_path=tmp_path / "aggregated.diagnostics.txt",
+    )
+    diagnostics = render_diagnostics_report(
+        title="aggregate diagnostics",
+        status="OK",
+        raw_declaration_text=raw,
+        diagnostics=[],
+    )
+
+    assert "Игнорирани входни файлове" not in main
+    assert "Binance-Futures-Trade-History.csv" not in main
+    assert "does not match include-pattern" in diagnostics
+    assert "kind: include_pattern" in diagnostics
+
+
 def test_aggregate_diagnostics_separates_input_categories_and_decision_rows(tmp_path: Path) -> None:
     analyzer_input = tmp_path / "ibkr.csv"
     auxiliary_input = tmp_path / "spb8-input-file.csv"
@@ -672,8 +722,75 @@ def test_p2p_individual_main_notes_propagate_to_aggregate_main(tmp_path: Path) -
     )
 
     assert "Iuvo: Early withdraw fees iuvoSAVE са само информативни" in main
-    assert "Информативни стойности в индивидуалния отчет" in main
-    assert "Използван режим за вторичен пазар" in main
+    assert "Информативни стойности в индивидуалния отчет" not in main
+    assert "P2P вторичен пазар: използван режим appendix_6" in main
+    settings_section = main.split("Настройки и данъчни допускания", 1)[1].split("Специфични бележки от анализа", 1)[0]
+    assert "iuvo —" not in settings_section
+    assert "Специфични бележки от анализа" in main
+    raw_diagnostics = render_diagnostics_report(
+        title="aggregate diagnostics",
+        status="OK",
+        raw_declaration_text=raw,
+        diagnostics=[],
+    )
+    assert "Early withdraw fees iuvoSAVE: 2.00" in raw_diagnostics
+
+
+def test_main_report_groups_action_items_by_severity_and_avoids_duplicate_notes(tmp_path: Path) -> None:
+    input_path = tmp_path / "Lendermarket_v1_report_2024.pdf"
+    p2p_result = build_p2p_result(
+        analyzer_alias="lendermarket",
+        input_path=input_path,
+        tax_year=2025,
+        output_paths={"declaration_txt": tmp_path / "lendermarket.txt"},
+        result=P2PAppendix6Result(
+            platform="lendermarket",
+            tax_year=2025,
+            part1_rows=[],
+            aggregate_code_603=Decimal("0"),
+            aggregate_code_606=Decimal("0"),
+            taxable_code_603=Decimal("0"),
+            taxable_code_606=Decimal("0"),
+            withheld_tax=Decimal("0"),
+            warnings=["reporting year in PDF (2024) differs from requested tax year (2025)"],
+        ),
+    )
+    error = AnalysisDiagnostic(
+        severity="ERROR",
+        analyzer_alias="binance_futures",
+        code="MISSING_REQUIRED_COLUMNS",
+        message="Missing required columns.",
+        params={
+            "filename": "Binance-Futures-Trade-History.csv",
+            "columns": ["User ID", "Account", "Operation"],
+        },
+    )
+    raw = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={"lendermarket": [input_path]},
+        detected_input_items=[(input_path, "lendermarket", "test")],
+        ignored_inputs=[],
+        ignored_input_items=[],
+        analyzer_results=[p2p_result],
+        analyzer_errors={},
+    )
+    main = render_main_report(
+        status="ERROR",
+        tax_year=2025,
+        raw_declaration_text=raw,
+        diagnostics=[error, *p2p_result.diagnostics],
+        diagnostics_path=tmp_path / "aggregated.diagnostics.txt",
+    )
+
+    assert "Грешки\n- Грешка: файлът Binance-Futures-Trade-History.csv" in main
+    assert "Изискват ръчен преглед\n- Lendermarket: отчетната година" in main
+    action_section = main.split("Какво трябва да направите", 1)[1].split("ВНИМАНИЕ:", 1)[0]
+    assert "Предупреждения" not in action_section
+    assert main.count("отчетната година в отчета (2024)") == 1
+    settings_section = main.split("Настройки и данъчни допускания", 1)[1].split("Приложение", 1)[0]
+    assert "lendermarket —" not in settings_section
+    assert "Review Status overrides" not in main
+    assert "Ръчно зададени статуси" not in main
 
 
 def test_single_analyzer_mode_runs_selected_analyzer(
@@ -1393,10 +1510,10 @@ def test_aggregate_report_renders_generic_main_report_notes_near_top() -> None:
         analyzer_errors={},
     )
 
-    assert "Настройки, режими и проверки на анализа" in rendered
+    assert "Настройки и данъчни допускания" in rendered
     assert "Alpha — режими, класификации и проверки\n- Alpha използва режим A." in rendered
     assert "Beta — режими, класификации и проверки\n- Beta използва режим B." in rendered
-    assert rendered.index("Настройки, режими и проверки на анализа") < rendered.index("Приложение 5")
+    assert rendered.index("Настройки и данъчни допускания") < rendered.index("Приложение 5")
 
 
 def test_aggregate_report_renders_generic_methodology_notes_at_bottom(tmp_path: Path) -> None:
@@ -1452,7 +1569,7 @@ def test_aggregate_report_renders_generic_methodology_notes_at_bottom(tmp_path: 
         diagnostics_path=tmp_path / "aggregated.diagnostics.txt",
     )
 
-    assert "Настройки, режими и проверки на анализа" in rendered
+    assert "Настройки и данъчни допускания" in rendered
     assert "Alpha compact audit summary." in rendered
     assert "Подробни методологични бележки" in rendered
     assert (
@@ -1538,6 +1655,52 @@ def test_aggregate_report_deduplicates_ibkr_tax_exempt_mode_setting() -> None:
     assert "Режим за данъчно освобождаване: listed_symbol." in rendered
     assert "Класификация на IBKR сделките за данъчно освобождаване: listed_symbol." not in rendered
     assert "борсата на изпълнение е само информативна" in rendered
+
+
+def test_aggregate_report_consolidates_ibkr_market_classification_notes() -> None:
+    results = [
+        TaxAnalysisResult(
+            analyzer_alias="ibkr",
+            input_path=Path(f"/tmp/ibkr_{index}.csv"),
+            tax_year=2025,
+            output_paths={},
+            appendices=[],
+            diagnostics=[],
+            main_report_notes=analysis_settings_main_report_notes(summary),
+        )
+        for index, summary in enumerate(
+            [
+                IbkrAnalysisSummary(
+                    tax_year=2025,
+                    tax_exempt_mode="listed_symbol",
+                    exchange_classification_mode="OPEN_WORLD MODE",
+                    encountered_eu_regulated_exchanges=set(),
+                    encountered_non_eu_exchanges={"NASDAQ"},
+                ),
+                IbkrAnalysisSummary(
+                    tax_year=2025,
+                    tax_exempt_mode="listed_symbol",
+                    exchange_classification_mode="OPEN_WORLD MODE",
+                    encountered_eu_regulated_exchanges={"IBIS2"},
+                    encountered_non_eu_exchanges={"NYSE"},
+                ),
+            ]
+        )
+    ]
+
+    rendered = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={},
+        ignored_inputs=[],
+        analyzer_results=results,
+        analyzer_errors={},
+    )
+
+    market_section = rendered.split("IBKR — класификация на пазари", 1)[1].split("\n\n", 1)[0]
+    assert market_section.count("Разпознати регулирани пазари от ЕС в отчета") == 1
+    assert "Разпознати регулирани пазари от ЕС в отчета: IBIS2." in market_section
+    assert "Разпознати регулирани пазари от ЕС в отчета: няма." not in market_section
+    assert "Разпознати пазари извън ЕС: NASDAQ, NYSE." in market_section
 
 
 def test_ibkr_instrument_method_summaries_are_top_only_and_methodology_is_bottom(tmp_path: Path) -> None:

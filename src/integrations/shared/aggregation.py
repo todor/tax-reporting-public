@@ -433,20 +433,15 @@ def _processed_input_inventory_lines(detected_input_items: list[DetectedInputDis
 def _ignored_input_summary_lines(ignored_input_items: list[DetectionItem] | None) -> list[str]:
     if ignored_input_items is None:
         return []
-    visible = [item for item in ignored_input_items if not item.known_noise]
+    visible = [
+        item
+        for item in ignored_input_items
+        if not item.known_noise and item.ignored_kind != "include_pattern"
+    ]
     related = [item for item in visible if item.related_to_supported_analyzer]
+    if not ignored_input_items or not visible:
+        return []
     lines = ["Игнорирани входни файлове"]
-    if not ignored_input_items:
-        lines.append("- Няма игнорирани входни файлове.")
-        return lines
-    if not visible:
-        lines.extend(
-            [
-                "- Игнорирани са само системни/служебни файлове, които не се анализират.",
-                "- Пълните пътища и причините са в diagnostics файла.",
-            ]
-        )
-        return lines
     lines.append(f"- Файлове, намерени в папката, но неанализирани: {len(visible)}")
     for item in sorted(visible, key=lambda value: value.path.name)[:10]:
         lines.append(f"- {item.path.name}")
@@ -479,7 +474,7 @@ def _run_assumption_lines(
     analyzer_results: list[TaxAnalysisResult],
 ) -> list[str]:
     aliases = sorted({result.analyzer_alias for result in analyzer_results})
-    lines = ["Настройки, режими и проверки на анализа"]
+    lines = ["Настройки и данъчни допускания"]
     lines.append(f"- Данъчна година: {tax_year}")
     lines.append("- Изчислителна валута: EUR.")
     lines.append(f"- Валута за визуализация в TXT: {display_currency}.")
@@ -530,6 +525,116 @@ def _aggregate_main_report_notes(analyzer_results: list[TaxAnalysisResult]) -> l
     return notes
 
 
+_IBKR_MARKET_SECTION = "IBKR — класификация на пазари"
+
+
+def _split_bg_set(value: str) -> set[str]:
+    cleaned = value.strip().removesuffix(".").strip()
+    if not cleaned or cleaned == "няма":
+        return set()
+    return {item.strip() for item in cleaned.split(",") if item.strip() and item.strip() != "няма"}
+
+
+def _append_unique_ordered(items: list[str], value: str) -> None:
+    if value and value not in items:
+        items.append(value)
+
+
+def _render_ibkr_market_notes(notes: list[MainReportNote]) -> list[str]:
+    market_notes = [note.text.strip() for note in notes if note.section_title.strip() == _IBKR_MARKET_SECTION]
+    if not market_notes:
+        return []
+
+    tax_modes: list[str] = []
+    classification_modes: list[str] = []
+    date_formats: list[str] = []
+    eu_regulated: set[str] = set()
+    eu_other: set[str] = set()
+    non_eu: set[str] = set()
+    unmapped: set[str] = set()
+    invalid: set[str] = set()
+
+    for text in market_notes:
+        if text.startswith("Режим за данъчно освобождаване: "):
+            _append_unique_ordered(tax_modes, text)
+            continue
+        if text.startswith("Режим за класификация на пазарите: "):
+            _append_unique_ordered(classification_modes, text)
+            continue
+        if text.startswith("Разпознати регулирани пазари от ЕС в отчета: "):
+            eu_regulated.update(_split_bg_set(text.split(": ", 1)[1]))
+            continue
+        if text.startswith("Разпознати нерегулирани/други пазари от ЕС за целите на данъчното освобождаване: "):
+            eu_other.update(_split_bg_set(text.split(": ", 1)[1]))
+            continue
+        if text.startswith("Разпознати пазари извън ЕС: "):
+            non_eu.update(_split_bg_set(text.split(": ", 1)[1]))
+            continue
+        if text.startswith("Неразпознати пазари: "):
+            rest = text.removeprefix("Неразпознати пазари: ")
+            parts = rest.split("; невалидни/нечетими стойности: ", 1)
+            unmapped.update(_split_bg_set(parts[0]))
+            if len(parts) > 1:
+                invalid.update(_split_bg_set(parts[1]))
+            continue
+        if text.startswith("Разпознат формат на датите в IBKR отчета: "):
+            _append_unique_ordered(date_formats, text)
+
+    lines = [_IBKR_MARKET_SECTION]
+    lines.extend(tax_modes)
+    lines.extend(classification_modes)
+    lines.append(f"Разпознати регулирани пазари от ЕС в отчета: {_fmt_set_bg(eu_regulated)}.")
+    lines.append(
+        "Разпознати нерегулирани/други пазари от ЕС за целите на данъчното освобождаване: "
+        f"{_fmt_set_bg(eu_other)}."
+    )
+    lines.append(f"Разпознати пазари извън ЕС: {_fmt_set_bg(non_eu)}.")
+    lines.append(
+        f"Неразпознати пазари: {_fmt_set_bg(unmapped)}; "
+        f"невалидни/нечетими стойности: {_fmt_set_bg(invalid)}."
+    )
+    lines.extend(date_formats)
+    return lines
+
+
+def _render_specific_analysis_notes(section_notes: list[str]) -> list[str]:
+    if not section_notes:
+        return []
+    secondary_omitted: list[str] = []
+    other_notes: list[str] = []
+    seen: set[str] = set()
+    for text in section_notes:
+        if text in seen:
+            continue
+        seen.add(text)
+        if text.startswith(("Estateguru: агрегираният резултат от вторичен пазар", "Iuvo: агрегираният резултат от вторичен пазар")):
+            secondary_omitted.append(text.split(":", 1)[0])
+        else:
+            other_notes.append(text)
+
+    rendered: list[str] = []
+    if secondary_omitted:
+        platforms = sorted(set(secondary_omitted))
+        platform_text = _format_bg_list(platforms)
+        rendered.append(
+            f"P2P вторичен пазар: за {platform_text} агрегираният резултат е <= 0 "
+            "и не е включен като доход по Приложение 6, код 606."
+        )
+    rendered.extend(other_notes)
+    return rendered
+
+
+def _format_bg_list(values: list[str]) -> str:
+    if len(values) <= 1:
+        return values[0] if values else ""
+    return ", ".join(values[:-1]) + " и " + values[-1]
+
+
+def _fmt_set_bg(values: set[str]) -> str:
+    cleaned = sorted(value for value in values if value.strip())
+    return ", ".join(cleaned) if cleaned else "няма"
+
+
 def _render_top_main_report_notes(notes: list[MainReportNote]) -> list[str]:
     top_notes = [note for note in notes if note.category != "methodology"]
     if not top_notes:
@@ -537,8 +642,16 @@ def _render_top_main_report_notes(notes: list[MainReportNote]) -> list[str]:
     grouped: dict[str, list[str]] = defaultdict(list)
     seen_by_section: dict[str, set[str]] = defaultdict(set)
     ordered_section_titles: list[str] = []
+    ibkr_market_lines = _render_ibkr_market_notes(top_notes)
+    ibkr_market_inserted = False
     for note in top_notes:
         section_title = note.section_title.strip()
+        if section_title == _IBKR_MARKET_SECTION:
+            if ibkr_market_lines and not ibkr_market_inserted:
+                grouped[section_title] = ibkr_market_lines[1:]
+                ordered_section_titles.append(section_title)
+                ibkr_market_inserted = True
+            continue
         text = note.text.strip()
         if not section_title or not text:
             continue
@@ -546,7 +659,10 @@ def _render_top_main_report_notes(notes: list[MainReportNote]) -> list[str]:
         if text in seen:
             continue
         if not seen:
-            ordered_section_titles.append(section_title)
+            if section_title == "Настройки и данъчни допускания":
+                ordered_section_titles.insert(0, section_title)
+            else:
+                ordered_section_titles.append(section_title)
         seen.add(text)
         grouped[section_title].append(text)
     lines: list[str] = []
@@ -554,7 +670,10 @@ def _render_top_main_report_notes(notes: list[MainReportNote]) -> list[str]:
         if lines:
             lines.append("")
         lines.append(section_title)
-        for text in grouped[section_title]:
+        section_texts = grouped[section_title]
+        if section_title == "Специфични бележки от анализа":
+            section_texts = _render_specific_analysis_notes(section_texts)
+        for text in section_texts:
             text_lines = text.splitlines()
             if not text_lines:
                 continue
@@ -1154,7 +1273,11 @@ def render_aggregated_report(
     )
     top_main_report_note_lines = _render_top_main_report_notes(main_report_notes)
     if top_main_report_note_lines:
-        top_settings_lines.extend(["", *top_main_report_note_lines])
+        if top_main_report_note_lines[0] == "Настройки и данъчни допускания":
+            top_main_report_note_lines = top_main_report_note_lines[1:]
+            top_settings_lines.extend(top_main_report_note_lines)
+        else:
+            top_settings_lines.extend(["", *top_main_report_note_lines])
     top_detail_lines = _render_main_report_details(analyzer_results)
     if top_detail_lines:
         top_settings_lines.extend(["", *top_detail_lines])
