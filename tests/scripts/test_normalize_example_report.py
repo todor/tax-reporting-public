@@ -27,6 +27,7 @@ def test_normalize_report_rewrites_repo_specific_file_uris() -> None:
             "  declaration: /Users/example/tax-reporting/output/examples/plain/report.txt",
             "  declaration: D:\\a\\tax-reporting-public\\tax-reporting-public\\output\\examples\\ibkr\\sample_1\\ibkr_activity_declaration_2025.txt",
             "  diagnostics: D:\\a\\tax-reporting-public\\tax-reporting-public\\output\\examples\\aggregated_tax_report_2025.diagnostics.txt",
+            "  D:\\a\\tax-reporting-public\\tax-reporting-public\\output\\examples\\spb8-input-file.csv",
             "- output_dir: /Users/example/tax-reporting/output/examples",
         ]
     )
@@ -42,6 +43,7 @@ def test_normalize_report_rewrites_repo_specific_file_uris() -> None:
             "  declaration: <OUTPUT>/plain/report.txt",
             "  declaration: <OUTPUT>/ibkr/sample_1/ibkr_activity_declaration_2025.txt",
             "  diagnostics: <OUTPUT>/aggregated_tax_report_2025.diagnostics.txt",
+            "  <OUTPUT>/spb8-input-file.csv",
             "- output_dir: <OUTPUT>",
         ]
     )

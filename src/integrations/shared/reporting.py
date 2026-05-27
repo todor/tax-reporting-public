@@ -861,11 +861,21 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
                         f"{item.get('currency')} / тип {item.get('type')}"
                     )
                 lines.append(f"- {target}: {missing_labels}")
+        generated_input_file = str(params.get("generated_spb8_input_file") or "").strip()
+        lines.append("Какво да направите:")
+        if generated_input_file:
+            lines.extend(
+                [
+                    "- Попълнете липсващите стойности в генерирания SPB-8 input файл:",
+                    f"  {generated_input_file}",
+                ]
+            )
+        else:
+            lines.append("- Попълнете липсващите стойности в SPB-8 input файла.")
         lines.extend(
             [
-                "Какво да направите:",
-                "- Попълнете липсващите стойности в SPB-8 input файла.",
                 "- Стартирайте отново с --spb8-input-file <path>.",
+                '- Алтернативно, поставете попълнения файл в input папката; ако името съдържа "spb8", файлът ще бъде разпознат автоматично.',
             ]
         )
         return lines

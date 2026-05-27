@@ -727,6 +727,22 @@ def _spb8_missing_diagnostics(rows: list[SPB8Row], *, analyzer_alias: str) -> li
     ]
 
 
+def _with_generated_spb8_input_file(
+    diagnostics: list[AnalysisDiagnostic],
+    *,
+    template_path: Path,
+) -> list[AnalysisDiagnostic]:
+    enriched: list[AnalysisDiagnostic] = []
+    for diagnostic in diagnostics:
+        if diagnostic.code != "SPB8_MISSING_VALUES":
+            enriched.append(diagnostic)
+            continue
+        params = dict(diagnostic.params)
+        params["generated_spb8_input_file"] = format_path(template_path)
+        enriched.append(replace(diagnostic, params=params))
+    return enriched
+
+
 def _with_report_context(
     diagnostics: list[AnalysisDiagnostic],
     *,
@@ -1390,6 +1406,11 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
         )
         spb8_missing_notes = missing_spb8_value_notes(spb8_rows)
         analyzer_error_diagnostics.extend(_spb8_missing_diagnostics(spb8_rows, analyzer_alias="spb8"))
+        if spb8_input_file is None:
+            analyzer_error_diagnostics = _with_generated_spb8_input_file(
+                analyzer_error_diagnostics,
+                template_path=template_path,
+            )
         spb8_notes = _dedupe_notes(resolved_spb8_notes + spb8_notes)
         spb8_needs_review = bool(spb8_missing_notes)
 

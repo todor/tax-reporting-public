@@ -3007,7 +3007,10 @@ def test_aggregate_mode_generates_spb8_template_from_detected_inputs(
     assert "Забележки за СПБ-8" not in report
     assert "Бележки и допускания" not in report
     assert "СПБ-8\n-" in report
+    assert "Попълнете липсващите стойности в генерирания SPB-8 input файл:" in report
+    assert str(template) in report
     assert "Стартирайте отново с --spb8-input-file <path>" in report
+    assert 'ако името съдържа "spb8", файлът ще бъде разпознат автоматично' in report
     assert "SPB-8 input file was not provided" not in report
 
 
@@ -3670,7 +3673,10 @@ def test_spb8_corporate_actions_with_missing_start_quantity_warns_for_manual_com
     assert "Тип на вземането" not in report
     assert "Попълнете липсващите начални количества" in report
     assert "ISIN IE00BK5BQT80" in report
+    assert "Попълнете липсващите стойности в генерирания SPB-8 input файл:" in report
+    assert str(out_dir / "spb8-input-file.csv") in report
     assert "Стартирайте отново с --spb8-input-file <path>" in report
+    assert 'ако името съдържа "spb8", файлът ще бъде разпознат автоматично' in report
     assert (out_dir / "spb8-input-file.csv").read_text(encoding="utf-8").splitlines() == [
         "account name,platform,type,country,ISIN,currency,start amount,end amount",
         "ibkr analyzer,ibkr,04,Ирландия,IE00BK5BQT80,-,,15",
