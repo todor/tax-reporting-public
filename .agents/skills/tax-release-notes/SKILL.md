@@ -173,7 +173,25 @@ Do not include private repository paths, local filesystem paths, private sync de
 
 ## Length and detail
 
-Target normal release notes length: 300–800 words.
+Release notes should be as short as the change allows while still being professional, clear, and useful.
+
+Do not pad the notes to reach a target length.
+
+Small-release rule:
+
+If the release is a small/focused change, especially a formatting, wording, report-guidance, diagnostics-message, path-rendering, documentation, or validation-only change, generate `## Highlights` only.
+
+For such releases:
+
+- use 1–3 bullets total;
+- do not add extra sections;
+- do not repeat the same change in paragraph form after the bullets;
+- do not add a validation paragraph unless validation is the main release value;
+- include “No tax calculation/classification changes” only as one short bullet when relevant.
+
+A small release note is allowed to be 40–120 words. Do not expand it.
+
+For normal multi-change releases, target roughly 250–700 words.
 
 For unusually large releases, allow up to about 1,200 words.
 
@@ -181,21 +199,23 @@ Do not try to include every commit or every implementation detail.
 
 Prefer:
 
-- 3–7 highlight bullets
-- 2–6 dynamic sections after highlights
 - concise grouped bullets
 - clear user-facing impact
 - enough tax/reporting detail to build trust
+- explicit mention when tax calculations or classifications are unchanged
+
+Use dynamic sections only for medium or large releases with multiple distinct themes. Do not create a second section for a small release when `## Highlights` already covers the user-visible change.
 
 Avoid:
 
+- expanding small formatting/report-output changes into full multi-section notes
 - long nested subsections
 - exhaustive per-feature audit details
 - listing every validation suite
 - internal-only tooling details unless relevant to users or release maintainers
 - repeating the same change in multiple sections
 
-If the generated notes exceed roughly 1,200 words, compress them before writing or previewing the final output.
+If the generated notes feel larger than the actual release, compress them before writing or previewing the final output.
 
 ## Output rules
 
@@ -207,7 +227,7 @@ Do not mechanically list commits one by one.
 
 Merge related changes across commits into user-facing bullets.
 
-Use dynamic sections based on the actual changes. Do not force a fixed schema.
+Use dynamic sections based on the actual changes. Do not force a fixed schema. For small/focused releases, the complete release note should usually be only `## Highlights` with 1–3 bullets.
 
 Use sentence case for section headings, for example:
 
@@ -293,13 +313,15 @@ Formatting-only report changes should usually go under `Reports and diagnostics`
 
 ## Validation handling
 
-Summarize validation briefly.
+Summarize validation briefly, and omit it entirely for very small release notes unless it adds useful confidence for users or maintainers.
 
 Do not list every historical targeted test run.
 
-Prefer one concise bullet such as:
+For larger releases, prefer one concise bullet such as:
 
 - Release validation includes full pytest/ruff runs, targeted analyzer tests, normalized output comparisons, and packaged CLI checks.
+
+For small formatting/report-output releases, do not add a separate validation section. Mention validation only if it is directly relevant to the user-visible change, for example path normalization in generated output.
 
 Include exact commands only when there are very few or when the user explicitly asks.
 
