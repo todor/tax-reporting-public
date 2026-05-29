@@ -11,7 +11,7 @@ from .constants import ZERO
 from .models import CsvStructureError, InstrumentListing, _ActiveHeader
 from .sections.instruments import _is_supported_asset, _resolve_instrument_for_trade_symbol
 from .sections.open_positions import _open_positions_indexes, _trade_order_indexes
-from .shared import _index_for, _parse_decimal_loose_or_zero, _parse_reconciliation_quantity
+from .shared import _index_for, _optional_index, _parse_decimal_loose_or_zero, _parse_reconciliation_quantity
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +26,7 @@ class _TransferFieldIndexes:
     symbol: int
     direction: int
     quantity: int
+    code: int | None
 
 
 def extract_ibkr_spb8_rows(
@@ -218,6 +219,7 @@ def _transfer_indexes(active_header: _ActiveHeader) -> _TransferFieldIndexes:
         symbol=_index_for(active_header.headers, "Symbol", section_name=section_name),
         direction=_index_for(active_header.headers, "Direction", section_name=section_name),
         quantity=_index_for(active_header.headers, "Qty", section_name=section_name),
+        code=_optional_index(active_header.headers, "Code"),
     )
 
 
@@ -244,11 +246,17 @@ def _extract_transfer_adjustments(
         base_len = 2 + len(active_header.headers)
         data = (row + [""] * (base_len - len(row)))[2 : 2 + len(active_header.headers)]
         asset_category = data[field_idx.asset].strip()
-        if asset_category == "" or asset_category == "Total":
-            continue
         symbol = data[field_idx.symbol].strip()
         direction = data[field_idx.direction].strip()
         raw_quantity = data[field_idx.quantity].strip()
+        code = data[field_idx.code].strip() if field_idx.code is not None else ""
+
+        if asset_category == "" or asset_category == "Total":
+            continue
+        if direction == "" or symbol == "" or raw_quantity == "":
+            continue
+        if _is_cancelled_transfer_code(code):
+            continue
 
         if not _is_supported_asset(asset_category):
             warnings.append(
@@ -286,15 +294,15 @@ def _extract_transfer_adjustments(
                 f"Direction={direction}; Qty={raw_quantity}"
             )
             continue
-        absolute_quantity = abs(quantity)
-        if direction == "In":
-            adjustments[instrument.isin] -= absolute_quantity
-            continue
-        if direction == "Out":
-            adjustments[instrument.isin] += absolute_quantity
+        if direction in {"In", "Out"}:
+            adjustments[instrument.isin] -= quantity
             continue
         warnings.append(
             "СПБ-8: пропуснат Transfers ред с неподдържана Direction. "
             f"Symbol={symbol}; ISIN={instrument.isin}; Asset Category={asset_category}; Direction={direction}; Qty={raw_quantity}"
         )
     return adjustments
+
+
+def _is_cancelled_transfer_code(code: str) -> bool:
+    return "Ca" in {part.strip() for part in re.split(r"[,;\s]+", code) if part.strip()}

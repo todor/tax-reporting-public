@@ -39,6 +39,8 @@ def _security_rows(
     trade_qty: str | None = None,
     transfer_symbol: str = "VWCE",
     transfer_asset: str = "Stocks",
+    transfer_type: str = "ACATS",
+    transfer_code: str = "",
 ) -> list[list[str]]:
     rows = [
         ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Description", "Listing Exchange", "ISIN"],
@@ -56,8 +58,17 @@ def _security_rows(
     if transfer_direction is not None and transfer_qty is not None:
         rows.extend(
             [
-                ["Transfers", "Header", "Asset Category", "Symbol", "Direction", "Qty"],
-                ["Transfers", "Data", transfer_asset, transfer_symbol, transfer_direction, transfer_qty],
+                ["Transfers", "Header", "Asset Category", "Symbol", "Type", "Direction", "Qty", "Code"],
+                [
+                    "Transfers",
+                    "Data",
+                    transfer_asset,
+                    transfer_symbol,
+                    transfer_type,
+                    transfer_direction,
+                    transfer_qty,
+                    transfer_code,
+                ],
             ]
         )
     return rows
@@ -168,11 +179,68 @@ def test_ibkr_spb8_stock_transfer_out_reconstructs_start_quantity() -> None:
     assert extracted.rows[0].end_nav == Decimal("50")
 
 
-def test_ibkr_spb8_transfer_direction_controls_sign_when_quantity_is_negative() -> None:
+def test_ibkr_spb8_transfer_uses_signed_quantity_without_abs_regression() -> None:
     extracted = _extract(_security_rows(end_qty="100", transfer_direction="In", transfer_qty="-100"))
+
+    assert extracted.rows[0].start_nav == Decimal("200")
+    assert extracted.rows[0].end_nav == Decimal("100")
+
+
+def test_ibkr_spb8_acats_in_row_reconstructs_start_quantity() -> None:
+    extracted = _extract(
+        _security_rows(end_qty="100", transfer_direction="In", transfer_qty="100", transfer_type="ACATS")
+    )
 
     assert extracted.rows[0].start_nav == Decimal("0")
     assert extracted.rows[0].end_nav == Decimal("100")
+
+
+def test_ibkr_spb8_interdepot_signed_quantities_net_by_isin() -> None:
+    rows = [
+        ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Description", "Listing Exchange", "ISIN"],
+        ["Financial Instrument Information", "Data", "Stocks", "AVGO", "Broadcom", "NASDAQ", "US11135F1012"],
+        ["Financial Instrument Information", "Data", "Stocks", "1YD", "Broadcom", "IBIS", "US11135F1012"],
+        ["Open Positions", "Header", "Asset Category", "Symbol", "Summary Quantity", "DataDiscriminator", "Currency", "Cost Basis"],
+        ["Open Positions", "Data", "Stocks", "1YD", "90", "Summary", "EUR", "1000"],
+        ["Transfers", "Header", "Asset Category", "Symbol", "Type", "Direction", "Qty", "Code"],
+        ["Transfers", "Data", "Stocks", "1YD", "InterDepot", "In", "90", ""],
+        ["Transfers", "Data", "Stocks", "AVGO", "InterDepot", "In", "-90", ""],
+    ]
+    listings = {
+        "AVGO": _listing(symbol="AVGO", isin="US11135F1012"),
+        "1YD": _listing(symbol="1YD", isin="US11135F1012"),
+    }
+
+    extracted = _extract(rows, listings=listings)
+
+    assert extracted.rows[0].isin == "US11135F1012"
+    assert extracted.rows[0].start_nav == Decimal("90")
+    assert extracted.rows[0].end_nav == Decimal("90")
+
+
+def test_ibkr_spb8_cancelled_transfer_code_ca_is_excluded() -> None:
+    rows = [
+        *_security_rows(end_qty="100", transfer_direction="In", transfer_qty="100"),
+        ["Transfers", "Data", "Stocks", "VWCE", "ACATS", "In", "50", "Ca"],
+    ]
+
+    extracted = _extract(rows)
+
+    assert extracted.rows[0].start_nav == Decimal("0")
+    assert extracted.rows[0].end_nav == Decimal("100")
+
+
+def test_ibkr_spb8_transferred_lot_rows_are_not_transfer_movements() -> None:
+    rows = [
+        *_security_rows(end_qty="100", transfer_direction="In", transfer_qty="100"),
+        ["Transfers", "Data", "", "Transferred Lot:", "", "", "100", "ST"],
+    ]
+
+    extracted = _extract(rows)
+
+    assert extracted.rows[0].start_nav == Decimal("0")
+    assert extracted.rows[0].end_nav == Decimal("100")
+    assert not any("Transferred Lot" in warning for warning in extracted.warnings)
 
 
 def test_ibkr_spb8_combines_trades_and_transfers_for_start_quantity() -> None:
@@ -203,8 +271,8 @@ def test_ibkr_spb8_treasury_bill_transfer_uses_existing_resolution() -> None:
         ["Financial Instrument Information", "Data", "Treasury Bills", "912797NP8", "Treasury Bill", "IBIS", "US912797NP81"],
         ["Open Positions", "Header", "Asset Category", "Symbol", "Summary Quantity", "DataDiscriminator", "Currency", "Cost Basis"],
         ["Open Positions", "Data", "Treasury Bills", "912797NP8", "20", "Summary", "USD", "1000"],
-        ["Transfers", "Header", "Asset Category", "Symbol", "Direction", "Qty"],
-        ["Transfers", "Data", "Treasury Bills", "US T-BILL 912797NP8", "In", "20"],
+        ["Transfers", "Header", "Asset Category", "Symbol", "Direction", "Qty", "Code"],
+        ["Transfers", "Data", "Treasury Bills", "US T-BILL 912797NP8", "In", "20", ""],
     ]
     listings = {"912797NP8": _listing(symbol="912797NP8", isin="US912797NP81")}
 

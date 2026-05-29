@@ -83,6 +83,35 @@ def test_open_position_reconciliation_uses_mtm_prior_quantity(tmp_path: Path) ->
     assert result.summary.review_required_rows == 0
     assert not any("OPEN_POSITION_TRADE_QTY_MISMATCH" in warning for warning in result.summary.warnings)
 
+
+def test_open_position_reconciliation_nets_same_isin_transfers(tmp_path: Path) -> None:
+    rows = [
+        ["Statement", "Header", "Field", "Value"],
+        ["Statement", "Data", "Account", "U123"],
+        ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch", "Description", "ISIN"],
+        ["Financial Instrument Information", "Data", "Stocks", "AMZN", "NASDAQ", "Amazon", "US0231351067"],
+        ["Financial Instrument Information", "Data", "Stocks", "AMZ", "IBIS", "Amazon", "US0231351067"],
+        ["Mark-to-Market Performance Summary", "Header", "Asset Category", "Symbol", "Prior Quantity", "Current Quantity", "Mark-to-Market P/L Total"],
+        ["Mark-to-Market Performance Summary", "Data", "Stocks", "AMZN", "16", "0", "0"],
+        ["Mark-to-Market Performance Summary", "Data", "Stocks", "AMZ", "0", "0", "0"],
+        ["Trades", "Header", "Asset Category", "Currency", "Symbol", "Date/Time", "Exchange", "Code", "Proceeds", "Quantity", "DataDiscriminator", "Basis"],
+        ["Trades", "Data", "Stocks", "EUR", "AMZ", "2026-05-28, 10:43:51", "IBIS", "C", "0", "-16", "Order", ""],
+        ["Trades", "Data", "Stocks", "EUR", "AMZ", "2026-05-28, 10:43:51", "IBIS", "C", "0", "-16", "Trade", ""],
+        ["Trades", "Data", "Stocks", "EUR", "AMZ", "2025-01-01", "", "", "", "16", "ClosedLot", "100"],
+        ["Open Positions", "Header", "Asset Category", "Symbol", "Currency", "Summary Quantity", "Cost Basis", "DataDiscriminator"],
+        ["Open Positions", "Data", "Stocks", "AMZ", "EUR", "0", "0", "Summary"],
+        ["Transfers", "Header", "Asset Category", "Symbol", "Direction", "Qty", "Code"],
+        ["Transfers", "Data", "Stocks", "AMZ", "In", "16", ""],
+        ["Transfers", "Data", "Stocks", "AMZ", "In", "-16", "Ca"],
+        ["Transfers", "Data", "Stocks", "AMZN", "In", "-16", ""],
+    ]
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.review_required_rows == 0
+    assert not any("OPEN_POSITION_TRADE_QTY_MISMATCH" in warning for warning in result.summary.warnings)
+
+
 def test_open_position_reconciliation_unmatched_open_position_symbol_triggers_review(tmp_path: Path) -> None:
     rows = _rows_for_open_position_check(
         open_rows=[("UNKNOWN", "5")],

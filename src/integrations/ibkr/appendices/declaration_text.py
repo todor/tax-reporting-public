@@ -51,6 +51,7 @@ from ..shared import _fmt
 _OPEN_POSITION_MISMATCH_RE = re.compile(
     r"OPEN_POSITION_TRADE_QTY_MISMATCH:\s+asset=(?P<asset>\S+)\s+symbol=(?P<symbol>\S+)\s+"
     r"prior_qty=(?P<prior>[-0-9.]+)\s+trade_delta_qty=(?P<trade_delta>[-0-9.]+)\s+"
+    r"(?:transfer_delta_qty=(?P<transfer_delta>[-0-9.]+)\s+)?"
     r"expected_open_qty=(?P<expected>[-0-9.]+)\s+actual_open_qty=(?P<actual>[-0-9.]+)\s+"
     r"diff=(?P<diff>[-0-9.]+)"
 )
@@ -158,12 +159,13 @@ def _append_manual_check_section(lines: list[str], *, summary: AnalysisSummary) 
         if match:
             manual_actions.append(
                 "Проверете Open Positions за {asset}/{symbol}: "
-                "начално количество за периода {prior} + промяна от Trades/Order {trade_delta} = очаквано {expected}, "
+                "начално количество за периода {prior} + промяна от Trades/Order {trade_delta} + промяна от Transfers {transfer_delta} = очаквано {expected}, "
                 "а отчетеното е {actual} (разлика {diff}).".format(
                     asset=match.group("asset"),
                     symbol=match.group("symbol"),
                     prior=match.group("prior"),
                     trade_delta=match.group("trade_delta"),
+                    transfer_delta=match.group("transfer_delta") or "0",
                     expected=match.group("expected"),
                     actual=match.group("actual"),
                     diff=match.group("diff"),

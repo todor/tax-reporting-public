@@ -1218,6 +1218,50 @@ def test_ibkr_manual_review_rows_render_concrete_examples_in_main_and_diagnostic
     assert "mapped_classification: UNMAPPED" in technical
 
 
+def test_ibkr_open_position_reconciliation_warnings_are_not_duplicated_as_unclassified() -> None:
+    diagnostics = [
+        AnalysisDiagnostic(
+            severity="WARNING",
+            message=(
+                "OPEN_POSITION_TRADE_QTY_MISMATCH: asset=Stocks symbol=1YD prior_qty=60 "
+                "trade_delta_qty=-150 expected_open_qty=-90 actual_open_qty=0 diff=-90"
+            ),
+            analyzer_alias="ibkr",
+        ),
+        AnalysisDiagnostic(
+            severity="WARNING",
+            message=(
+                "OPEN_POSITION_TRADE_QTY_MISMATCH: asset=Stocks symbol=AAPL prior_qty=29.449 "
+                "trade_delta_qty=-0.449 expected_open_qty=29.000 actual_open_qty=0 diff=29.000"
+            ),
+            analyzer_alias="ibkr",
+        ),
+        AnalysisDiagnostic(
+            severity="MANUAL_REVIEW",
+            message="има 2 записа с изисквана ръчна проверка",
+            analyzer_alias="ibkr",
+        ),
+    ]
+
+    main = "\n".join(render_action_items(diagnostics))
+    technical = render_diagnostics_report(
+        title="IBKR diagnostics",
+        status="NEEDS_REVIEW",
+        raw_declaration_text="",
+        diagnostics=diagnostics,
+    )
+
+    assert "IBKR: има 2 несъответствия между Open Positions и Trades." in main
+    assert "IBKR_MANUAL_REVIEW_ROWS" not in main
+    assert "UNCLASSIFIED_WARNING_GROUP" not in main
+    assert "[MANUAL_REVIEW] [ibkr] IBKR_OPEN_POSITION_RECONCILIATION_MISMATCH" in technical
+    assert "[MANUAL_REVIEW] [ibkr] IBKR_MANUAL_REVIEW_ROWS" not in technical
+    assert "[WARNING] [ibkr] UNCLASSIFIED_WARNING_GROUP" not in technical
+    assert "count: 2" in technical
+    assert "symbol: 1YD" in technical
+    assert "trade_delta_qty: -150" in technical
+
+
 def test_ibkr_option_unhandled_rows_are_specific_and_include_examples() -> None:
     diagnostics = [
         AnalysisDiagnostic(

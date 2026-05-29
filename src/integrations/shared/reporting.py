@@ -52,6 +52,13 @@ _IBKR_REVIEW_ROW_RE = re.compile(
     r"mapped_classification=(?P<mapped_classification>.*?), )?"
     r"execution_exchange=(?P<execution_exchange>.*?)\)$"
 )
+_IBKR_OPEN_POSITION_MISMATCH_RE = re.compile(
+    r"^OPEN_POSITION_TRADE_QTY_MISMATCH:\s+asset=(?P<asset>\S+)\s+symbol=(?P<symbol>\S+)\s+"
+    r"prior_qty=(?P<prior_qty>\S+)\s+trade_delta_qty=(?P<trade_delta_qty>\S+)\s+"
+    r"(?:transfer_delta_qty=(?P<transfer_delta_qty>\S+)\s+)?"
+    r"expected_open_qty=(?P<expected_open_qty>\S+)\s+actual_open_qty=(?P<actual_open_qty>\S+)\s+"
+    r"diff=(?P<diff>\S+)$"
+)
 _IBKR_COUNT_RE = re.compile(r"има (?P<count>\d+)")
 
 _GROUPABLE_CODES = {
@@ -68,6 +75,7 @@ _GROUPABLE_CODES = {
     "FOREX_ROWS_IGNORED",
     "UNSUPPORTED_TRADES_ROWS",
     "UNKNOWN_DIVIDEND_ROWS",
+    "IBKR_OPEN_POSITION_RECONCILIATION_MISMATCH",
     "IBKR_MANUAL_REVIEW_ROWS",
     "IBKR_OPTIONS_EXERCISE_ASSIGNMENT_NO_CLOSEDLOT",
     "IBKR_OPTIONS_UNHANDLED_ROWS",
@@ -445,6 +453,32 @@ def _canonicalize_diagnostic(diagnostic: AnalysisDiagnostic) -> AnalysisDiagnost
             technical_message_en=None,
         )
 
+    match = _IBKR_OPEN_POSITION_MISMATCH_RE.match(message)
+    if match:
+        rows = [
+            {
+                "section": "Open Positions",
+                "asset": match.group("asset"),
+                "symbol": match.group("symbol"),
+                "prior_qty": match.group("prior_qty"),
+                "trade_delta_qty": match.group("trade_delta_qty"),
+                "transfer_delta_qty": match.group("transfer_delta_qty") or "0",
+                "expected_open_qty": match.group("expected_open_qty"),
+                "actual_open_qty": match.group("actual_open_qty"),
+                "diff": match.group("diff"),
+                "reason": "Open Positions quantity does not reconcile with starting quantity plus Trades/Order quantity",
+            }
+        ]
+        params.update({"count": 1, "rows": rows})
+        return replace(
+            diagnostic,
+            severity="MANUAL_REVIEW",
+            code="IBKR_OPEN_POSITION_RECONCILIATION_MISMATCH",
+            message="IBKR Open Positions quantities do not reconcile with Trades.",
+            params=params,
+            technical_message_en=None,
+        )
+
     if _contains_cyrillic(message):
         return _canonicalize_bulgarian_summary(diagnostic, params=params, message=message)
 
@@ -710,6 +744,7 @@ def _drop_redundant_summary_diagnostics(
             "UNSUPPORTED_TRADES_ROWS",
             "UNKNOWN_DIVIDEND_ROWS",
             "IBKR_MANUAL_REVIEW_ROWS",
+            "IBKR_OPEN_POSITION_RECONCILIATION_MISMATCH",
             "IBKR_OPTIONS_UNHANDLED_ROWS",
         }
         and diagnostic.params.get("rows")
@@ -1113,6 +1148,25 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
             )
         return lines
 
+    if diagnostic.code == "IBKR_OPEN_POSITION_RECONCILIATION_MISMATCH":
+        count = _diagnostic_count(diagnostic)
+        lines = [
+            f"{_display_analyzer_name(analyzer)}: има {count} несъответствия между Open Positions и Trades.",
+            "Причина: началното количество от Mark-to-Market Performance Summary плюс промяната от Trades/Order не съвпада с отчетеното Open Positions количество.",
+        ]
+        examples = _diagnostic_examples_bg(diagnostic.params, include_raw=False)
+        if examples:
+            lines.append("Примери:")
+            lines.extend(f"- {example}" for example in examples)
+        lines.extend(
+            [
+                "Какво да направите:",
+                "- Проверете засегнатите символи в IBKR индивидуалния отчет и диагностичния файл.",
+                "- Ако разликата идва от transfer/corporate action/символно преобразуване, потвърдете данъчното третиране ръчно преди подаване.",
+            ]
+        )
+        return lines
+
     if diagnostic.code == "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW":
         positive_rows = diagnostic.params.get("positive_wht_rows")
         non_positive_buckets = diagnostic.params.get("non_positive_net_buckets")
@@ -1386,6 +1440,20 @@ def _diagnostic_row_example(item: dict[str, Any]) -> str:
         parts.append(f"section={item['section']}")
     if item.get("symbol"):
         parts.append(f"symbol={item['symbol']}")
+    if item.get("asset"):
+        parts.append(f"asset={item['asset']}")
+    if item.get("prior_qty"):
+        parts.append(f"prior_qty={item['prior_qty']}")
+    if item.get("trade_delta_qty"):
+        parts.append(f"trade_delta_qty={item['trade_delta_qty']}")
+    if item.get("transfer_delta_qty"):
+        parts.append(f"transfer_delta_qty={item['transfer_delta_qty']}")
+    if item.get("expected_open_qty"):
+        parts.append(f"expected_open_qty={item['expected_open_qty']}")
+    if item.get("actual_open_qty"):
+        parts.append(f"actual_open_qty={item['actual_open_qty']}")
+    if item.get("diff"):
+        parts.append(f"diff={item['diff']}")
     listing = item.get("listing_exchange_raw") or item.get("listing_exchange")
     if listing:
         parts.append(f"listing_exchange={listing}")

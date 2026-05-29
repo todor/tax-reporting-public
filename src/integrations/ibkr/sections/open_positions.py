@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -77,6 +78,15 @@ class _MtmSummaryFieldIndexes:
     current_quantity: int
 
 
+@dataclass(slots=True)
+class _TransferFieldIndexes:
+    asset: int
+    symbol: int
+    direction: int
+    quantity: int
+    code: int | None
+
+
 def _open_positions_indexes(active_header: _ActiveHeader) -> _OpenPositionsFieldIndexes:
     section_name = f"Open Positions header at row {active_header.row_number}"
     return _OpenPositionsFieldIndexes(
@@ -127,6 +137,17 @@ def _mtm_summary_indexes(active_header: _ActiveHeader) -> _MtmSummaryFieldIndexe
     )
 
 
+def _transfer_indexes(active_header: _ActiveHeader) -> _TransferFieldIndexes:
+    section_name = f"Transfers header at row {active_header.row_number}"
+    return _TransferFieldIndexes(
+        asset=_index_for(active_header.headers, "Asset Category", section_name=section_name),
+        symbol=_index_for(active_header.headers, "Symbol", section_name=section_name),
+        direction=_index_for(active_header.headers, "Direction", section_name=section_name),
+        quantity=_index_for(active_header.headers, "Qty", section_name=section_name),
+        code=_optional_index(active_header.headers, "Code"),
+    )
+
+
 def _run_open_position_trade_quantity_reconciliation(
     *,
     rows: list[list[str]],
@@ -137,18 +158,19 @@ def _run_open_position_trade_quantity_reconciliation(
     open_qty_by_key: dict[tuple[str, str], Decimal] = {}
     trade_qty_by_key: dict[tuple[str, str], Decimal] = {}
     mtm_prior_qty_by_key: dict[tuple[str, str], Decimal] = {}
+    transfer_qty_by_key: dict[tuple[str, str], Decimal] = {}
 
     def add_qty(
         bucket: dict[tuple[str, str], Decimal],
         *,
         asset_category: str,
-        canonical_symbol: str,
+        identifier: str,
         quantity: Decimal,
     ) -> None:
-        key = (asset_category, canonical_symbol)
+        key = (asset_category, identifier)
         bucket[key] = bucket.get(key, ZERO) + quantity
 
-    def canonical_symbol_for_row(
+    def reconciliation_identifier_for_row(
         *,
         asset_category: str,
         symbol_raw: str,
@@ -160,7 +182,7 @@ def _run_open_position_trade_quantity_reconciliation(
         )
         if instrument is None:
             return None, forced_reason or "symbol was not resolved via Financial Instrument Information"
-        return instrument.canonical_symbol, None
+        return instrument.isin or instrument.canonical_symbol, None
 
     for row_idx, row in enumerate(rows):
         row_number = row_idx + 1
@@ -189,11 +211,11 @@ def _run_open_position_trade_quantity_reconciliation(
                 f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason=invalid prior quantity in Mark-to-Market Performance Summary"
             )
             continue
-        canonical_symbol, resolve_error = canonical_symbol_for_row(
+        identifier, resolve_error = reconciliation_identifier_for_row(
             asset_category=asset_category,
             symbol_raw=symbol_raw,
         )
-        if canonical_symbol is None:
+        if identifier is None:
             warnings.append(
                 f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason={resolve_error}"
             )
@@ -201,7 +223,7 @@ def _run_open_position_trade_quantity_reconciliation(
         add_qty(
             mtm_prior_qty_by_key,
             asset_category=asset_category,
-            canonical_symbol=canonical_symbol,
+            identifier=identifier,
             quantity=prior_quantity,
         )
 
@@ -237,11 +259,11 @@ def _run_open_position_trade_quantity_reconciliation(
                 f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason=invalid summary quantity"
             )
             continue
-        canonical_symbol, resolve_error = canonical_symbol_for_row(
+        identifier, resolve_error = reconciliation_identifier_for_row(
             asset_category=asset_category,
             symbol_raw=symbol_raw,
         )
-        if canonical_symbol is None:
+        if identifier is None:
             warnings.append(
                 f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason={resolve_error}"
             )
@@ -249,7 +271,7 @@ def _run_open_position_trade_quantity_reconciliation(
         add_qty(
             open_qty_by_key,
             asset_category=asset_category,
-            canonical_symbol=canonical_symbol,
+            identifier=identifier,
             quantity=quantity,
         )
 
@@ -284,11 +306,11 @@ def _run_open_position_trade_quantity_reconciliation(
                 f"{REVIEW_REASON_TRADE_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason=invalid order quantity"
             )
             continue
-        canonical_symbol, resolve_error = canonical_symbol_for_row(
+        identifier, resolve_error = reconciliation_identifier_for_row(
             asset_category=asset_category,
             symbol_raw=symbol_raw,
         )
-        if canonical_symbol is None:
+        if identifier is None:
             warnings.append(
                 f"{REVIEW_REASON_TRADE_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason={resolve_error}"
             )
@@ -296,28 +318,92 @@ def _run_open_position_trade_quantity_reconciliation(
         add_qty(
             trade_qty_by_key,
             asset_category=asset_category,
-            canonical_symbol=canonical_symbol,
+            identifier=identifier,
             quantity=quantity,
         )
 
-    for asset_category, canonical_symbol in sorted(
-        set(open_qty_by_key) | set(trade_qty_by_key) | set(mtm_prior_qty_by_key)
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        if len(row) < 2 or row[0] != "Transfers" or row[1] != "Data":
+            continue
+        active_header = active_headers.get(row_idx)
+        if active_header is None:
+            warnings.append(
+                f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} reason=Transfers row encountered before header"
+            )
+            continue
+        try:
+            field_idx = _transfer_indexes(active_header)
+        except CsvStructureError:
+            continue
+
+        base_len = 2 + len(active_header.headers)
+        padded = row + [""] * (base_len - len(row))
+        data = padded[2 : 2 + len(active_header.headers)]
+        asset_category = data[field_idx.asset].strip()
+        symbol_raw = data[field_idx.symbol].strip()
+        direction = data[field_idx.direction].strip()
+        raw_quantity = data[field_idx.quantity].strip()
+        code = data[field_idx.code].strip() if field_idx.code is not None else ""
+        if asset_category == "" or asset_category == "Total":
+            continue
+        if symbol_raw == "" or direction == "" or raw_quantity == "":
+            continue
+        if _is_cancelled_transfer_code(code):
+            continue
+        if not _is_supported_asset(asset_category):
+            continue
+        quantity = _parse_reconciliation_quantity(raw_quantity)
+        if quantity is None:
+            warnings.append(
+                f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason=invalid transfer quantity"
+            )
+            continue
+        if direction not in {"In", "Out"}:
+            warnings.append(
+                f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason=unsupported transfer direction {direction!r}"
+            )
+            continue
+        identifier, resolve_error = reconciliation_identifier_for_row(
+            asset_category=asset_category,
+            symbol_raw=symbol_raw,
+        )
+        if identifier is None:
+            warnings.append(
+                f"{REVIEW_REASON_OPEN_POSITION_UNMATCHED_INSTRUMENT}: row={row_number} asset={asset_category} symbol={symbol_raw!r} reason={resolve_error}"
+            )
+            continue
+        add_qty(
+            transfer_qty_by_key,
+            asset_category=asset_category,
+            identifier=identifier,
+            quantity=quantity,
+        )
+
+    for asset_category, identifier in sorted(
+        set(open_qty_by_key) | set(trade_qty_by_key) | set(mtm_prior_qty_by_key) | set(transfer_qty_by_key)
     ):
-        prior_qty = mtm_prior_qty_by_key.get((asset_category, canonical_symbol), ZERO)
-        trade_delta_qty = trade_qty_by_key.get((asset_category, canonical_symbol), ZERO)
-        expected_open_qty = prior_qty + trade_delta_qty
-        actual_open_qty = open_qty_by_key.get((asset_category, canonical_symbol), ZERO)
+        prior_qty = mtm_prior_qty_by_key.get((asset_category, identifier), ZERO)
+        trade_delta_qty = trade_qty_by_key.get((asset_category, identifier), ZERO)
+        transfer_delta_qty = transfer_qty_by_key.get((asset_category, identifier), ZERO)
+        expected_open_qty = prior_qty + trade_delta_qty + transfer_delta_qty
+        actual_open_qty = open_qty_by_key.get((asset_category, identifier), ZERO)
         diff = expected_open_qty - actual_open_qty
         if abs(diff) <= QTY_RECONCILIATION_EPSILON:
             continue
         warnings.append(
             f"{REVIEW_REASON_OPEN_POSITION_TRADE_QTY_MISMATCH}: "
-            f"asset={asset_category} symbol={canonical_symbol} prior_qty={_fmt(prior_qty)} "
-            f"trade_delta_qty={_fmt(trade_delta_qty)} expected_open_qty={_fmt(expected_open_qty)} "
+            f"asset={asset_category} symbol={identifier} prior_qty={_fmt(prior_qty)} "
+            f"trade_delta_qty={_fmt(trade_delta_qty)} transfer_delta_qty={_fmt(transfer_delta_qty)} "
+            f"expected_open_qty={_fmt(expected_open_qty)} "
             f"actual_open_qty={_fmt(actual_open_qty)} diff={_fmt(diff)}"
         )
 
     return warnings
+
+
+def _is_cancelled_transfer_code(code: str) -> bool:
+    return "Ca" in {part.strip() for part in re.split(r"[,;\s]+", code) if part.strip()}
 
 
 def run_open_position_reconciliation(
