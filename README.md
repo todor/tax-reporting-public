@@ -16,6 +16,14 @@ It is especially useful if:
 
 The project is evolving based on real usage and feedback, with the aim to cover the majority of practical investment scenarios over time.
 
+## Demo video
+
+Watch the Bulgarian demo video to see how `tax-reporting` converts investment reports from different platforms into data that can be used for Bulgarian tax declaration preparation:
+
+[![Tax Reporting demo video in Bulgarian](https://img.youtube.com/vi/06zm5v8EexI/maxresdefault.jpg)](https://youtu.be/06zm5v8EexI)
+
+[Watch on YouTube](https://youtu.be/06zm5v8EexI)
+
 ## Who is this for
 
 - Individual investors managing their own tax reporting
