@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 
 from ..appendices.aggregations import _country_component
 from ..constants import (
@@ -13,7 +12,6 @@ from ..constants import (
     INTEREST_STATUS_UNKNOWN,
     REVIEW_STATUS_NON_TAXABLE,
     REVIEW_STATUS_TAXABLE,
-    ZERO,
 )
 from ..models import (
     AnalysisSummary,
@@ -221,29 +219,3 @@ def process_interest_section(
         row_base_len=interest_row_base_len,
         components_by_country=appendix9_components,
     )
-
-
-def extract_interest_withholding_paid_eur(
-    rows: list[list[str]],
-    *,
-    active_headers: dict[int, _ActiveHeader],
-) -> tuple[Decimal, bool]:
-    section_name = "Mark-to-Market Performance Summary"
-    for row_idx, row in enumerate(rows):
-        row_number = row_idx + 1
-        if len(row) < 2 or row[0] != section_name or row[1] != "Data":
-            continue
-        active_header = active_headers.get(row_idx)
-        if active_header is None:
-            raise CsvStructureError(f"row {row_number}: {section_name} Data row encountered before {section_name} Header")
-
-        section_label = f"{section_name} header at row {active_header.row_number}"
-        asset_idx = _index_for(active_header.headers, "Asset Category", section_name=section_label)
-        total_idx = _index_for(active_header.headers, "Mark-to-Market P/L Total", section_name=section_label)
-        padded = row[2:] + [""] * (len(active_header.headers) - len(row[2:]))
-        asset_category = padded[asset_idx].strip()
-        if asset_category != "Withholding on Interest Received":
-            continue
-        value = _parse_decimal(padded[total_idx], row_number=row_number, field_name="Mark-to-Market P/L Total")
-        return abs(value), True
-    return ZERO, False

@@ -16,7 +16,6 @@ from .appendices.aggregations import (
     _build_appendix8_part1_rows,
     _compute_appendix8_company_results,
     _compute_appendix9_country_results,
-    _country_component,
     _write_tax_credit_debug_report,
 )
 from .appendices.csv_output import build_output_rows, validate_output_rows
@@ -50,7 +49,6 @@ from .models import (
 from .sections.dividends import DividendsSectionResult, process_dividends_section
 from .sections.fees import FeesSectionResult, process_fees_section
 from .sections.futures import FuturesMtmSectionResult, process_futures_mtm_section
-from .sections.income import _appendix9_default_country
 from .sections.instruments import (
     _exchange_classification_mode_label,
     _normalize_exchange,
@@ -58,7 +56,6 @@ from .sections.instruments import (
 )
 from .sections.interest import (
     InterestSectionResult,
-    extract_interest_withholding_paid_eur,
     process_interest_section,
 )
 from .sections.open_positions import (
@@ -82,6 +79,7 @@ from .shared import (
     _code_has_closing_token,
     _default_fx_provider,
     _infer_ibkr_report_date_format,
+    _normalize_data_discriminator,
     _normalize_report_alias,
     _optional_index,
 )
@@ -289,17 +287,10 @@ def _normalize_cli_eu_regulated_exchanges(raw_values: list[str] | None) -> set[s
     return normalized
 
 
-def _apply_interest_withholding_source(
+def _finalize_interest_withholding_totals(
     *,
-    rows: list[list[str]],
-    active_headers: dict[int, _ActiveHeader],
     summary: AnalysisSummary,
-    appendix9_components: dict[str, dict[str, _CountryCreditComponent]],
 ) -> None:
-    mtm_withholding_paid_eur, mtm_withholding_found = extract_interest_withholding_paid_eur(
-        rows,
-        active_headers=active_headers,
-    )
     detail_withholding_paid_eur = sum(
         (bucket.withholding_tax_paid_eur for bucket in summary.appendix_9_by_country.values()),
         ZERO,
@@ -307,35 +298,14 @@ def _apply_interest_withholding_source(
     detail_withholding_found = summary.appendix_9_positive_withholding_rows > 0 or detail_withholding_paid_eur != ZERO
 
     summary.appendix_9_withholding_detail_source_found = detail_withholding_found
-    summary.appendix_9_withholding_mtm_source_found = mtm_withholding_found
-    summary.appendix_9_withholding_mtm_paid_eur = mtm_withholding_paid_eur
     summary.appendix_9_withholding_detail_paid_eur = detail_withholding_paid_eur
 
     if detail_withholding_found:
         summary.appendix_9_non_positive_net_buckets = sum(
             1 for bucket in summary.appendix_9_by_country.values() if bucket.withholding_tax_paid_eur <= ZERO
         )
-        if mtm_withholding_found:
-            mismatch = abs(detail_withholding_paid_eur - mtm_withholding_paid_eur)
-            if mismatch > Decimal("0.01"):
-                summary.appendix_9_withholding_mismatch_found = True
-                summary.appendix_9_withholding_mismatch_eur = mismatch
-    elif mtm_withholding_paid_eur > ZERO:
-        country_iso, country_english, country_bulgarian = _appendix9_default_country()
-        appendix9_bucket = _appendix9_bucket(
-            summary,
-            country_iso=country_iso,
-            country_english=country_english,
-            country_bulgarian=country_bulgarian,
-        )
-        appendix9_bucket.withholding_tax_paid_eur += mtm_withholding_paid_eur
-        _country_component(
-            appendix9_components,
-            country_iso=country_iso,
-            component_key="MTM_SOURCE",
-        ).foreign_tax_paid_eur += mtm_withholding_paid_eur
 
-    summary.appendix_9_withholding_source_found = detail_withholding_found or mtm_withholding_found
+    summary.appendix_9_withholding_source_found = detail_withholding_found
 
     summary.appendix_9_credit_interest_eur = sum(
         (bucket.gross_interest_eur for bucket in summary.appendix_9_by_country.values()),
@@ -348,7 +318,7 @@ def _apply_interest_withholding_source(
     if summary.appendix_9_credit_interest_eur > ZERO and not summary.appendix_9_withholding_source_found:
         summary.review_required_rows += 1
         summary.warnings.append(
-            "Mark-to-Market Performance Summary row for 'Withholding on Interest Received' was not found; using 0"
+            "Withholding Tax detail rows containing 'interest' were not found for Appendix 9; using 0"
         )
 
 
@@ -579,7 +549,7 @@ def _validate_required_closedlot_rows(
         if row_type == "Data":
             if discriminator_idx is None:
                 continue
-            discriminator = data[discriminator_idx].strip().lower()
+            discriminator = _normalize_data_discriminator(data[discriminator_idx])
             if discriminator == "closedlot":
                 closedlot_rows.append(row_number)
                 continue
@@ -745,11 +715,8 @@ def analyze_ibkr_activity_statement(
     )
     appendix9_components = processed.interest.components_by_country
 
-    _apply_interest_withholding_source(
-        rows=rows,
-        active_headers=active_headers,
+    _finalize_interest_withholding_totals(
         summary=summary,
-        appendix9_components=appendix9_components,
     )
     _compute_appendix_outputs(
         summary=summary,

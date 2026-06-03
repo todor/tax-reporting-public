@@ -706,23 +706,6 @@ def build_ibkr_result(
                 },
             )
         )
-    if summary.appendix_9_withholding_mismatch_found:
-        legacy_diagnostics.append(
-            AnalysisDiagnostic(
-                severity="MANUAL_REVIEW",
-                analyzer_alias=analyzer_alias,
-                code="IBKR_APPENDIX9_WHT_SOURCE_MISMATCH",
-                message=(
-                    "Appendix 9 interest withholding tax detail rows differ from "
-                    "Mark-to-Market Performance Summary."
-                ),
-                params={
-                    "detail_wht_eur": summary.appendix_9_withholding_detail_paid_eur,
-                    "mtm_wht_eur": summary.appendix_9_withholding_mtm_paid_eur,
-                    "difference_eur": summary.appendix_9_withholding_mismatch_eur,
-                },
-            )
-        )
     if summary.appendix_9_positive_withholding_rows > 0:
         legacy_diagnostics.append(
             AnalysisDiagnostic(

@@ -80,7 +80,6 @@ _GROUPABLE_CODES = {
     "IBKR_OPTIONS_EXERCISE_ASSIGNMENT_NO_CLOSEDLOT",
     "IBKR_OPTIONS_UNHANDLED_ROWS",
     "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL",
-    "IBKR_APPENDIX9_WHT_SOURCE_MISMATCH",
     "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW",
     "IBKR_FUTURES_MTM_ARITHMETIC_MISMATCH",
     "IBKR_FUTURES_MTM_OTHER_INCLUDED",
@@ -1194,16 +1193,6 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
         )
         return lines
 
-    if diagnostic.code == "IBKR_APPENDIX9_WHT_SOURCE_MISMATCH":
-        return [
-            "IBKR: открито е разминаване между детайлните Withholding Tax редове за лихви "
-            "и Mark-to-Market Performance Summary / Withholding on Interest Received.",
-            "Инструментът използва детайлните Withholding Tax редове за Приложение 9.",
-            "Какво да направите:",
-            "- Проверете ръчно данъка върху лихви.",
-            "- Ако Mark-to-Market сумата е вярната за вашия отчет, коригирайте входните данни или обработете случая ръчно.",
-        ]
-
     if diagnostic.code == "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL":
         positive_rows = diagnostic.params.get("positive_wht_rows")
         non_positive_buckets = diagnostic.params.get("non_positive_net_buckets")
@@ -1500,7 +1489,6 @@ def _ibkr_code_summary_bg(diagnostic: AnalysisDiagnostic) -> str:
     count = _diagnostic_count(diagnostic)
     summaries = {
         "IBKR_SANITY_CHECK_FAILURES": f"има {count} неуспешни sanity проверки.",
-        "IBKR_APPENDIX9_WHT_SOURCE_MISMATCH": "има разминаване в източниците за удържан данък върху лихви.",
         "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL": f"има {count} положителни Withholding Tax реда за лихви.",
         "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW": f"има {count} случая с положителен Withholding Tax за дивиденти.",
         "IBKR_FUTURES_MTM_ARITHMETIC_MISMATCH": f"има {count} Futures MTM реда с аритметично разминаване.",

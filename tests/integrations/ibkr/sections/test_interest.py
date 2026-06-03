@@ -226,14 +226,18 @@ def test_interest_fx_uses_row_date_and_unknown_is_not_converted(tmp_path: Path) 
     unknown = next(r for r in data_rows if "Special Interest Adjustment" in r[2 + idx["Description"]])
     assert unknown[2 + idx["Amount (EUR)"]] == ""
 
-def test_interest_withholding_is_extracted_from_mark_to_market_summary(tmp_path: Path) -> None:
+def test_interest_withholding_ignores_mark_to_market_summary_without_detail_rows(tmp_path: Path) -> None:
     rows = _rows_with_interest(
         [["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "10"]],
         mtm_withholding_total="-3.75",
     )
     result = _run(tmp_path, rows, mode="listed_symbol")
-    assert result.summary.appendix_9_withholding_paid_eur == Decimal("3.75")
-    assert result.summary.appendix_9_withholding_source_found is True
+    assert result.summary.appendix_9_withholding_paid_eur == Decimal("0")
+    assert result.summary.appendix_9_withholding_source_found is False
+    assert result.summary.review_required_rows == 1
+    assert result.summary.warnings == [
+        "Withholding Tax detail rows containing 'interest' were not found for Appendix 9; using 0"
+    ]
 
 
 def test_appendix_9_interest_withholding_detail_rows_match_mtm_without_warning(tmp_path: Path) -> None:
@@ -253,11 +257,9 @@ def test_appendix_9_interest_withholding_detail_rows_match_mtm_without_warning(t
     assert result.summary.appendix_9_withholding_paid_eur == Decimal("3")
     assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("3")
     assert result.summary.appendix_9_withholding_detail_source_found is True
-    assert result.summary.appendix_9_withholding_mtm_source_found is True
-    assert result.summary.appendix_9_withholding_mismatch_found is False
 
 
-def test_appendix_9_interest_withholding_detail_rows_win_over_mtm_mismatch(tmp_path: Path) -> None:
+def test_appendix_9_interest_withholding_detail_rows_win_without_mtm_cross_check(tmp_path: Path) -> None:
     rows = _rows_with_interest(
         [["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "100"]],
         mtm_withholding_total="-4",
@@ -273,8 +275,9 @@ def test_appendix_9_interest_withholding_detail_rows_win_over_mtm_mismatch(tmp_p
 
     assert result.summary.appendix_9_withholding_paid_eur == Decimal("3")
     assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("3")
-    assert result.summary.appendix_9_withholding_mismatch_found is True
-    assert result.summary.appendix_9_withholding_mismatch_eur == Decimal("1")
+    assert result.summary.appendix_9_withholding_detail_source_found is True
+    assert result.summary.review_required_rows == 0
+    assert result.summary.warnings == []
 
 
 def test_positive_appendix_9_interest_withholding_detail_row_reduces_foreign_tax(tmp_path: Path) -> None:
@@ -318,7 +321,7 @@ def test_positive_only_appendix_9_interest_withholding_creates_no_credit(tmp_pat
     assert result.summary.appendix_9_non_positive_net_buckets == 1
 
 
-def test_appendix_9_interest_withholding_falls_back_to_mtm_when_details_missing(tmp_path: Path) -> None:
+def test_appendix_9_interest_withholding_requires_detail_rows(tmp_path: Path) -> None:
     rows = _rows_with_interest(
         [["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "100"]],
         mtm_withholding_total="-3.75",
@@ -326,9 +329,9 @@ def test_appendix_9_interest_withholding_falls_back_to_mtm_when_details_missing(
 
     result = _run(tmp_path, rows, mode="listed_symbol")
 
-    assert result.summary.appendix_9_withholding_paid_eur == Decimal("3.75")
+    assert result.summary.appendix_9_withholding_paid_eur == Decimal("0")
     assert result.summary.appendix_9_withholding_detail_source_found is False
-    assert result.summary.appendix_9_withholding_mtm_source_found is True
+    assert result.summary.review_required_rows == 1
 
 
 def test_appendix_9_withholding_description_matches_interest_case_insensitive(tmp_path: Path) -> None:
@@ -357,6 +360,12 @@ def test_appendix_9_section_contains_expected_values(tmp_path: Path) -> None:
         ],
         mtm_withholding_total="-4",
     )
+    _append_interest_withholding_rows(
+        rows,
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "Withholding Tax on Interest for Mar-2025", "-4", ""],
+        ],
+    )
     result = _run(tmp_path, rows, mode="listed_symbol")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Приложение 9" in text
@@ -380,6 +389,12 @@ def test_appendix_9_allowable_credit_uses_code_constant(tmp_path: Path, monkeypa
         ],
         mtm_withholding_total="-4",
     )
+    _append_interest_withholding_rows(
+        rows,
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "Withholding Tax on Interest for Mar-2025", "-4", ""],
+        ],
+    )
     result = _run(tmp_path, rows, mode="listed_symbol")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Допустим размер на данъчния кредит: 4.00" in text
@@ -392,9 +407,13 @@ def test_appendix_9_country_level_credit_is_not_rowwise(tmp_path: Path) -> None:
             ["Interest", "Header", "Currency", "Date", "Description", "Amount"],
             ["Interest", "Data", "EUR", "2025-01-05", "EUR Credit Interest for Jan-2025", "100"],
             ["Interest", "Data", "EUR", "2025-02-05", "EUR Credit Interest for Feb-2025", "100"],
-            ["Mark-to-Market Performance Summary", "Header", "Asset Category", "Mark-to-Market P/L Total"],
-            ["Mark-to-Market Performance Summary", "Data", "Withholding on Interest Received", "-15"],
         ]
+    )
+    _append_interest_withholding_rows(
+        rows,
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-01-06", "Withholding Tax on Interest for Jan-2025", "-15", ""],
+        ],
     )
     result = _run(tmp_path, rows, mode="listed_symbol")
     assert len(result.summary.appendix_9_country_results) == 1
@@ -415,16 +434,20 @@ def test_appendix_9_country_level_credit_is_not_rowwise(tmp_path: Path) -> None:
     assert Decimal(ie_entry["recognized_credit_wrong_rowwise"]) == Decimal("0")
     assert Decimal(ie_entry["delta_correct_minus_rowwise"]) == Decimal("15")
 
-def test_appendix_9_country_level_uses_mtm_source_of_paid_tax(tmp_path: Path) -> None:
+def test_appendix_9_country_level_uses_withholding_tax_source_of_paid_tax(tmp_path: Path) -> None:
     rows = _base_rows()
     rows.extend(
         [
             ["Interest", "Header", "Currency", "Date", "Description", "Amount"],
             ["Interest", "Data", "EUR", "2025-01-05", "EUR Credit Interest for Jan-2025", "100"],
             ["Interest", "Data", "EUR", "2025-02-05", "EUR Credit Interest for Feb-2025", "100"],
-            ["Mark-to-Market Performance Summary", "Header", "Asset Category", "Mark-to-Market P/L Total"],
-            ["Mark-to-Market Performance Summary", "Data", "Withholding on Interest Received", "-20"],
         ]
+    )
+    _append_interest_withholding_rows(
+        rows,
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-01-06", "Withholding Tax on Interest for Jan-2025", "-20", ""],
+        ],
     )
     result = _run(tmp_path, rows, mode="listed_symbol")
     country = result.summary.appendix_9_country_results["IE"]

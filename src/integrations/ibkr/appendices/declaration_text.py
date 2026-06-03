@@ -1108,19 +1108,12 @@ def _append_proof_section(
         "- interest withholding detail source found: "
         + ("YES" if summary.appendix_9_withholding_detail_source_found else "NO")
     )
-    lines.append(
-        "- interest withholding Mark-to-Market source found: "
-        + ("YES" if summary.appendix_9_withholding_mtm_source_found else "NO")
-    )
     lines.append(f"- interest withholding detail paid EUR: {_fmt(summary.appendix_9_withholding_detail_paid_eur)}")
-    lines.append(f"- interest withholding Mark-to-Market paid EUR: {_fmt(summary.appendix_9_withholding_mtm_paid_eur)}")
     lines.append(f"- positive interest withholding rows: {summary.appendix_9_positive_withholding_rows}")
     lines.append(
         "- Appendix 9 withholding buckets with non-positive net tax paid: "
         f"{summary.appendix_9_non_positive_net_buckets}"
     )
-    if summary.appendix_9_withholding_mismatch_found:
-        lines.append(f"- interest withholding source mismatch EUR: {_fmt(summary.appendix_9_withholding_mismatch_eur)}")
     if summary.tax_credit_debug_report_path:
         lines.append(f"- tax credit debug report: {summary.tax_credit_debug_report_path}")
     if money_context is not None:

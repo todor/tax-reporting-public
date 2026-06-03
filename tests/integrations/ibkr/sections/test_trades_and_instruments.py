@@ -511,6 +511,21 @@ def test_csv_integrity_non_trades_unchanged_and_trades_consistent(tmp_path: Path
     expected_len = len(trades_header)
     assert all(len(row) == expected_len for row in trades_data)
 
+
+def test_closedlot_discriminator_allows_ibkr_footnote_marker(tmp_path: Path) -> None:
+    rows = _base_rows()
+    rows[8][9] = "ClosedLot*"
+    rows[10][9] = "ClosedLot*"
+
+    result = _run(tmp_path, rows, mode="listed_symbol")
+
+    assert result.summary.closedlot_discriminator_rows == 2
+    assert result.summary.sanity_checked_closedlots == 2
+    output_rows = _read_rows(result.output_csv_path)
+    _, trades_data = _trades_header_and_data(output_rows)
+    assert [row[9] for row in trades_data if row[9] == "ClosedLot*"] == ["ClosedLot*", "ClosedLot*"]
+
+
 def test_no_closedlot_fails(tmp_path: Path) -> None:
     rows = _base_rows()
     rows.pop(8)

@@ -66,6 +66,10 @@ def _optional_index(headers: list[str], *candidates: str) -> int | None:
     return None
 
 
+def _normalize_data_discriminator(raw: str) -> str:
+    return raw.strip().rstrip("*").strip().lower()
+
+
 def _fmt(value: Decimal, *, quant: Decimal | None = None) -> str:
     if quant is not None:
         value = value.quantize(quant, rounding=ROUND_HALF_UP)

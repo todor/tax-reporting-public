@@ -41,6 +41,7 @@ from ..shared import (
     _code_has_closing_token,
     _fmt,
     _index_for,
+    _normalize_data_discriminator,
     _normalize_review_status,
     _optional_index,
     _parse_closedlot_date,
@@ -329,8 +330,8 @@ def _find_attached_closedlot_indices(
             row_base_len=row_base_len,
             row_idx=scan_idx,
         )
-        scan_discriminator = _trade_value(scan_data, scan_header, "DataDiscriminator")
-        if scan_discriminator.lower() != "closedlot":
+        scan_discriminator = _normalize_data_discriminator(_trade_value(scan_data, scan_header, "DataDiscriminator"))
+        if scan_discriminator != "closedlot":
             break
         closedlot_indices.append(scan_idx)
         scan_idx += 1
@@ -992,7 +993,7 @@ def process_trades_section(
             row_idx=row_idx,
         )
         asset_category = _trade_value(data, active_trades_header, "Asset Category")
-        lowered = _trade_value(data, active_trades_header, "DataDiscriminator").lower()
+        lowered = _normalize_data_discriminator(_trade_value(data, active_trades_header, "DataDiscriminator"))
         if lowered == "trade":
             summary.trade_discriminator_rows += 1
         elif lowered == "closedlot":
@@ -1241,7 +1242,7 @@ def _aggregate_trade_rows(
             row_base_len=row_base_len,
             row_idx=row_idx,
         )
-        if _trade_value(data, active_trades_header, "DataDiscriminator").lower() != "trade":
+        if _normalize_data_discriminator(_trade_value(data, active_trades_header, "DataDiscriminator")) != "trade":
             continue
 
         asset_category = _trade_value(data, active_trades_header, "Asset Category")

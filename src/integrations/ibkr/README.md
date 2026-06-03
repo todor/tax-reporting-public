@@ -123,7 +123,7 @@ Processed sections:
 - `Dividends`
 - `Withholding Tax`
 - `Open Positions`
-- `Mark-to-Market Performance Summary` (interest withholding source for Appendix 9)
+- `Mark-to-Market Performance Summary`
 
 FX source:
 
@@ -290,9 +290,9 @@ If the active section header contains a `Review Status` column, the analyzer use
 - any other value is treated as invalid and triggers warning + manual review
 - recognized routing:
   - dividend withholding rows (`Cash Dividend`) -> `Appendix 8`
-  - credit-interest withholding rows -> `Appendix 9` (`Country=Ireland`, `ISIN` empty)
-- credit-interest rows in `Withholding Tax` are enriched/informational for review workflow
-- Appendix 9 paid-tax source of truth remains `Mark-to-Market Performance Summary` (`Withholding on Interest Received`)
+  - withholding rows whose description contains `interest` -> `Appendix 9` (`Country=Ireland`, `ISIN` empty)
+- interest rows in `Withholding Tax` are the Appendix 9 paid-tax source of truth
+- `Mark-to-Market Performance Summary / Withholding on Interest Received` is not used for Appendix 9 paid tax
 
 Unknown or unresolved rows contribute to the global manual-check state.
 
@@ -478,8 +478,8 @@ Appendix 6 (code 603):
 Appendix 9 (interest only):
 
 - country-level gross is built from taxable `Credit Interest` rows (currently mapped to Ireland by default)
-- paid foreign tax source: `Mark-to-Market Performance Summary` row where `Asset Category = Withholding on Interest Received`
-- paid foreign tax = `abs(Mark-to-Market P/L Total)`
+- paid foreign tax source: `Withholding Tax` detail rows whose description contains `interest`
+- paid foreign tax = detail rows converted to EUR by tax date
 - allowable credit = `APPENDIX_9_ALLOWABLE_CREDIT_RATE * credit_interest_total_eur`
 - recognized credit = `min(allowable_credit, paid_tax_abroad)`
 
@@ -570,7 +570,7 @@ Auto-routing to Appendix 8 withholding uses rows with `Description` containing `
 
 Ignored from dividend-withholding aggregation:
 
-- non-dividend withholding rows (for example credit-interest withholding descriptions)
+- non-dividend withholding rows (for example interest withholding descriptions)
 - aggregate rows where `Currency` starts with `Total`
 
 Manual override note:
@@ -584,7 +584,7 @@ For included rows:
 - broker-sign amounts are netted for Appendix 8: negative `Withholding Tax` means tax withheld, positive means returned/reversed tax
 - final creditable foreign tax is clamped at zero, so positive-only reversals do not create negative credit
 - manual `Amount (EUR)` overrides are treated as already-normalized tax-paid values
-- credit-interest withholding rows are also enriched (`Appendix 9`, `Country=Ireland`, empty `ISIN`)
+- interest withholding rows are also enriched (`Appendix 9`, `Country=Ireland`, empty `ISIN`)
 
 Auto `Status` in this section:
 

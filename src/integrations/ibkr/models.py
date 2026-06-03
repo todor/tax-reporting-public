@@ -195,11 +195,7 @@ class AnalysisSummary:
     appendix_9_withholding_paid_eur: Decimal = ZERO
     appendix_9_withholding_source_found: bool = False
     appendix_9_withholding_detail_source_found: bool = False
-    appendix_9_withholding_mtm_source_found: bool = False
-    appendix_9_withholding_mtm_paid_eur: Decimal = ZERO
     appendix_9_withholding_detail_paid_eur: Decimal = ZERO
-    appendix_9_withholding_mismatch_eur: Decimal = ZERO
-    appendix_9_withholding_mismatch_found: bool = False
     appendix_9_positive_withholding_rows: int = 0
     appendix_9_non_positive_net_buckets: int = 0
     appendix_9_by_country: dict[str, Appendix9CountryTotals] = field(default_factory=dict)

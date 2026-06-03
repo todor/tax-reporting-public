@@ -9,7 +9,13 @@ from pathlib import Path
 
 from ..constants import ADDED_TRADES_COLUMNS, DECIMAL_EIGHT, ZERO
 from ..models import InstrumentListing, _ActiveHeader, _SanityCheckResult, _SanityFailure
-from ..shared import _code_has_closing_token, _fmt, _optional_index, _try_parse_decimal
+from ..shared import (
+    _code_has_closing_token,
+    _fmt,
+    _normalize_data_discriminator,
+    _optional_index,
+    _try_parse_decimal,
+)
 from .instruments import (
     _is_forex_asset,
     _is_option_asset,
@@ -145,7 +151,7 @@ def _collect_attached_closedlots(
             row_base_len=row_base_len,
             row_idx=scan_idx,
         )
-        scan_discriminator = _trade_value(scan_data, scan_header, "DataDiscriminator").lower()
+        scan_discriminator = _normalize_data_discriminator(_trade_value(scan_data, scan_header, "DataDiscriminator"))
         if scan_discriminator != "closedlot":
             break
         scan_idxes = _trade_indexes(scan_header)
@@ -581,7 +587,7 @@ def _collect_trade_and_aggregate_data(
         symbol_raw = data[field_idx.symbol].strip()
         symbol_upper = symbol_raw.upper()
         code = data[field_idx.code].strip()
-        discriminator = data[field_idx.discriminator].strip().lower()
+        discriminator = _normalize_data_discriminator(data[field_idx.discriminator])
 
         if row_type == "Data" and discriminator == "trade":
             _process_trade_data_row(
