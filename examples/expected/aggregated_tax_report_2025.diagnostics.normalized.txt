@@ -92,7 +92,6 @@ Tax calculation summary
   - Appendix 8 Part I rows: 4
   - dividend tax rate: 0.05
   - interest withholding detail paid EUR: 2.045903
-  - interest withholding Mark-to-Market paid EUR: 2.052034
   - positive interest withholding rows: 0
 Tax treatment decisions
   - market classification mode: OPEN_WORLD MODE
@@ -119,7 +118,6 @@ Analyzer-specific audit
   - Appendix 8 withholding buckets with non-positive net tax paid: 0
   - interest withholding source found: YES
   - interest withholding detail source found: YES
-  - interest withholding Mark-to-Market source found: YES
   - Appendix 9 withholding buckets with non-positive net tax paid: 0
   - Display currency: BGN
   - Calculations currency: EUR
@@ -197,7 +195,6 @@ Tax calculation summary
   - Appendix 8 Part I rows: 4
   - dividend tax rate: 0.05
   - interest withholding detail paid EUR: 2.045903
-  - interest withholding Mark-to-Market paid EUR: 2.052034
   - positive interest withholding rows: 0
 Tax treatment decisions
   - CFD trades policy: Appendix 5 / Table 2 / code 508
@@ -239,7 +236,6 @@ Analyzer-specific audit
   - Appendix 8 withholding buckets with non-positive net tax paid: 0
   - interest withholding source found: YES
   - interest withholding detail source found: YES
-  - interest withholding Mark-to-Market source found: YES
   - Appendix 9 withholding buckets with non-positive net tax paid: 0
   - Display currency: BGN
   - Calculations currency: EUR
