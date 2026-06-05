@@ -411,10 +411,21 @@ IBKR may report CFD financing in the `Fees` section, for example `Long CFD Inter
 IBKR may report `Payment in Lieu of Dividend (Ordinary Dividend)` in the `Dividends` section.
 
 - PIL is not treated as a real dividend and is not declared in `Приложение 8`.
-- PIL is not assumed to be CFD-related; it may come from short stock positions, CFD exposure, stock lending, rehypothecation, or other synthetic/substitute mechanisms.
-- By default, negative PIL is treated as a cost adjustment for short/synthetic exposure and is included in `Приложение 5`, code `508`.
-- With `--no-net-pil`, negative PIL is not included automatically.
-- Positive PIL is always declared in `Приложение 6`, code `606`, because the exact source cannot be determined reliably from the IBKR Activity Statement.
+- Only negative PIL rows are netted by default.
+- Positive PIL is treated as dividend-equivalent income and is declared in `Приложение 6`, code `606`.
+- Negative PIL is treated as a position-related cost/adjustment and is included in `Приложение 5`, code `508` by default.
+- IBKR Activity Statements do not reliably identify from the PIL row alone whether the payment relates to a CFD, short stock position, stock lending / substitute payment mechanics, synthetic exposure, or a correction/reversal.
+- Because of this, the tool does not classify negative PIL as specifically CFD-related and does not attempt to match it to a concrete position.
+- The sign-based policy is intentional:
+
+```text
+positive PIL -> income-like fallback -> Appendix 6, code 606
+negative PIL -> cost/adjustment-like fallback -> Appendix 5, code 508
+```
+
+- Negative PIL is netted because, regardless of whether the source is short stock, CFD-like exposure, synthetic exposure, or a reversal, it is generally not ordinary dividend income. It is more appropriately treated as a cost or adjustment connected to the exposure that generated the dividend-equivalent payment.
+- This is a pragmatic fallback. Since the IBKR row is not matched to a specific open or closed position, the tool cannot guarantee that the related position was closed during the same tax year.
+- With `--no-net-pil`, automatic negative PIL netting is disabled so those rows can be reviewed manually.
 - PIL is processed separately from CFD trade P/L and is not derived from CFD `Notional Value` / `Basis`.
 
 CFD financing and PIL adjustments are treated according to their economic relationship with CFD/short/synthetic exposure. Because there is no explicit public guidance for synthetic broker cashflow adjustments, the tool applies a practical defensible approach and provides conservative modes through the CLI flags above.

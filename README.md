@@ -867,7 +867,7 @@ IBKR CFD and PIL handling:
 - Appendix 5 CFD trade values are based on realized CFD P/L: positive P/L increases the income/sale side, while negative P/L increases the cost/loss side by absolute value. This avoids artificial inflation of Appendix 5 turnover from CFD notional values.
 - CFD holdings are not declared in Appendix 8 and are excluded from SPB-8; the tool does not infer an underlying ISIN from CFD symbols.
 - IBKR CFD financing / CFD interest from `Fees` is processed as a separate adjustment, not derived from CFD `Notional Value` / `Basis`, and is netted into Appendix 5 by default. Use `--no-net-cfd-financing` to send positive financing to Appendix 6, code 606, and skip negative financing.
-- `Payment in Lieu of Dividend (Ordinary Dividend)` is not treated as a real dividend and is processed separately from CFD trade P/L. Negative PIL is netted into Appendix 5 by default; use `--no-net-pil` to skip negative PIL. Positive PIL always goes to Appendix 6, code 606.
+- `Payment in Lieu of Dividend (Ordinary Dividend)` is not treated as a real dividend and is processed separately from CFD trade P/L. Positive PIL is treated as dividend-equivalent income and goes to Appendix 6, code 606. Negative PIL is treated as a position-related cost/adjustment and is netted into Appendix 5 by default; the tool does not classify it as specifically CFD-related or match it to a concrete position. Use `--no-net-pil` to skip automatic negative PIL netting and review those rows manually.
 - This is a practical interpretation for synthetic broker cashflow adjustments; confirm treatment with your accountant if needed.
 
 IBKR Futures handling:
