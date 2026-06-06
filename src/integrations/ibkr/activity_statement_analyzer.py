@@ -29,6 +29,8 @@ from .constants import (
     DIVIDEND_TAX_RATE,
     FxRateProvider,
     FOREX_ASSET_CATEGORY,
+    NEGATIVE_PIL_MODE_POSITION_AWARE,
+    NEGATIVE_PIL_MODES,
     OPTION_ASSET_CATEGORY,
     SUPPORTED_ASSET_CATEGORIES,
     TAX_MODE_EXECUTION_EXCHANGE,
@@ -58,6 +60,7 @@ from .sections.interest import (
     InterestSectionResult,
     process_interest_section,
 )
+from .sections.negative_pil import build_negative_pil_exposure_index
 from .sections.open_positions import (
     OpenPositionsSectionResult,
     process_open_positions_section,
@@ -132,6 +135,7 @@ def _validate_analysis_request(
     tax_year: int,
     tax_exempt_mode: str,
     appendix8_dividend_list_mode: str,
+    negative_pil_mode: str,
 ) -> None:
     if tax_year < 2009 or tax_year > 2100:
         raise IbkrAnalyzerError(f"invalid tax year: {tax_year}")
@@ -145,6 +149,8 @@ def _validate_analysis_request(
         raise IbkrAnalyzerError(
             f"unsupported Appendix 8 dividend list mode: {appendix8_dividend_list_mode}"
         )
+    if negative_pil_mode not in NEGATIVE_PIL_MODES:
+        raise IbkrAnalyzerError(f"unsupported negative PIL mode: {negative_pil_mode}")
 
 
 def _resolve_input_path(input_csv: str | Path) -> Path:
@@ -193,7 +199,7 @@ def _process_sections(
     closed_world_mode: bool,
     report_date_format: IbkrReportDateFormat,
     net_cfd_financing: bool,
-    net_pil: bool,
+    negative_pil_mode: str,
 ) -> _ProcessedSections:
     trades = process_trades_section(
         rows=rows,
@@ -231,6 +237,18 @@ def _process_sections(
         tax_year=tax_year,
         report_date_format=report_date_format,
     )
+    negative_pil_exposures = build_negative_pil_exposure_index(
+        rows=rows,
+        active_headers=active_headers,
+        listings=listings,
+        tax_year=tax_year,
+        report_date_format=report_date_format,
+    )
+    summary.negative_pil_closed_exposure_ranges = sum(
+        1
+        for candidate in [*negative_pil_exposures.security_ranges, *negative_pil_exposures.cfd_ranges]
+        if candidate.end is not None
+    )
     dividends = process_dividends_section(
         rows=rows,
         active_headers=active_headers,
@@ -239,7 +257,8 @@ def _process_sections(
         fx_provider=fx_provider,
         tax_year=tax_year,
         report_date_format=report_date_format,
-        net_pil=net_pil,
+        negative_pil_mode=negative_pil_mode,
+        negative_pil_exposures=negative_pil_exposures,
     )
     withholding = process_withholding_section(
         rows=rows,
@@ -633,13 +652,14 @@ def analyze_ibkr_activity_statement(
     closed_world: bool = False,
     skip_period_validation: bool = False,
     net_cfd_financing: bool = True,
-    net_pil: bool = True,
+    negative_pil_mode: str = NEGATIVE_PIL_MODE_POSITION_AWARE,
     fx_rate_provider: FxRateProvider | None = None,
 ) -> AnalysisResult:
     _validate_analysis_request(
         tax_year=tax_year,
         tax_exempt_mode=tax_exempt_mode,
         appendix8_dividend_list_mode=appendix8_dividend_list_mode,
+        negative_pil_mode=negative_pil_mode,
     )
 
     input_path = _resolve_input_path(input_csv)
@@ -658,7 +678,7 @@ def analyze_ibkr_activity_statement(
         dividend_tax_rate=DIVIDEND_TAX_RATE,
         appendix8_dividend_list_mode=appendix8_dividend_list_mode,
         net_cfd_financing=net_cfd_financing,
-        net_pil=net_pil,
+        negative_pil_mode=negative_pil_mode,
     )
     if skip_period_validation:
         summary.warnings.append(
@@ -711,7 +731,7 @@ def analyze_ibkr_activity_statement(
         closed_world_mode=closed_world_mode,
         report_date_format=report_date_format,
         net_cfd_financing=net_cfd_financing,
-        net_pil=net_pil,
+        negative_pil_mode=negative_pil_mode,
     )
     appendix9_components = processed.interest.components_by_country
 

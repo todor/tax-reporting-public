@@ -160,6 +160,13 @@ Tax calculation summary
   - PIL rows outside tax year ignored: 0
   - Positive PIL EUR total: 0
   - Negative PIL EUR total: 28.454143
+  - Negative PIL NET rows: 1
+  - Negative PIL DEFER rows: 0
+  - Negative PIL IGNORE rows: 0
+  - Negative PIL REVIEW rows: 0
+  - Negative PIL netted EUR total: 28.454143
+  - Negative PIL deferred EUR total: 0
+  - Negative PIL review EUR total: 0
   - Futures Trades rows count: 6
   - Futures MTM rows count: 3
   - Futures MTM total EUR: -433.072567
@@ -201,8 +208,11 @@ Tax treatment decisions
   - CFD holdings policy: excluded_from_appendix_8
   - CFD SPB-8 policy: excluded_from_spb8
   - CFD financing policy: netted_to_appendix_5
-  - PIL policy: negative_pil_netted_to_appendix_5
+  - PIL policy: position-aware
   - Positive PIL policy: appendix_6_code_606
+  - Negative PIL closed short exposure ranges: 17
+  - Negative PIL decisions:
+    - negative_pil_decision row=850 date=2025-11-29 currency=USD amount=-32.91 amount_eur=-28.454143 parsed_symbol=ECCC parsed_isin=US2698097035 likely_source=likely short security / stock-borrow dividend compensation debit accrual_link_status=unique accrual_asset_category=Stocks accrual_asset_classification=security accrual_symbol=ECCC accrual_ex_date=2025-11-12 accrual_pay_date=2025-11-29 accrual_amount=-32.91 matching_date_source=linked_dividend_accrual_ex_date candidate_ranges=short-security ECCC/US2698097035 [2025-11-11, 2025-11-12] source_lines=699,700 source=attached ClosedLot; short-security ECCC/US2698097035 [2025-11-11, 2025-11-12] source_lines=699,701 source=attached ClosedLot; short-security ECCC/US2698097035 [2025-11-11, 2025-11-12] source_lines=702,703 source=attached ClosedLot; short-security ECCC/US2698097035 [2025-11-11, 2025-11-12] source_lines=705,706 source=attached ClosedLot auto_status=NET review_status=- final_status=NET tax_status=Matching short-security exposure was found for symbol=ECCC ISIN=US2698097035 on linked dividend accrual Ex Date 2025-11-12 (Pay Date 2025-11-29) and all matching ranges were closed by year-end.
   - Futures policy: Mark-to-Market Performance Summary / cash-settled MTM
   - Futures Appendix 5 mapping: positive MTM to sale value; negative MTM to acquisition value
   - Futures Trades rows policy: not used for taxable Futures P/L to avoid double counting

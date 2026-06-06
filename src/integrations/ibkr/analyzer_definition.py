@@ -12,6 +12,8 @@ from .constants import (
     APPENDIX8_LIST_MODE_COUNTRY,
     DEFAULT_TAX_EXEMPT_MODE,
     DEFAULT_OUTPUT_DIR,
+    NEGATIVE_PIL_MODE_POSITION_AWARE,
+    NEGATIVE_PIL_MODES,
     TAX_MODE_EXECUTION_EXCHANGE,
     TAX_MODE_LISTED_SYMBOL,
 )
@@ -95,9 +97,10 @@ def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
         parser,
         mode=mode,
         analyzer_alias="ibkr",
-        single_flag="no-net-pil",
-        action="store_true",
-        help="Do not net negative IBKR Payment in Lieu adjustments into Appendix 5",
+        single_flag="negative-pil-mode",
+        choices=sorted(NEGATIVE_PIL_MODES),
+        default=NEGATIVE_PIL_MODE_POSITION_AWARE,
+        help="Negative IBKR Payment in Lieu handling mode",
     )
 
 
@@ -164,13 +167,13 @@ def _build_options(
                 default=False,
             )
         ),
-        "net_pil": not bool(
+        "negative_pil_mode": str(
             option_value(
                 args,
                 mode=mode,
-                single_attr="no_net_pil",
-                aggregate_attr="ibkr_no_net_pil",
-                default=False,
+                single_attr="negative_pil_mode",
+                aggregate_attr="ibkr_negative_pil_mode",
+                default=NEGATIVE_PIL_MODE_POSITION_AWARE,
             )
         ),
         "display_currency": str(
@@ -201,7 +204,7 @@ def _run(context: AnalyzerRunContext):
         closed_world=bool(context.options.get("closed_world")),
         skip_period_validation=bool(context.options.get("skip_period_validation")),
         net_cfd_financing=bool(context.options.get("net_cfd_financing", True)),
-        net_pil=bool(context.options.get("net_pil", True)),
+        negative_pil_mode=str(context.options.get("negative_pil_mode", NEGATIVE_PIL_MODE_POSITION_AWARE)),
     )
     return build_ibkr_result(
         analyzer_alias="ibkr",

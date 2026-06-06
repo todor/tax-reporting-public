@@ -58,6 +58,58 @@ class ReviewEntry:
 
 
 @dataclass(slots=True)
+class NegativePilDecision:
+    row_number: int
+    date: date
+    currency: str
+    amount: Decimal
+    amount_eur: Decimal
+    description: str
+    parsed_symbol: str
+    parsed_isin: str
+    likely_source: str
+    candidate_ranges: list[str]
+    auto_status: str
+    review_status: str
+    final_status: str
+    tax_status: str
+    accrual_link_status: str = ""
+    accrual_asset_category: str = ""
+    accrual_asset_classification: str = ""
+    accrual_symbol: str = ""
+    accrual_ex_date: date | None = None
+    accrual_pay_date: date | None = None
+    accrual_amount: Decimal | None = None
+    matching_date_source: str = ""
+
+    def to_diagnostics_dict(self) -> dict[str, object]:
+        return {
+            "row": self.row_number,
+            "date": self.date.isoformat(),
+            "currency": self.currency,
+            "amount": str(self.amount),
+            "amount_eur": str(self.amount_eur),
+            "description": self.description,
+            "parsed_symbol": self.parsed_symbol or "-",
+            "parsed_isin": self.parsed_isin or "-",
+            "likely_source": self.likely_source,
+            "candidate_exposure_ranges": self.candidate_ranges,
+            "accrual_link_status": self.accrual_link_status or "-",
+            "accrual_asset_category": self.accrual_asset_category or "-",
+            "accrual_asset_classification": self.accrual_asset_classification or "-",
+            "accrual_symbol": self.accrual_symbol or "-",
+            "accrual_ex_date": self.accrual_ex_date.isoformat() if self.accrual_ex_date is not None else "-",
+            "accrual_pay_date": self.accrual_pay_date.isoformat() if self.accrual_pay_date is not None else "-",
+            "accrual_amount": str(self.accrual_amount) if self.accrual_amount is not None else "-",
+            "matching_date_source": self.matching_date_source or "-",
+            "auto_status": self.auto_status,
+            "review_status": self.review_status or "-",
+            "final_status": self.final_status,
+            "tax_status": self.tax_status,
+        }
+
+
+@dataclass(slots=True)
 class Appendix8CountryTotals:
     country_iso: str
     country_english: str
@@ -251,7 +303,7 @@ class AnalysisSummary:
     spb8_notes: list[str] = field(default_factory=list)
     spb8_corporate_actions_present: bool = False
     net_cfd_financing: bool = True
-    net_pil: bool = True
+    negative_pil_mode: str = "position-aware"
     cfd_trade_rows: int = 0
     cfd_open_position_rows: int = 0
     cfd_financing_detected_rows: int = 0
@@ -279,11 +331,20 @@ class AnalysisSummary:
     option_exercise_assignment_details: list[dict[str, str]] = field(default_factory=list)
     pil_positive_rows: int = 0
     pil_negative_rows: int = 0
+    pil_negative_net_rows: int = 0
+    pil_negative_defer_rows: int = 0
+    pil_negative_ignore_rows: int = 0
+    pil_negative_review_rows: int = 0
     pil_detected_rows: int = 0
     pil_outside_tax_year_rows: int = 0
     pil_positive_eur: Decimal = ZERO
     pil_negative_eur: Decimal = ZERO
+    pil_negative_netted_eur: Decimal = ZERO
+    pil_negative_deferred_eur: Decimal = ZERO
+    pil_negative_review_eur: Decimal = ZERO
     pil_negative_skipped_eur: Decimal = ZERO
+    negative_pil_decisions: list[NegativePilDecision] = field(default_factory=list)
+    negative_pil_closed_exposure_ranges: int = 0
 
 
 @dataclass(slots=True)

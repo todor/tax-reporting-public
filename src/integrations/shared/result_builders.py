@@ -777,6 +777,28 @@ def build_ibkr_result(
                 },
             )
         )
+    negative_pil_attention = [
+        decision.to_diagnostics_dict()
+        for decision in summary.negative_pil_decisions
+        if decision.auto_status in {"DEFER", "REVIEW"} or decision.final_status in {"DEFER", "REVIEW"}
+    ]
+    if negative_pil_attention:
+        legacy_diagnostics.append(
+            AnalysisDiagnostic(
+                severity="MANUAL_REVIEW",
+                analyzer_alias=analyzer_alias,
+                code="IBKR_NEGATIVE_PIL_REVIEW_OR_DEFER",
+                message=(
+                    "Negative IBKR Payment in Lieu rows were deferred or require manual review; "
+                    "check the modified CSV Review Status, Auto Status, and Tax Status columns."
+                ),
+                params={
+                    "count": len(negative_pil_attention),
+                    "rows": negative_pil_attention,
+                    "readme_section": "Manual review workflow",
+                },
+            )
+        )
     diagnostics = normalize_diagnostics(legacy_diagnostics)
 
     appendices: list[AppendixRecord] = []

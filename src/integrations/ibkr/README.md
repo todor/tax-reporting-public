@@ -107,7 +107,7 @@ Important notes:
 - `--report-alias`: optional alias added in output filenames
 - `--skip-period-validation`: skip strict full-year Statement Period validation; development/testing only
 - `--no-net-cfd-financing`: do not net CFD financing into Appendix 5; positive amounts go to Appendix 6 code 606 and negative amounts are skipped
-- `--no-net-pil`: do not net negative Payment in Lieu adjustments into Appendix 5
+- `--negative-pil-mode {position-aware,always-net,ignore}`: controls negative Payment in Lieu handling (default: `position-aware`)
 - `--output-dir`: optional output root (default `output/ibkr/activity_statement`)
 - `--cache-dir`: optional `bnb_fx` cache override
 - `--display-currency {EUR,BGN}`: optional TXT rendering currency (calculation currency remains EUR)
@@ -413,9 +413,9 @@ IBKR may report `Payment in Lieu of Dividend (Ordinary Dividend)` in the `Divide
 - PIL is not treated as a real dividend and is not declared in `Приложение 8`.
 - Only negative PIL rows are netted by default.
 - Positive PIL is treated as dividend-equivalent income and is declared in `Приложение 6`, code `606`.
-- Negative PIL is treated as a position-related cost/adjustment and is included in `Приложение 5`, code `508` by default.
+- Negative PIL is treated as a position-related cost/adjustment. With the default `--negative-pil-mode position-aware`, only rows whose final status is `NET` are included in `Приложение 5`, code `508`.
 - IBKR Activity Statements do not reliably identify from the PIL row alone whether the payment relates to a CFD, short stock position, stock lending / substitute payment mechanics, synthetic exposure, or a correction/reversal.
-- Because of this, the tool does not classify negative PIL as specifically CFD-related and does not attempt to match it to a concrete position.
+- Because of this, the tool does not classify negative PIL as specifically CFD-related. In `position-aware` mode it matches against short exposure ranges for netting eligibility, but it does not claim a definitive source or allocate the PIL amount to an exact lot.
 - The sign-based policy is intentional:
 
 ```text
@@ -425,10 +425,52 @@ negative PIL -> cost/adjustment-like fallback -> Appendix 5, code 508
 
 - Negative PIL is netted because, regardless of whether the source is short stock, CFD-like exposure, synthetic exposure, or a reversal, it is generally not ordinary dividend income. It is more appropriately treated as a cost or adjustment connected to the exposure that generated the dividend-equivalent payment.
 - This is a pragmatic fallback. Since the IBKR row is not matched to a specific open or closed position, the tool cannot guarantee that the related position was closed during the same tax year.
-- With `--no-net-pil`, automatic negative PIL netting is disabled so those rows can be reviewed manually.
+- Use `--negative-pil-mode ignore` to skip automatic negative PIL netting and review those rows manually. Use `--negative-pil-mode always-net` only when you intentionally want the previous blind-netting behavior.
 - PIL is processed separately from CFD trade P/L and is not derived from CFD `Notional Value` / `Basis`.
 
 CFD financing and PIL adjustments are treated according to their economic relationship with CFD/short/synthetic exposure. Because there is no explicit public guidance for synthetic broker cashflow adjustments, the tool applies a practical defensible approach and provides conservative modes through the CLI flags above.
+
+## Manual review workflow
+
+Some rows require user review before they can be applied automatically.
+
+- The tool may add review-related columns such as `Review Status`, `Auto Status`, and `Tax Status`.
+- `Auto Status` is the tool's suggestion.
+- `Review Status` is optional and overrides `Auto Status` when filled.
+- `Tax Status` explains the automatic decision and what should be reviewed.
+- Different review types may support different statuses.
+- Rows with unresolved `REVIEW` status are not applied automatically.
+
+### Negative Payment in Lieu manual review
+
+Only negative `Payment in Lieu of Dividend (Ordinary Dividend)` rows use this flow. Positive PIL remains dividend-equivalent income and is declared in `Приложение 6`, code `606`.
+
+Negative PIL is position-related because it is generally not ordinary dividend income; it is a cost/adjustment connected to the exposure that generated the dividend-equivalent payment. The tool supports these statuses:
+
+```text
+NET    -> include in current-year Appendix 5, code 508 netting
+DEFER  -> do not include this year; keep for a later year when the related exposure is closed
+IGNORE -> exclude from declaration output / netting
+REVIEW -> do not include automatically; user must decide
+```
+
+For symbol-encoded rows such as `ECCC(US2698097035) Payment in Lieu of Dividend (Ordinary Dividend)`, the tool extracts the symbol/ISIN and looks for matching short-security exposure ranges. If a unique `Change in Dividend Accruals` event links the cash PIL row to an ex-dividend date, that linked ex date is used as the exposure matching date; otherwise the cash PIL row date is used as a fallback. A row is automatically `NET` only when all matching ranges were closed by year-end. If matching ranges remain open, the row is `DEFER`; if matching is missing or ambiguous, the row is `REVIEW`.
+
+For rows without a parsed symbol/ISIN, the tool first checks whether a unique matching `Change in Dividend Accruals` event can identify the asset category, symbol, pay date, ex date, and amount. If that unique event maps to a CFD, the accrual symbol and ex date are used to check short-CFD exposure ranges. If it maps to a stock/security, the same short-security matching logic is used. Only unique accrual events are trusted: duplicate rows for the same event are deduped, but multiple possible symbols, asset categories, amounts, or ex dates produce `REVIEW`.
+
+If no unique accrual event is available, no-symbol PIL falls back to the heuristic that the row is most likely a short CFD / derivative dividend-equivalent debit and checks short-CFD exposure ranges on the cash PIL row date without filtering by symbol. This is not a definitive CFD classification, and manual review is recommended. Unknown or unsupported accrual asset categories also produce `REVIEW`, not a guess.
+
+Modes:
+
+```text
+--negative-pil-mode position-aware  # default; use exposure matching
+--negative-pil-mode always-net      # force Auto Status NET for every negative PIL row
+--negative-pil-mode ignore          # force Auto Status IGNORE for every negative PIL row
+```
+
+`Review Status` may be set to `NET`, `DEFER`, `IGNORE`, or `REVIEW` and overrides `Auto Status`.
+
+Previous-year `DEFER` workflow: if a negative PIL row was `DEFER` in any previous year, it should appear in that year's output. When the related exposure closes in a later year, review all prior years, not only the immediately preceding year. You may manually copy the deferred row into the later year's input/review CSV without changing the amount, then set `Review Status = NET` if you decide it should be included in that later year.
 
 ## Futures Handling
 

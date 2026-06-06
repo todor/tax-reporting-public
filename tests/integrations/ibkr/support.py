@@ -272,7 +272,7 @@ def _run(
     eu_regulated_exchanges: list[str] | None = None,
     closed_world: bool = False,
     net_cfd_financing: bool = True,
-    net_pil: bool = True,
+    negative_pil_mode: str = "position-aware",
 ):
     input_csv = tmp_path / "input.csv"
     _write_rows(input_csv, rows)
@@ -286,7 +286,7 @@ def _run(
         eu_regulated_exchanges=eu_regulated_exchanges,
         closed_world=closed_world,
         net_cfd_financing=net_cfd_financing,
-        net_pil=net_pil,
+        negative_pil_mode=negative_pil_mode,
         fx_rate_provider=_fx_provider,
     )
 

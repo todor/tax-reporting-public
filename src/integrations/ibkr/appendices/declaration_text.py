@@ -42,6 +42,10 @@ from integrations.shared.spb8 import render_spb8_section
 from ..constants import (
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
     DECIMAL_TWO,
+    NEGATIVE_PIL_MODE_POSITION_AWARE,
+    NEGATIVE_PIL_STATUS_DEFER,
+    NEGATIVE_PIL_STATUS_IGNORE,
+    NEGATIVE_PIL_STATUS_REVIEW,
     TAX_MODE_EXECUTION_EXCHANGE,
     TAX_MODE_LISTED_SYMBOL,
 )
@@ -607,15 +611,30 @@ def cfd_pil_policy_notes(summary: AnalysisSummary) -> list[str]:
             notes.append("Положителните CFD financing стойности са декларирани в Приложение 6, код 606.")
             notes.append("Отрицателните CFD financing стойности не са включени в декларацията.")
     if summary.pil_negative_rows > 0:
-        if summary.net_pil:
+        notes.append(f"Режим за отрицателен Payment in Lieu of Dividend (PIL): {summary.negative_pil_mode}.")
+        if summary.pil_negative_net_rows > 0:
             notes.append(
                 "Отрицателният Payment in Lieu of Dividend (PIL) е третиран като "
-                "short/synthetic exposure economics и е включен в Приложение 5, "
-                "Таблица 2, код 508 като разходна корекция."
+                "position-related cost/adjustment и е включен в Приложение 5, "
+                "Таблица 2, код 508 само за редовете, чието окончателно решение е "
+                "включване за текущата година (NET)."
             )
-        else:
-            notes.append("Нетиране на отрицателен Payment in Lieu of Dividend (PIL) е изключено чрез --no-net-pil.")
-            notes.append("Отрицателният PIL не е включен в декларацията.")
+        if summary.pil_negative_ignore_rows > 0:
+            ignored_rows = _negative_pil_ignore_row_refs(summary)
+            ignored_text = f" Засегнати редове: {ignored_rows}." if ignored_rows else ""
+            notes.append(
+                "Има отрицателни Payment in Lieu редове, маркирани за игнориране чрез "
+                "автоматичния режим или Review Status. Тези редове не са включени "
+                f"в декларацията.{ignored_text}"
+            )
+        if summary.pil_negative_defer_rows > 0 or summary.pil_negative_review_rows > 0:
+            affected_rows = _negative_pil_attention_row_refs(summary)
+            affected_text = f" Засегнати редове: {affected_rows}." if affected_rows else ""
+            notes.append(
+                "Има отрицателни Payment in Lieu редове в CFD/PIL обработката, които са отложени "
+                'или изискват ръчна проверка. Подробните инструкции са в секцията "Изискват '
+                f'ръчен преглед".{affected_text}'
+            )
     if summary.pil_positive_rows > 0:
         notes.append("Положителният Payment in Lieu of Dividend (PIL) е деклариран в Приложение 6, код 606.")
         notes.append(
@@ -623,6 +642,43 @@ def cfd_pil_policy_notes(summary: AnalysisSummary) -> list[str]:
             "само от IBKR Activity Statement и не се третира като реален дивидент по Приложение 8."
         )
     return notes
+
+
+def _compact_row_numbers(row_numbers: list[int]) -> str:
+    if not row_numbers:
+        return ""
+    sorted_rows = sorted(set(row_numbers))
+    ranges: list[str] = []
+    start = prev = sorted_rows[0]
+    for row in sorted_rows[1:]:
+        if row == prev + 1:
+            prev = row
+            continue
+        ranges.append(str(start) if start == prev else f"{start}-{prev}")
+        start = prev = row
+    ranges.append(str(start) if start == prev else f"{start}-{prev}")
+    return ", ".join(ranges)
+
+
+def _negative_pil_attention_row_refs(summary: AnalysisSummary) -> str:
+    return _compact_row_numbers(
+        [
+            decision.row_number
+            for decision in summary.negative_pil_decisions
+            if decision.final_status in {NEGATIVE_PIL_STATUS_REVIEW, NEGATIVE_PIL_STATUS_DEFER}
+            or decision.auto_status in {NEGATIVE_PIL_STATUS_REVIEW, NEGATIVE_PIL_STATUS_DEFER}
+        ]
+    )
+
+
+def _negative_pil_ignore_row_refs(summary: AnalysisSummary) -> str:
+    return _compact_row_numbers(
+        [
+            decision.row_number
+            for decision in summary.negative_pil_decisions
+            if decision.final_status == NEGATIVE_PIL_STATUS_IGNORE
+        ]
+    )
 
 
 def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
@@ -640,13 +696,13 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
         )
     ):
         return []
-    included_pil_rows = summary.pil_positive_rows + summary.pil_negative_rows
+    included_pil_rows = summary.pil_positive_rows + summary.pil_negative_net_rows
     appendix5_cfd_financing_adjustment_rows = summary.cfd_financing_rows if summary.net_cfd_financing else 0
-    appendix5_negative_pil_adjustment_rows = summary.pil_negative_rows if summary.net_pil else 0
+    appendix5_negative_pil_adjustment_rows = summary.pil_negative_net_rows
     appendix5_non_trade_adjustment_rows = (
         appendix5_cfd_financing_adjustment_rows + appendix5_negative_pil_adjustment_rows
     )
-    return [
+    lines = [
         "- CFD trades policy: Appendix 5 / Table 2 / code 508",
         "- CFD holdings policy: excluded_from_appendix_8",
         "- CFD SPB-8 policy: excluded_from_spb8",
@@ -656,7 +712,7 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
         ),
         (
             "- PIL policy: "
-            f"{'negative_pil_netted_to_appendix_5' if summary.net_pil else 'negative_pil_skipped'}"
+            f"{summary.negative_pil_mode}"
         ),
         "- Positive PIL policy: appendix_6_code_606",
         f"- CFD trade rows count: {summary.cfd_trade_rows}",
@@ -681,7 +737,39 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
         f"- PIL rows outside tax year ignored: {summary.pil_outside_tax_year_rows}",
         f"- Positive PIL EUR total: {_fmt(summary.pil_positive_eur)}",
         f"- Negative PIL EUR total: {_fmt(summary.pil_negative_eur)}",
+        f"- Negative PIL NET rows: {summary.pil_negative_net_rows}",
+        f"- Negative PIL DEFER rows: {summary.pil_negative_defer_rows}",
+        f"- Negative PIL IGNORE rows: {summary.pil_negative_ignore_rows}",
+        f"- Negative PIL REVIEW rows: {summary.pil_negative_review_rows}",
+        f"- Negative PIL netted EUR total: {_fmt(summary.pil_negative_netted_eur)}",
+        f"- Negative PIL deferred EUR total: {_fmt(summary.pil_negative_deferred_eur)}",
+        f"- Negative PIL review EUR total: {_fmt(summary.pil_negative_review_eur)}",
+        f"- Negative PIL closed short exposure ranges: {summary.negative_pil_closed_exposure_ranges}",
     ]
+    if summary.negative_pil_decisions:
+        lines.append("- Negative PIL decisions:")
+        for decision in summary.negative_pil_decisions:
+            ranges = "; ".join(decision.candidate_ranges) if decision.candidate_ranges else "-"
+            lines.append(
+                "  - "
+                f"negative_pil_decision row={decision.row_number} date={decision.date.isoformat()} "
+                f"currency={decision.currency} amount={_fmt(decision.amount)} "
+                f"amount_eur={_fmt(decision.amount_eur)} "
+                f"parsed_symbol={decision.parsed_symbol or '-'} parsed_isin={decision.parsed_isin or '-'} "
+                f"likely_source={decision.likely_source or '-'} "
+                f"accrual_link_status={decision.accrual_link_status or '-'} "
+                f"accrual_asset_category={decision.accrual_asset_category or '-'} "
+                f"accrual_asset_classification={decision.accrual_asset_classification or '-'} "
+                f"accrual_symbol={decision.accrual_symbol or '-'} "
+                f"accrual_ex_date={decision.accrual_ex_date.isoformat() if decision.accrual_ex_date else '-'} "
+                f"accrual_pay_date={decision.accrual_pay_date.isoformat() if decision.accrual_pay_date else '-'} "
+                f"accrual_amount={_fmt(decision.accrual_amount) if decision.accrual_amount is not None else '-'} "
+                f"matching_date_source={decision.matching_date_source or '-'} "
+                f"candidate_ranges={ranges} "
+                f"auto_status={decision.auto_status or '-'} review_status={decision.review_status or '-'} "
+                f"final_status={decision.final_status or '-'} tax_status={decision.tax_status}"
+            )
+    return lines
 
 
 def _has_futures_current_year_policy(summary: AnalysisSummary) -> bool:
@@ -835,6 +923,7 @@ def _fmt_set_bg(values: set[str]) -> str:
 def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainReportNote]:
     market_section = "IBKR — класификация на пазари"
     instrument_methods_section = "IBKR — използвани методи за инструменти"
+    pil_review_section = "IBKR — проверки за Payment in Lieu"
     notes = [
         MainReportNote(
             section_title="Настройки на анализа",
@@ -931,6 +1020,23 @@ def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainRe
                 ),
                 analyzer_alias="ibkr",
                 category="setting",
+            )
+        )
+    if (
+        summary.negative_pil_mode == NEGATIVE_PIL_MODE_POSITION_AWARE
+        and summary.negative_pil_closed_exposure_ranges > 0
+    ):
+        notes.append(
+            MainReportNote(
+                section_title=pil_review_section,
+                text=(
+                    "Проверете всички предходни години, не само непосредствено предходната, "
+                    "за отрицателни Payment in Lieu редове, маркирани като отложени. "
+                    "Ако свързаната позиция е затворена през текущата година, тези редове може да следва "
+                    "да бъдат включени при изчисляване на резултата за текущата година."
+                ),
+                analyzer_alias="ibkr",
+                category="info",
             )
         )
     if _has_futures_current_year_policy(summary):

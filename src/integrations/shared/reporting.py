@@ -77,6 +77,7 @@ _GROUPABLE_CODES = {
     "UNKNOWN_DIVIDEND_ROWS",
     "IBKR_OPEN_POSITION_RECONCILIATION_MISMATCH",
     "IBKR_MANUAL_REVIEW_ROWS",
+    "IBKR_NEGATIVE_PIL_REVIEW_OR_DEFER",
     "IBKR_OPTIONS_EXERCISE_ASSIGNMENT_NO_CLOSEDLOT",
     "IBKR_OPTIONS_UNHANDLED_ROWS",
     "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL",
@@ -1147,6 +1148,22 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
             )
         return lines
 
+    if diagnostic.code == "IBKR_NEGATIVE_PIL_REVIEW_OR_DEFER":
+        count = _diagnostic_count(diagnostic)
+        lines = [
+            f"{_display_analyzer_name(analyzer)}: има {count} отрицателни Payment in Lieu реда, които са отложени или изискват ръчна проверка.",
+            "Причина: редовете не са с final status NET, затова не са включени автоматично в текущата година.",
+            "Какво да направите:",
+            "- Проверете generated/modified CSV файла и колоните Auto Status, Review Status и Tax Status.",
+            "- Ако искате да промените автоматичното решение, попълнете Review Status и стартирайте инструмента отново.",
+            '- Вижте README секцията "Manual review workflow".',
+        ]
+        examples = _diagnostic_examples_bg(diagnostic.params, include_raw=False)
+        if examples:
+            lines.append("Примери:")
+            lines.extend(f"- {example}" for example in examples)
+        return lines
+
     if diagnostic.code == "IBKR_OPEN_POSITION_RECONCILIATION_MISMATCH":
         count = _diagnostic_count(diagnostic)
         lines = [
@@ -1491,6 +1508,7 @@ def _ibkr_code_summary_bg(diagnostic: AnalysisDiagnostic) -> str:
         "IBKR_SANITY_CHECK_FAILURES": f"има {count} неуспешни sanity проверки.",
         "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL": f"има {count} положителни Withholding Tax реда за лихви.",
         "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW": f"има {count} случая с положителен Withholding Tax за дивиденти.",
+        "IBKR_NEGATIVE_PIL_REVIEW_OR_DEFER": f"има {count} отрицателни Payment in Lieu реда за преглед/отлагане.",
         "IBKR_FUTURES_MTM_ARITHMETIC_MISMATCH": f"има {count} Futures MTM реда с аритметично разминаване.",
         "IBKR_FUTURES_MTM_OTHER_INCLUDED": f"има {count} Futures MTM реда с ненулева стойност в колоната Other.",
         "IBKR_UNKNOWN_INTEREST_ROWS": f"има {count} реда с непознат вид лихва.",

@@ -14,6 +14,12 @@ from ..constants import (
     INTEREST_STATUS_NON_TAXABLE,
     INTEREST_STATUS_TAXABLE,
     INTEREST_STATUS_UNKNOWN,
+    NEGATIVE_PIL_MODE_IGNORE,
+    NEGATIVE_PIL_STATUS_DEFER,
+    NEGATIVE_PIL_STATUS_IGNORE,
+    NEGATIVE_PIL_STATUS_NET,
+    NEGATIVE_PIL_STATUS_REVIEW,
+    NEGATIVE_PIL_STATUSES,
     REVIEW_STATUS_NON_TAXABLE,
     REVIEW_STATUS_TAXABLE,
     ZERO,
@@ -24,6 +30,7 @@ from ..models import (
     Appendix8CountryTotals,
     CsvStructureError,
     InstrumentListing,
+    NegativePilDecision,
     _ActiveHeader,
 )
 from ..shared import (
@@ -48,6 +55,7 @@ from .income import (
     _resolve_country_from_text,
     _resolve_dividend_company_name,
 )
+from .negative_pil import NegativePilExposureIndex, decide_negative_pil_auto_status
 
 
 @dataclass(slots=True)
@@ -69,6 +77,8 @@ class _DividendsFieldIndexes:
     appendix: int | None
     status: int | None
     review_status: int | None
+    auto_status: int | None
+    tax_status: int | None
 
 
 def _dividends_indexes(active_header: _ActiveHeader) -> _DividendsFieldIndexes:
@@ -84,6 +94,8 @@ def _dividends_indexes(active_header: _ActiveHeader) -> _DividendsFieldIndexes:
         appendix=_optional_index(active_header.headers, "Appendix"),
         status=_optional_index(active_header.headers, "Status"),
         review_status=_optional_index(active_header.headers, "Review Status"),
+        auto_status=_optional_index(active_header.headers, "Auto Status"),
+        tax_status=_optional_index(active_header.headers, "Tax Status"),
     )
 
 
@@ -300,7 +312,7 @@ def _apply_payment_in_lieu_totals(
     *,
     summary: AnalysisSummary,
     amount_eur: Decimal,
-    net_pil: bool,
+    final_status: str,
 ) -> None:
     if amount_eur > ZERO:
         summary.pil_positive_rows += 1
@@ -312,10 +324,49 @@ def _apply_payment_in_lieu_totals(
         negative_abs = -amount_eur
         summary.pil_negative_rows += 1
         summary.pil_negative_eur += negative_abs
-        if net_pil:
+        if final_status == NEGATIVE_PIL_STATUS_NET:
+            summary.pil_negative_net_rows += 1
+            summary.pil_negative_netted_eur += negative_abs
             _sum_bucket(summary.appendix_5, ZERO, negative_abs, amount_eur, count_row=False)
-        else:
+        elif final_status == NEGATIVE_PIL_STATUS_DEFER:
+            summary.pil_negative_defer_rows += 1
+            summary.pil_negative_deferred_eur += negative_abs
             summary.pil_negative_skipped_eur += negative_abs
+        elif final_status == NEGATIVE_PIL_STATUS_IGNORE:
+            summary.pil_negative_ignore_rows += 1
+            summary.pil_negative_skipped_eur += negative_abs
+        else:
+            summary.pil_negative_review_rows += 1
+            summary.pil_negative_review_eur += negative_abs
+            summary.pil_negative_skipped_eur += negative_abs
+
+
+def _normalize_negative_pil_review_status(raw: str) -> str:
+    return raw.strip().upper()
+
+
+def _resolve_negative_pil_final_status(
+    summary: AnalysisSummary,
+    *,
+    row_number: int,
+    review_status_raw: str,
+    auto_status: str,
+    description: str,
+) -> tuple[str, str]:
+    review_status = _normalize_negative_pil_review_status(review_status_raw)
+    if review_status == "":
+        return auto_status, ""
+    if review_status in NEGATIVE_PIL_STATUSES:
+        summary.review_status_overrides_rows += 1
+        return review_status, review_status
+    summary.unknown_review_status_rows += 1
+    summary.unknown_review_status_values.add(review_status)
+    summary.review_required_rows += 1
+    summary.warnings.append(
+        f"row {row_number}: invalid negative PIL Review Status={review_status!r}; "
+        f"expected one of {sorted(NEGATIVE_PIL_STATUSES)} (description={description!r})"
+    )
+    return NEGATIVE_PIL_STATUS_REVIEW, review_status
 
 
 def _set_dividends_existing_values(
@@ -329,6 +380,8 @@ def _set_dividends_existing_values(
     effective_isin: str,
     effective_appendix: str,
     effective_status: str,
+    auto_status: str = "",
+    tax_status: str = "",
 ) -> None:
     _set_existing_section_value(
         rows=rows,
@@ -370,6 +423,22 @@ def _set_dividends_existing_values(
         value=effective_status,
         only_if_empty=False,
     )
+    _set_existing_section_value(
+        rows=rows,
+        row_idx=row_idx,
+        active_header=active_dividends_header,
+        field_idx=field_idx.auto_status,
+        value=auto_status,
+        only_if_empty=False,
+    )
+    _set_existing_section_value(
+        rows=rows,
+        row_idx=row_idx,
+        active_header=active_dividends_header,
+        field_idx=field_idx.tax_status,
+        value=tax_status,
+        only_if_empty=False,
+    )
 
 
 def process_dividends_section(
@@ -381,7 +450,8 @@ def process_dividends_section(
     fx_provider,
     tax_year: int,
     report_date_format: IbkrReportDateFormat,
-    net_pil: bool,
+    negative_pil_mode: str,
+    negative_pil_exposures: NegativePilExposureIndex,
 ) -> DividendsSectionResult:
     row_extras: dict[int, dict[str, str]] = {}
     row_base_len: dict[int, int] = {}
@@ -446,15 +516,136 @@ def process_dividends_section(
             amount_eur_text = _fmt(amount_eur, quant=DECIMAL_EIGHT)
             effective_appendix = DIVIDEND_APPENDIX_6 if amount_eur > ZERO else APPENDIX_5
             effective_status = INTEREST_STATUS_TAXABLE
+            review_status_raw = data[field_idx.review_status].strip() if field_idx.review_status is not None else ""
+            auto_status = ""
+            tax_status = ""
             if dividend_date.year == tax_year:
+                final_status = NEGATIVE_PIL_STATUS_NET
+                review_status = ""
+                candidate_ranges: list[str] = []
+                parsed_symbol = ""
+                parsed_isin = ""
+                likely_source = ""
+                if amount_eur < ZERO:
+                    auto_decision = decide_negative_pil_auto_status(
+                        description=description,
+                        pil_date=dividend_date,
+                        currency=currency,
+                        amount=amount,
+                        mode=negative_pil_mode,
+                        tax_year=tax_year,
+                        exposure_index=negative_pil_exposures,
+                        listings=listings,
+                    )
+                    auto_status = auto_decision.auto_status
+                    tax_status = auto_decision.tax_status
+                    parsed_symbol = auto_decision.parsed_symbol
+                    parsed_isin = auto_decision.parsed_isin
+                    likely_source = auto_decision.likely_source
+                    candidate_ranges = [candidate.format() for candidate in auto_decision.candidate_ranges]
+                    final_status, review_status = _resolve_negative_pil_final_status(
+                        summary,
+                        row_number=row_number,
+                        review_status_raw=review_status_raw,
+                        auto_status=auto_status,
+                        description=description,
+                    )
+                    if final_status != auto_status and review_status in NEGATIVE_PIL_STATUSES:
+                        tax_status = (
+                            f"Review Status override {final_status} applied; final status is {final_status}. "
+                            f"Auto decision was {auto_status}: {tax_status}"
+                        )
+                    summary.negative_pil_decisions.append(
+                        NegativePilDecision(
+                            row_number=row_number,
+                            date=dividend_date,
+                            currency=currency,
+                            amount=amount,
+                            amount_eur=amount_eur,
+                            description=description,
+                            parsed_symbol=parsed_symbol,
+                            parsed_isin=parsed_isin,
+                            likely_source=likely_source,
+                            candidate_ranges=candidate_ranges,
+                            auto_status=auto_status,
+                            review_status=review_status,
+                            final_status=final_status,
+                            tax_status=tax_status,
+                            accrual_link_status=auto_decision.accrual_link_status,
+                            accrual_asset_category=auto_decision.accrual_asset_category,
+                            accrual_asset_classification=auto_decision.accrual_asset_classification,
+                            accrual_symbol=auto_decision.accrual_symbol,
+                            accrual_ex_date=auto_decision.accrual_ex_date,
+                            accrual_pay_date=auto_decision.accrual_pay_date,
+                            accrual_amount=auto_decision.accrual_amount,
+                            matching_date_source=auto_decision.matching_date_source,
+                        )
+                    )
+                    effective_appendix = APPENDIX_5 if final_status == NEGATIVE_PIL_STATUS_NET else ""
+                    effective_status = final_status
+                elif amount_eur > ZERO:
+                    auto_status = ""
+                    tax_status = "Positive PIL is treated as dividend-equivalent income in Appendix 6, code 606."
                 _apply_payment_in_lieu_totals(
                     summary=summary,
                     amount_eur=amount_eur,
-                    net_pil=net_pil,
+                    final_status=final_status,
                 )
             else:
-                summary.pil_outside_tax_year_rows += 1
-            review_status_raw = data[field_idx.review_status].strip() if field_idx.review_status is not None else ""
+                if amount_eur < ZERO and review_status_raw.strip():
+                    auto_decision = decide_negative_pil_auto_status(
+                        description=description,
+                        pil_date=dividend_date,
+                        currency=currency,
+                        amount=amount,
+                        mode=NEGATIVE_PIL_MODE_IGNORE,
+                        tax_year=tax_year,
+                        exposure_index=negative_pil_exposures,
+                        listings=listings,
+                    )
+                    auto_status = auto_decision.auto_status
+                    tax_status = "Negative PIL row is outside the tax year; Review Status may override this for manual carry-forward use."
+                    final_status, review_status = _resolve_negative_pil_final_status(
+                        summary,
+                        row_number=row_number,
+                        review_status_raw=review_status_raw,
+                        auto_status=auto_status,
+                        description=description,
+                    )
+                    if final_status == NEGATIVE_PIL_STATUS_NET:
+                        _apply_payment_in_lieu_totals(
+                            summary=summary,
+                            amount_eur=amount_eur,
+                            final_status=final_status,
+                        )
+                    summary.negative_pil_decisions.append(
+                        NegativePilDecision(
+                            row_number=row_number,
+                            date=dividend_date,
+                            currency=currency,
+                            amount=amount,
+                            amount_eur=amount_eur,
+                            description=description,
+                            parsed_symbol=auto_decision.parsed_symbol,
+                            parsed_isin=auto_decision.parsed_isin,
+                            likely_source=auto_decision.likely_source,
+                            candidate_ranges=[candidate.format() for candidate in auto_decision.candidate_ranges],
+                            auto_status=auto_status,
+                            review_status=review_status,
+                            final_status=final_status,
+                            tax_status=tax_status,
+                            accrual_link_status=auto_decision.accrual_link_status,
+                            accrual_asset_category=auto_decision.accrual_asset_category,
+                            accrual_asset_classification=auto_decision.accrual_asset_classification,
+                            accrual_symbol=auto_decision.accrual_symbol,
+                            accrual_ex_date=auto_decision.accrual_ex_date,
+                            accrual_pay_date=auto_decision.accrual_pay_date,
+                            accrual_amount=auto_decision.accrual_amount,
+                            matching_date_source=auto_decision.matching_date_source,
+                        )
+                    )
+                else:
+                    summary.pil_outside_tax_year_rows += 1
             _set_dividends_existing_values(
                 rows=rows,
                 row_idx=row_idx,
@@ -465,6 +656,8 @@ def process_dividends_section(
                 effective_isin="",
                 effective_appendix=effective_appendix,
                 effective_status=effective_status,
+                auto_status=auto_status,
+                tax_status=tax_status,
             )
             _set_dividends_extras(
                 row_extras,
@@ -476,6 +669,8 @@ def process_dividends_section(
                     "Appendix": effective_appendix,
                     "Status": effective_status,
                     "Review Status": review_status_raw,
+                    "Auto Status": auto_status,
+                    "Tax Status": tax_status,
                 },
             )
             continue
