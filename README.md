@@ -991,6 +991,10 @@ P2P tax-mapping quick reference:
 - Robocash: `code 603 = Earned interest`; `code 606 = positive(Earned income from bonuses)`
 - Bondora Go & Grow: `code 603 = Interest Accrued`; `code 606 = positive(Bonus income received on Bondora account)`
 
+P2P secondary-market mode defaults to `appendix_6` as a conservative position: P2P loan parts are generally claims/receivables without ISIN or regulated-market execution, and most platforms provide annual aggregate statements rather than full transaction-level buy/sell histories. Positive secondary-market P/L is therefore treated as Appendix 6, code 606, while interest and late-payment fees use code 603.
+
+An Appendix 5, code 508 interpretation may be economically possible when a loan part is viewed as a financial asset bought and sold for a price, but it is not currently supported. Appendix 5 would require robust transaction-level reconstruction of acquisition cost, sales, partial sales, fees, discounts/premiums, repayments, repurchases, and cross-year positions; it may be considered later as an explicit advanced mode for platforms with sufficient data. This is not tax advice; consult a tax advisor for your specific situation.
+
 Optional:
 
 ```bash

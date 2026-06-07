@@ -46,6 +46,42 @@ Secondary-market handling modes:
 
 If `appendix_5` is requested, analyzers fail explicitly with a "not supported yet" error.
 
+## Secondary-Market Tax Interpretation
+
+P2P secondary-market transactions can be viewed in two different ways. The tool currently uses `appendix_6` as its conservative default and intentionally does not implement `appendix_5` yet.
+
+### Appendix 6 approach
+
+Under the Appendix 6 approach, P2P loans / claims are treated as receivables, not as securities or standard financial instruments. They usually do not have an ISIN, and the platform secondary market is usually not a regulated-market execution venue. Economically, a secondary-market sale is closer to an assignment or transfer of a receivable than exchange trading of a listed financial instrument.
+
+With this interpretation:
+
+- interest and late-payment fees are treated as Appendix 6, code `603`
+- bonuses and campaign rewards are treated as Appendix 6, code `606`
+- positive secondary-market profit/loss can be treated as Appendix 6, code `606`, as other income, especially when platforms report only annual aggregate secondary-market gain/loss
+
+This is the tool's current conservative and more defensible default. It works with the annual platform statements that current P2P analyzers parse and avoids reconstructing every loan-part acquisition, sale, partial sale, fee, discount, premium, repayment, and cross-year position.
+
+### Appendix 5 approach
+
+A secondary-market loan part can also be interpreted economically as a financial asset bought and sold for a price. In that view, there may be an acquisition price, sale price, and realized P/L, and the result could be argued under Appendix 5, code `508`, using the logic of transfer of financial assets.
+
+This approach can be economically cleaner and may allow losses or costs to be netted. However, the legal basis is less certain because P2P claims are not explicitly the same as listed securities or standard financial instruments, and they usually lack ISIN / regulated-market execution evidence.
+
+Appendix 5 is not supported now because it would require transaction-level reconstruction, not just an annual statement. The tool would need to link every secondary-market sale to its acquisition cost and handle partial sales, fees, discounts/premiums, repurchases, repayments before sale, and cross-year positions. For platforms like Iuvo this may be possible when Loan ID can trace the full history, but this is not guaranteed across all platforms.
+
+Because the interpretation is less certain and the data requirements are higher, Appendix 5 should not be the default. It may be considered in the future as an explicit advanced mode, only for platforms that provide enough transaction-level data to support it safely.
+
+### Appendix 6 reporting notes
+
+- Interest and late-payment fees go to code `603`.
+- Bonuses, campaign rewards, and positive secondary-market P/L go to code `606` under the current default approach.
+- If a Bulgarian platform withholds tax, for example Afranga, the withheld final tax must be reported so there is no double taxation.
+- For Bulgarian payers, the payer name and EIK may be needed in Appendix 6 Part I.
+- For foreign / non-enterprise payers, use the appropriate Appendix 6 section for payers that are not enterprises or self-employed persons.
+
+This documentation is not tax advice. Appendix 6 is the tool's conservative default, while Appendix 5 is an alternative interpretation that may be economically valid in some cases but is not currently supported. Consult a tax advisor for your specific situation.
+
 ## Common P2P Tax Direction
 
 - P2P analyzers target `Приложение 6` by default.

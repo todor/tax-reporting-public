@@ -69,7 +69,7 @@ Runtime helper enforces mode validation:
 - `appendix_6`: supported
 - `appendix_5`: explicit `not supported yet` error unless future analyzer opts in
 
-This avoids silent behavioral drift before Appendix 5 mode is implemented.
+This avoids silent behavioral drift before Appendix 5 mode is implemented. Current P2P analyzers default to Appendix 6 because provider annual statements generally support income-style reporting but do not provide enough normalized transaction-level data to reconstruct every secondary-market acquisition, sale, fee, discount/premium, repayment, repurchase, and cross-year position. Appendix 5 may be considered later only as an explicit advanced mode for platforms that provide sufficient transaction-level evidence.
 
 CLI summary lines are intentionally minimal:
 
