@@ -6,6 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from integrations.shared.spb8 import SPB8Row
+from integrations.shared.csv_numbers import CsvDecimalFormatInfo
 
 from .constants import APPENDIX8_LIST_MODE_COMPANY, DIVIDEND_TAX_RATE, ZERO
 
@@ -354,6 +355,7 @@ class AnalysisResult:
     declaration_txt_path: Path
     report_alias: str
     summary: AnalysisSummary
+    csv_decimal_info: CsvDecimalFormatInfo | None = None
 
 
 @dataclass(slots=True)

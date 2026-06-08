@@ -4,9 +4,17 @@ import csv
 import re
 from collections import defaultdict
 from dataclasses import dataclass, replace
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
 
+from .csv_numbers import (
+    CSV_DECIMAL_SEPARATOR_MODES,
+    CsvDecimalDetector,
+    CsvDecimalParseError,
+    CsvDecimalSeparator,
+    CsvDecimalSeparatorMode,
+    parse_csv_decimal,
+)
 from .countries import normalize_country_name
 
 SPB8_CSV_HEADER = [
@@ -165,13 +173,19 @@ def normalize_country(value: str, *, platform: str, row_number: int | None = Non
     return normalized
 
 
-def _parse_decimal(value: str, *, field: str, row_number: int) -> Decimal | None:
+def _parse_decimal(
+    value: str,
+    *,
+    field: str,
+    row_number: int,
+    decimal_separator: CsvDecimalSeparator,
+) -> Decimal | None:
     raw = value.strip()
     if raw == "":
         return None
     try:
-        return Decimal(raw.replace(",", ""))
-    except InvalidOperation as exc:
+        return parse_csv_decimal(raw, decimal_separator=decimal_separator)
+    except CsvDecimalParseError as exc:
         raise SPB8Error(f"row {row_number}: invalid {field}: {value!r}") from exc
 
 
@@ -197,7 +211,13 @@ def _validate_type_specific_fields(
     return "", normalized_currency
 
 
-def read_spb8_csv(path: Path) -> list[SPB8Row]:
+def read_spb8_csv(
+    path: Path,
+    *,
+    csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
+) -> list[SPB8Row]:
+    if csv_decimal_separator not in CSV_DECIMAL_SEPARATOR_MODES:
+        raise SPB8Error(f"unsupported CSV decimal separator mode: {csv_decimal_separator}")
     with path.expanduser().open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames is None:
@@ -211,8 +231,16 @@ def read_spb8_csv(path: Path) -> list[SPB8Row]:
                 f"SPB-8 input CSV is missing columns: {', '.join(missing)}. Expected header: {expected}"
             )
 
+        raw_rows = list(reader)
+        detector = CsvDecimalDetector(analyzer_alias="spb8", input_path=path.expanduser().resolve())
+        for row_number, raw_row in enumerate(raw_rows, start=2):
+            for column_name, value in raw_row.items():
+                if column_name is not None:
+                    detector.observe(value or "", row_number=row_number, column_name=column_name)
+        csv_decimal_info = detector.resolve(csv_decimal_separator)
+
         rows: list[SPB8Row] = []
-        for row_number, raw_row in enumerate(reader, start=2):
+        for row_number, raw_row in enumerate(raw_rows, start=2):
             normalized = {
                 normalize_header_name(key): (value or "")
                 for key, value in raw_row.items()
@@ -237,8 +265,18 @@ def read_spb8_csv(path: Path) -> list[SPB8Row]:
                 type_code=type_code,
                 country=country,
                 currency=currency,
-                start_nav=_parse_decimal(normalized["start amount"], field="start amount", row_number=row_number),
-                end_nav=_parse_decimal(normalized["end amount"], field="end amount", row_number=row_number),
+                start_nav=_parse_decimal(
+                    normalized["start amount"],
+                    field="start amount",
+                    row_number=row_number,
+                    decimal_separator=csv_decimal_info.separator,
+                ),
+                end_nav=_parse_decimal(
+                    normalized["end amount"],
+                    field="end amount",
+                    row_number=row_number,
+                    decimal_separator=csv_decimal_info.separator,
+                ),
                 isin=isin,
                 source="csv",
             )

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from integrations.crypto.coinbase import report_analyzer as analyzer
+from integrations.crypto.coinbase.coinbase_parser import parse_decimal, parse_prefixed_amount
 from tests.integrations.crypto.coinbase import support as h
 
 
@@ -30,6 +31,17 @@ def test_preamble_rows_are_skipped(tmp_path: Path) -> None:
     out_rows = h.read_csv(result.output_csv_path)
     assert len(out_rows) == 1
     assert out_rows[0]["Purchase Price (EUR)"] == ""
+
+
+def test_locale_decimal_numbers_are_supported() -> None:
+    assert parse_decimal("1,100", row_number=2, field_name="Quantity Transacted") == Decimal("1100")
+    assert parse_decimal(
+        "1,100",
+        row_number=2,
+        field_name="Quantity Transacted",
+        decimal_separator="comma",
+    ) == Decimal("1.100")
+    assert parse_prefixed_amount("EUR 1,234.56", row_number=2, field_name="Subtotal") == Decimal("1234.56")
 
 
 def test_convert_notes_parse_failure_fails_clearly(tmp_path: Path) -> None:

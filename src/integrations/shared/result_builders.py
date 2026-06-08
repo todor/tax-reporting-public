@@ -15,6 +15,7 @@ from integrations.ibkr.appendices.declaration_text import (
     options_policy_audit_lines,
 )
 from integrations.ibkr.models import AnalysisSummary as IbkrAnalysisSummary
+from integrations.shared.csv_numbers import CsvDecimalFormatInfo
 from integrations.p2p.shared.appendix6_models import P2PAppendix6Result
 from integrations.p2p.shared.appendix6_renderer import (
     _fmt_informative_value,
@@ -39,6 +40,7 @@ _P2P_YEAR_RE = re.compile(
     r"reporting year in PDF \((?P<report_year>[^)]+)\) differs from requested tax year \((?P<tax_year>[^)]+)\)"
 )
 _ANALYZER_ASSUMPTIONS_SECTION = "Настройки и данъчни допускания"
+_CSV_DECIMAL_FORMAT_SECTION = _ANALYZER_ASSUMPTIONS_SECTION
 
 
 def _output_paths_to_path_map(paths: dict[str, str | Path]) -> dict[str, Path]:
@@ -87,6 +89,70 @@ def _diagnostic(
         params=params or {},
         technical_message_en=technical_message_en,
     )
+
+
+def _csv_decimal_main_report_note(
+    *,
+    analyzer_alias: str,
+    input_path: Path,
+    csv_decimal_info: CsvDecimalFormatInfo | None,
+) -> list[MainReportNote]:
+    if csv_decimal_info is None:
+        return []
+    return [
+        MainReportNote(
+            section_title=_CSV_DECIMAL_FORMAT_SECTION,
+            text=(
+                "CSV_NUMBER_FORMAT|"
+                f"analyzer={analyzer_alias}|"
+                f"separator={csv_decimal_info.separator}|"
+                f"source={csv_decimal_info.source}|"
+                f"mode={csv_decimal_info.mode}"
+            ),
+            analyzer_alias=analyzer_alias,
+            source_path=input_path,
+            category="csv_decimal_format",
+        )
+    ]
+
+
+def _csv_decimal_report_detail(
+    *,
+    analyzer_alias: str,
+    input_path: Path,
+    csv_decimal_info: CsvDecimalFormatInfo | None,
+) -> list[AnalyzerReportDetail]:
+    if csv_decimal_info is None:
+        return []
+    lines = [
+        "CSV numeric format",
+        f"- analyzer: {analyzer_alias}",
+        f"- file: {input_path}",
+        f"- requested mode: {csv_decimal_info.mode}",
+        f"- resolved decimal separator: {csv_decimal_info.separator_symbol}",
+        f"- source: {csv_decimal_info.source}",
+    ]
+    if csv_decimal_info.evidence:
+        lines.append("- strong evidence:")
+        for item in csv_decimal_info.evidence[:10]:
+            lines.append(
+                f"  row {item.row_number}, column {item.column_name}: {item.value!r} -> {item.evidence}"
+            )
+    if csv_decimal_info.ambiguous_values:
+        lines.append("- ambiguous values ignored for auto-detection:")
+        for item in csv_decimal_info.ambiguous_values[:10]:
+            lines.append(f"  row {item.row_number}, column {item.column_name}: {item.value!r}")
+    return [
+        AnalyzerReportDetail(
+            key="csv_decimal_format",
+            title="CSV numeric format",
+            lines=tuple(lines),
+            visibility="DIAGNOSTICS",
+            analyzer_alias=analyzer_alias,
+            source_path=input_path,
+            category="audit",
+        )
+    ]
 
 
 def _crypto_warning_diagnostic(*, analyzer_alias: str, warning: str) -> AnalysisDiagnostic:
@@ -422,6 +488,7 @@ def build_crypto_result(
     output_paths: dict[str, str | Path],
     summary: IrAnalysisSummary,
     declaration_code: str = "5082",
+    csv_decimal_info: CsvDecimalFormatInfo | None = None,
 ) -> TaxAnalysisResult:
     diagnostics = _crypto_summary_diagnostics(analyzer_alias=analyzer_alias, summary=summary)
     normalized_output_paths = _output_paths_to_path_map(output_paths)
@@ -451,10 +518,22 @@ def build_crypto_result(
         appendices=appendices,
         diagnostics=diagnostics,
         generated_artifacts=_generated_artifacts_from_output_paths(normalized_output_paths),
-        main_report_notes=_crypto_main_report_notes(
+        main_report_notes=(
+            _crypto_main_report_notes(
+                analyzer_alias=analyzer_alias,
+                input_path=input_path.resolve(),
+                summary=summary,
+            )
+            + _csv_decimal_main_report_note(
+                analyzer_alias=analyzer_alias,
+                input_path=input_path.resolve(),
+                csv_decimal_info=csv_decimal_info,
+            )
+        ),
+        report_details=_csv_decimal_report_detail(
             analyzer_alias=analyzer_alias,
             input_path=input_path.resolve(),
-            summary=summary,
+            csv_decimal_info=csv_decimal_info,
         ),
     )
 
@@ -467,6 +546,7 @@ def build_fund_result(
     output_paths: dict[str, str | Path],
     summary: FundAnalysisSummary,
     declaration_code: str,
+    csv_decimal_info: CsvDecimalFormatInfo | None = None,
 ) -> TaxAnalysisResult:
     diagnostics = _fund_summary_diagnostics(analyzer_alias=analyzer_alias, summary=summary)
     normalized_output_paths = _output_paths_to_path_map(output_paths)
@@ -496,10 +576,22 @@ def build_fund_result(
         appendices=appendices,
         diagnostics=diagnostics,
         generated_artifacts=_generated_artifacts_from_output_paths(normalized_output_paths),
-        main_report_notes=_fund_main_report_notes(
+        main_report_notes=(
+            _fund_main_report_notes(
+                analyzer_alias=analyzer_alias,
+                input_path=input_path.resolve(),
+                summary=summary,
+            )
+            + _csv_decimal_main_report_note(
+                analyzer_alias=analyzer_alias,
+                input_path=input_path.resolve(),
+                csv_decimal_info=csv_decimal_info,
+            )
+        ),
+        report_details=_csv_decimal_report_detail(
             analyzer_alias=analyzer_alias,
             input_path=input_path.resolve(),
-            summary=summary,
+            csv_decimal_info=csv_decimal_info,
         ),
     )
 
@@ -516,6 +608,7 @@ def build_binance_futures_result(
     loss_eur: Decimal,
     trade_count: int,
     warnings: list[str] | None = None,
+    csv_decimal_info: CsvDecimalFormatInfo | None = None,
 ) -> TaxAnalysisResult:
     normalized_output_paths = _output_paths_to_path_map(output_paths)
     diagnostics = [
@@ -546,6 +639,16 @@ def build_binance_futures_result(
         appendices=appendices,
         diagnostics=diagnostics,
         generated_artifacts=_generated_artifacts_from_output_paths(normalized_output_paths),
+        main_report_notes=_csv_decimal_main_report_note(
+            analyzer_alias=analyzer_alias,
+            input_path=input_path.resolve(),
+            csv_decimal_info=csv_decimal_info,
+        ),
+        report_details=_csv_decimal_report_detail(
+            analyzer_alias=analyzer_alias,
+            input_path=input_path.resolve(),
+            csv_decimal_info=csv_decimal_info,
+        ),
     )
 
 
@@ -653,6 +756,7 @@ def build_ibkr_result(
     tax_year: int,
     output_paths: dict[str, str | Path],
     summary: IbkrAnalysisSummary,
+    csv_decimal_info: CsvDecimalFormatInfo | None = None,
 ) -> TaxAnalysisResult:
     normalized_output_paths = _output_paths_to_path_map(output_paths)
     legacy_diagnostics: list[AnalysisDiagnostic] = []
@@ -936,7 +1040,17 @@ def build_ibkr_result(
         spb8_rows=summary.spb8_rows,
         spb8_notes=summary.spb8_notes,
         spb8_corporate_actions_present=summary.spb8_corporate_actions_present,
-        main_report_notes=analysis_settings_main_report_notes(summary),
+        main_report_notes=analysis_settings_main_report_notes(summary)
+        + _csv_decimal_main_report_note(
+            analyzer_alias=analyzer_alias,
+            input_path=input_path.resolve(),
+            csv_decimal_info=csv_decimal_info,
+        ),
+        report_details=_csv_decimal_report_detail(
+            analyzer_alias=analyzer_alias,
+            input_path=input_path.resolve(),
+            csv_decimal_info=csv_decimal_info,
+        ),
         generated_artifacts=_generated_artifacts_from_output_paths(normalized_output_paths),
         policy_notes=cfd_pil_policy_notes(summary),
         policy_audit_lines=(

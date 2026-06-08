@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import argparse
 
-from integrations.shared.cli_helpers import CliMode, option_value, resolved_cache_dir
+from integrations.shared.cli_helpers import CliMode, add_mode_argument, option_value, resolved_cache_dir
 from integrations.shared.contracts import AnalyzerDefinition, AnalyzerRunContext
+from integrations.shared.csv_numbers import CSV_DECIMAL_SEPARATOR_MODES
 from integrations.shared.result_builders import build_crypto_result
 
 from .constants import DEFAULT_OUTPUT_DIR
@@ -11,8 +12,17 @@ from .report_analyzer import analyze_kraken_report
 
 
 def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
-    _ = parser
-    _ = mode
+    if mode == "aggregate":
+        return
+    add_mode_argument(
+        parser,
+        mode=mode,
+        analyzer_alias="kraken",
+        single_flag="csv-decimal-separator",
+        choices=list(CSV_DECIMAL_SEPARATOR_MODES),
+        default="auto",
+        help='CSV decimal separator mode: auto, dot, or comma (default: auto)',
+    )
 
 
 def _build_options(
@@ -37,6 +47,16 @@ def _build_options(
             )
         ),
         "cache_dir": resolved_cache_dir(args, mode=mode, group_options=group_options),
+        "csv_decimal_separator": str(
+            option_value(
+                args,
+                mode=mode,
+                single_attr="csv_decimal_separator",
+                group_options=group_options,
+                group_key="csv_decimal_separator",
+                default="auto",
+            )
+        ),
     }
 
 
@@ -48,6 +68,7 @@ def _run(context: AnalyzerRunContext):
         output_dir=context.output_dir,
         cache_dir=context.options.get("cache_dir"),
         display_currency=str(context.options.get("display_currency", "EUR")),
+        csv_decimal_separator=str(context.options.get("csv_decimal_separator", "auto")),
     )
     return build_crypto_result(
         analyzer_alias="kraken",
@@ -60,6 +81,7 @@ def _run(context: AnalyzerRunContext):
         },
         summary=result.summary,
         declaration_code="5082",
+        csv_decimal_info=result.csv_decimal_info,
     )
 
 
@@ -75,4 +97,5 @@ ANALYZER = AnalyzerDefinition(
     build_options=_build_options,
     run=_run,
     supports_opening_state=True,
+    supported_aggregate_overrides=frozenset({"csv_decimal_separator"}),
 )

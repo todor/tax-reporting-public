@@ -9,6 +9,7 @@ import pytest
 import report_analyzer
 from integrations.shared.contracts import UserFacingTaxError
 from integrations.ibkr.activity_statement_analyzer import analyze_ibkr_activity_statement
+from integrations.ibkr.shared import _parse_decimal
 from tests.integrations.ibkr import support as h
 
 EXCHANGE_CLASS_EU_NON_REGULATED = h.EXCHANGE_CLASS_EU_NON_REGULATED
@@ -41,6 +42,13 @@ def test_exchange_normalization_aliases() -> None:
     assert _classify_exchange("NYSE") == EXCHANGE_CLASS_NON_EU
     assert _classify_exchange("UNKNOWNX") == EXCHANGE_CLASS_UNMAPPED
     assert _classify_exchange("  ") == EXCHANGE_CLASS_INVALID
+
+def test_ibkr_quantity_treats_lone_comma_as_grouping_under_dot_decimal_context() -> None:
+    assert _parse_decimal("-1,100", row_number=142, field_name="Quantity") == Decimal("-1100")
+    assert _parse_decimal("3,015", row_number=142, field_name="Quantity") == Decimal("3015")
+    assert _parse_decimal("76,298.76", row_number=142, field_name="Proceeds") == Decimal("76298.76")
+    assert _parse_decimal("-50,048.80", row_number=142, field_name="Market Value") == Decimal("-50048.80")
+    assert _parse_decimal("-1348.553954", row_number=142, field_name="Amount") == Decimal("-1348.553954")
 
 def test_financial_instrument_parsing_supports_stocks_and_treasury_bills(tmp_path: Path) -> None:
     rows = _base_rows()

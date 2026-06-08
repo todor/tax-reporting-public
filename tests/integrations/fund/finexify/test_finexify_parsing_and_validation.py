@@ -7,6 +7,7 @@ import pytest
 
 from integrations.fund.finexify.finexify_parser import load_finexify_csv
 from integrations.fund.finexify.finexify_to_ir import load_and_map_finexify_csv_to_ir
+from integrations.fund.finexify.finexify_to_ir import parse_amount
 from integrations.fund.finexify.models import CsvValidationError, FinexifyAnalyzerError
 from integrations.fund.shared.fund_ir_models import FundAnalysisSummary
 from tests.integrations.fund.finexify import support as h
@@ -27,6 +28,12 @@ def test_parser_loads_with_preamble(tmp_path: Path) -> None:
     assert loaded.preamble_rows_ignored == 2
     assert len(loaded.rows) == 1
     assert loaded.rows[0].raw["Type"] == "Deposit"
+
+
+def test_locale_decimal_amounts_are_supported() -> None:
+    assert parse_amount("1,100", row_number=2) == Decimal("1100")
+    assert parse_amount("1,100", row_number=2, decimal_separator="comma") == Decimal("1.100")
+    assert parse_amount("1 234,56", row_number=2, decimal_separator="comma") == Decimal("1234.56")
 
 
 def test_parser_fails_on_missing_required_columns(tmp_path: Path) -> None:

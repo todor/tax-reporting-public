@@ -5,6 +5,11 @@ import io
 from pathlib import Path
 
 from integrations.fund.shared.fund_ir_models import CsvRow
+from integrations.shared.csv_numbers import (
+    CSV_DECIMAL_SEPARATOR_MODES,
+    CsvDecimalDetector,
+    CsvDecimalSeparatorMode,
+)
 
 from .constants import REQUIRED_COLUMN_CANDIDATES
 from .models import CsvSchema, CsvValidationError, FinexifyAnalyzerError, LoadedFinexifyCsv
@@ -61,7 +66,13 @@ def _find_header_start(lines: list[str]) -> int:
     )
 
 
-def load_finexify_csv(path: str | Path) -> LoadedFinexifyCsv:
+def load_finexify_csv(
+    path: str | Path,
+    *,
+    csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
+) -> LoadedFinexifyCsv:
+    if csv_decimal_separator not in CSV_DECIMAL_SEPARATOR_MODES:
+        raise FinexifyAnalyzerError(f"unsupported CSV decimal separator mode: {csv_decimal_separator}")
     input_path = Path(path).expanduser().resolve()
     if not input_path.exists():
         raise FinexifyAnalyzerError(f"input CSV does not exist: {input_path}")
@@ -84,6 +95,11 @@ def load_finexify_csv(path: str | Path) -> LoadedFinexifyCsv:
     for row_number, raw in enumerate(reader, start=1):
         normalized_raw = {key.strip(): (value or "") for key, value in raw.items() if key is not None}
         rows.append(CsvRow(row_number=row_number, raw=normalized_raw))
+    detector = CsvDecimalDetector(analyzer_alias="finexify", input_path=input_path)
+    for row in rows:
+        for column_name, value in row.raw.items():
+            detector.observe(value, row_number=row.row_number, column_name=column_name)
+    csv_decimal_info = detector.resolve(csv_decimal_separator)
 
     return LoadedFinexifyCsv(
         input_path=input_path,
@@ -91,6 +107,7 @@ def load_finexify_csv(path: str | Path) -> LoadedFinexifyCsv:
         fieldnames=fieldnames,
         rows=rows,
         schema=schema,
+        csv_decimal_info=csv_decimal_info,
     )
 
 

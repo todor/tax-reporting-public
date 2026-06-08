@@ -4,11 +4,20 @@ import csv
 import json
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Callable
 
 from config import OUTPUT_DIR
+from integrations.shared.csv_numbers import (
+    CSV_DECIMAL_SEPARATOR_MODES,
+    CsvDecimalDetector,
+    CsvDecimalFormatInfo,
+    CsvDecimalParseError,
+    CsvDecimalSeparator,
+    CsvDecimalSeparatorMode,
+    parse_csv_decimal,
+)
 from integrations.shared.rendering.appendix5 import (
     Appendix5Table2Entry,
     render_appendix5_table2,
@@ -131,6 +140,7 @@ class AnalysisResult:
     tax_text_path: Path
     summary_json_path: Path
     totals: AggregatedTotals
+    csv_decimal_info: CsvDecimalFormatInfo | None = None
 
 
 def _fmt_decimal(value: Decimal, *, quant: Decimal | None = None) -> str:
@@ -200,13 +210,18 @@ def _parse_time(value: str, *, row_number: int) -> datetime:
     raise FuturesPnlAnalyzerError(f"row {row_number}: invalid Time format: {value!r}")
 
 
-def _parse_change(value: str, *, row_number: int) -> Decimal:
+def _parse_change(
+    value: str,
+    *,
+    row_number: int,
+    decimal_separator: CsvDecimalSeparator | None = None,
+) -> Decimal:
     text = value.strip()
     if not text:
         raise FuturesPnlAnalyzerError(f"row {row_number}: missing Change")
     try:
-        return Decimal(text)
-    except InvalidOperation as exc:
+        return parse_csv_decimal(text, decimal_separator=decimal_separator)
+    except CsvDecimalParseError as exc:
         raise FuturesPnlAnalyzerError(f"row {row_number}: invalid Change: {value!r}") from exc
 
 
@@ -287,15 +302,27 @@ def _validate_header(actual_columns: list[str] | None, *, csv_path: Path) -> Non
         raise CsvValidationError(f"{csv_path}: missing required columns: {missing}")
 
 
-def _read_relevant_rows(path: Path, *, tax_year: int) -> tuple[list[PnlRow], int]:
+def _read_relevant_rows(
+    path: Path,
+    *,
+    tax_year: int,
+    csv_decimal_separator: CsvDecimalSeparatorMode,
+) -> tuple[list[PnlRow], int, CsvDecimalFormatInfo]:
     rows: list[PnlRow] = []
     ignored_rows = 0
 
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         _validate_header(reader.fieldnames, csv_path=path)
+        raw_rows = list(reader)
 
-        for row_number, raw in enumerate(reader, start=1):
+        detector = CsvDecimalDetector(analyzer_alias="binance_futures", input_path=path)
+        for row_number, raw in enumerate(raw_rows, start=1):
+            for column_name, value in raw.items():
+                detector.observe(value or "", row_number=row_number, column_name=column_name)
+        csv_decimal_info = detector.resolve(csv_decimal_separator)
+
+        for row_number, raw in enumerate(raw_rows, start=1):
             operation = (raw.get("Operation") or "").strip()
             if operation not in RELEVANT_OPERATIONS:
                 ignored_rows += 1
@@ -305,7 +332,11 @@ def _read_relevant_rows(path: Path, *, tax_year: int) -> tuple[list[PnlRow], int
             row_time = _parse_time(time_raw, row_number=row_number)
             coin = (raw.get("Coin") or "").strip()
             change_raw = raw.get("Change") or ""
-            change = _parse_change(change_raw, row_number=row_number)
+            change = _parse_change(
+                change_raw,
+                row_number=row_number,
+                decimal_separator=csv_decimal_info.separator,
+            )
 
             if coin != EXPECTED_COIN:
                 raise UnexpectedCurrencyError(
@@ -331,7 +362,7 @@ def _read_relevant_rows(path: Path, *, tax_year: int) -> tuple[list[PnlRow], int
                 )
             )
 
-    return rows, ignored_rows
+    return rows, ignored_rows, csv_decimal_info
 
 
 def _write_csv(path: Path, fieldnames: list[str], rows: list[dict[str, str]]) -> None:
@@ -419,6 +450,7 @@ def analyze_futures_pnl_report(
     output_dir: str | Path | None = None,
     cache_dir: str | Path | None = None,
     display_currency: str = "EUR",
+    csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
     eur_rate_provider: EurRateProvider | None = None,
 ) -> AnalysisResult:
     """Analyze Binance Futures PnL cashflows for a given tax year.
@@ -433,6 +465,8 @@ def analyze_futures_pnl_report(
     """
     if tax_year < 2009 or tax_year > 2100:
         raise FuturesPnlAnalyzerError(f"invalid tax year: {tax_year}")
+    if csv_decimal_separator not in CSV_DECIMAL_SEPARATOR_MODES:
+        raise FuturesPnlAnalyzerError(f"unsupported CSV decimal separator mode: {csv_decimal_separator}")
 
     input_path = Path(input_csv).expanduser().resolve()
     if not input_path.exists():
@@ -443,7 +477,11 @@ def analyze_futures_pnl_report(
 
     rate_provider = eur_rate_provider if eur_rate_provider is not None else _default_eur_rate_provider(cache_dir)
 
-    relevant_rows, ignored_rows = _read_relevant_rows(input_path, tax_year=tax_year)
+    relevant_rows, ignored_rows, csv_decimal_info = _read_relevant_rows(
+        input_path,
+        tax_year=tax_year,
+        csv_decimal_separator=csv_decimal_separator,
+    )
     detailed_rows: list[dict[str, str]] = []
     totals = AggregatedTotals(processed_rows=len(relevant_rows), ignored_rows=ignored_rows)
 
@@ -487,4 +525,5 @@ def analyze_futures_pnl_report(
         tax_text_path=tax_text_path,
         summary_json_path=summary_json_path,
         totals=totals,
+        csv_decimal_info=csv_decimal_info,
     )

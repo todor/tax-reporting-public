@@ -7,6 +7,8 @@ from typing import Callable
 
 from services.bnb_fx import BnbFxError
 from services.crypto_fx import CryptoFxError
+from integrations.shared.csv_numbers import CsvDecimalSeparator, DEFAULT_CSV_DECIMAL_SEPARATOR
+from integrations.shared.csv_numbers import CsvDecimalSeparatorMode
 
 from integrations.crypto.shared.crypto_ir_models import (
     CryptoIrRow,
@@ -49,8 +51,19 @@ def _normalize_transaction_type(raw: str) -> str:
     return text
 
 
-def _parse_quantity(raw: str, *, row_number: int, tx_type: str) -> Decimal:
-    qty = parse_decimal(raw, row_number=row_number, field_name="Quantity Transacted")
+def _parse_quantity(
+    raw: str,
+    *,
+    row_number: int,
+    tx_type: str,
+    decimal_separator: CsvDecimalSeparator,
+) -> Decimal:
+    qty = parse_decimal(
+        raw,
+        row_number=row_number,
+        field_name="Quantity Transacted",
+        decimal_separator=decimal_separator,
+    )
     qty_abs = abs(qty)
     if qty_abs <= ZERO:
         raise CoinbaseAnalyzerError(f"row {row_number}: Quantity Transacted must be positive for {tx_type}")
@@ -65,11 +78,17 @@ def _to_eur(
     row_number: int,
     field_name: str,
     eur_unit_rate_provider: EurUnitRateProvider,
+    decimal_separator: CsvDecimalSeparator,
 ) -> Decimal | None:
     if amount_raw.strip() == "":
         return None
 
-    amount = parse_prefixed_amount(amount_raw, row_number=row_number, field_name=field_name)
+    amount = parse_prefixed_amount(
+        amount_raw,
+        row_number=row_number,
+        field_name=field_name,
+        decimal_separator=decimal_separator,
+    )
     currency = price_currency_raw.strip().upper()
     if currency == "":
         raise CoinbaseAnalyzerError(f"row {row_number}: missing Price Currency for {field_name}")
@@ -162,8 +181,12 @@ def load_and_map_coinbase_csv_to_ir(
     input_csv: str,
     summary: IrAnalysisSummary,
     eur_unit_rate_provider: EurUnitRateProvider,
+    csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
 ) -> CoinbaseIrMappingResult:
-    loaded = load_coinbase_csv(input_csv)
+    loaded = load_coinbase_csv(input_csv, csv_decimal_separator=csv_decimal_separator)
+    decimal_separator = (
+        loaded.csv_decimal_info.separator if loaded.csv_decimal_info is not None else DEFAULT_CSV_DECIMAL_SEPARATOR
+    )
     ir_rows: list[CryptoIrRow] = []
     schema = loaded.schema
 
@@ -196,6 +219,7 @@ def load_and_map_coinbase_csv_to_ir(
             row_number=row_number,
             field_name="Subtotal",
             eur_unit_rate_provider=eur_unit_rate_provider,
+            decimal_separator=decimal_separator,
         )
         total_eur = _to_eur(
             amount_raw=raw.get(schema.total, ""),
@@ -204,6 +228,7 @@ def load_and_map_coinbase_csv_to_ir(
             row_number=row_number,
             field_name="Total",
             eur_unit_rate_provider=eur_unit_rate_provider,
+            decimal_separator=decimal_separator,
         )
         fee_eur_raw = (
             _to_eur(
@@ -213,6 +238,7 @@ def load_and_map_coinbase_csv_to_ir(
                 row_number=row_number,
                 field_name="Fees and/or Spread",
                 eur_unit_rate_provider=eur_unit_rate_provider,
+                decimal_separator=decimal_separator,
             )
             if schema.fees is not None
             else None
@@ -224,7 +250,12 @@ def load_and_map_coinbase_csv_to_ir(
         # - Use Total for all economic values
         # - Exception: Convert -> Subtotal = sell proceeds, Total = buy cost
         if tx_type == "Buy":
-            quantity = _parse_quantity(raw.get(schema.quantity_transacted, ""), row_number=row_number, tx_type=tx_type)
+            quantity = _parse_quantity(
+                raw.get(schema.quantity_transacted, ""),
+                row_number=row_number,
+                tx_type=tx_type,
+                decimal_separator=decimal_separator,
+            )
             if total_eur is None:
                 raise CoinbaseAnalyzerError(f"row {row_number}: missing Total for Buy")
             ir_rows.append(
@@ -249,7 +280,12 @@ def load_and_map_coinbase_csv_to_ir(
             continue
 
         if tx_type == "Sell":
-            quantity = _parse_quantity(raw.get(schema.quantity_transacted, ""), row_number=row_number, tx_type=tx_type)
+            quantity = _parse_quantity(
+                raw.get(schema.quantity_transacted, ""),
+                row_number=row_number,
+                tx_type=tx_type,
+                decimal_separator=decimal_separator,
+            )
             if total_eur is None:
                 raise CoinbaseAnalyzerError(f"row {row_number}: missing Total for Sell")
             ir_rows.append(
@@ -278,7 +314,11 @@ def load_and_map_coinbase_csv_to_ir(
                 raise CoinbaseAnalyzerError(f"row {row_number}: missing Subtotal for Convert")
             if total_eur is None:
                 raise CoinbaseAnalyzerError(f"row {row_number}: missing Total for Convert")
-            note = parse_convert_note(raw.get(schema.notes, ""), row_number=row_number)
+            note = parse_convert_note(
+                raw.get(schema.notes, ""),
+                row_number=row_number,
+                decimal_separator=decimal_separator,
+            )
 
             ir_rows.append(
                 CryptoIrRow(
@@ -325,7 +365,12 @@ def load_and_map_coinbase_csv_to_ir(
             continue
 
         if tx_type == "Send":
-            quantity = _parse_quantity(raw.get(schema.quantity_transacted, ""), row_number=row_number, tx_type=tx_type)
+            quantity = _parse_quantity(
+                raw.get(schema.quantity_transacted, ""),
+                row_number=row_number,
+                tx_type=tx_type,
+                decimal_separator=decimal_separator,
+            )
             ir_rows.append(
                 CryptoIrRow(
                     timestamp=timestamp,
@@ -348,7 +393,12 @@ def load_and_map_coinbase_csv_to_ir(
             continue
 
         if tx_type == "Receive":
-            quantity = _parse_quantity(raw.get(schema.quantity_transacted, ""), row_number=row_number, tx_type=tx_type)
+            quantity = _parse_quantity(
+                raw.get(schema.quantity_transacted, ""),
+                row_number=row_number,
+                tx_type=tx_type,
+                decimal_separator=decimal_separator,
+            )
             accepted_receive_review_statuses = sorted({*RECEIVE_REVIEW_STATUSES, "NON_TAXABLE"})
             if review_status is None:
                 _add_unsupported_row(
@@ -437,6 +487,7 @@ def load_and_map_coinbase_csv_to_ir(
                     cost_basis_raw,
                     row_number=row_number,
                     field_name="Cost Basis (EUR)",
+                    decimal_separator=decimal_separator,
                 )
             except CoinbaseAnalyzerError:
                 _add_unsupported_row(
@@ -481,7 +532,12 @@ def load_and_map_coinbase_csv_to_ir(
             continue
 
         if tx_type == "Deposit" or tx_type == "Withdraw":
-            quantity = _parse_quantity(raw.get(schema.quantity_transacted, ""), row_number=row_number, tx_type=tx_type)
+            quantity = _parse_quantity(
+                raw.get(schema.quantity_transacted, ""),
+                row_number=row_number,
+                tx_type=tx_type,
+                decimal_separator=decimal_separator,
+            )
             ir_rows.append(
                 CryptoIrRow(
                     timestamp=timestamp,

@@ -18,6 +18,7 @@ from integrations.fund.shared.runtime import (
     FundEurUnitRateProvider,
     default_fund_eur_unit_rate_provider,
 )
+from integrations.shared.csv_numbers import CsvDecimalSeparatorError, CsvDecimalSeparatorMode
 from .constants import APPENDIX_5_DECLARATION_CODE, DEFAULT_OUTPUT_DIR
 from .finexify_to_ir import load_and_map_finexify_csv_to_ir
 from .models import AnalysisResult, FinexifyAnalyzerError
@@ -63,6 +64,7 @@ def analyze_finexify_report(
     output_dir: str | Path | None = None,
     cache_dir: str | Path | None = None,
     display_currency: str = "EUR",
+    csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
     eur_unit_rate_provider: FundEurUnitRateProvider | None = None,
 ) -> AnalysisResult:
     _validate_tax_year(tax_year)
@@ -94,6 +96,7 @@ def analyze_finexify_report(
             tax_year=tax_year,
             opening_state_by_currency=opening_state_by_currency,
             opening_state_year_end=opening_year_end,
+            csv_decimal_separator=csv_decimal_separator,
         )
         loaded = mapping.loaded_csv
         summary.processed_rows = len(loaded.rows)
@@ -108,7 +111,7 @@ def analyze_finexify_report(
             opening_state_year_end=opening_year_end,
         )
     except Exception as exc:  # noqa: BLE001
-        if isinstance(exc, FinexifyAnalyzerError):
+        if isinstance(exc, (FinexifyAnalyzerError, CsvDecimalSeparatorError)):
             raise
         raise FinexifyAnalyzerError(str(exc)) from exc
 
@@ -151,4 +154,5 @@ def analyze_finexify_report(
         declaration_txt_path=declaration_txt_path,
         year_end_state_json_path=year_end_state_json_path,
         summary=analysis.summary,
+        csv_decimal_info=loaded.csv_decimal_info,
     )

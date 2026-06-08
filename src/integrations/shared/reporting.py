@@ -10,6 +10,7 @@ from typing import Any
 from integrations.shared.rendering.common import TECHNICAL_DETAILS_SEPARATOR
 
 from .contracts import AnalysisDiagnostic, AnalyzerStatus, GeneratedArtifact, UserFacingTaxError
+from .csv_numbers import CsvDecimalSeparatorError
 
 
 STATUS_BANNER_BG: dict[AnalyzerStatus, str] = {
@@ -104,6 +105,7 @@ _GROUPABLE_CODES = {
 
 _KNOWN_DIAGNOSTIC_CODES = {
     *_GROUPABLE_CODES,
+    "CSV_DECIMAL_SEPARATOR_ERROR",
     "EMPTY_INPUT_FILE",
     "GENERIC_ANALYZER_ERROR",
     "IBKR_INCOMPLETE_CLOSED_LOTS",
@@ -782,6 +784,21 @@ def classify_exception(
             params=dict(exc.params),
             technical_message_en=exc.technical_message_en,
         )
+    if isinstance(exc, CsvDecimalSeparatorError):
+        message = str(exc)
+        params: dict[str, Any] = {
+            "analyzer": analyzer_alias,
+            "filename": input_path.name if input_path is not None else "",
+            "path": format_path(input_path) if input_path is not None else "",
+        }
+        return AnalysisDiagnostic(
+            severity="ERROR",
+            message=message,
+            analyzer_alias=analyzer_alias,
+            code="CSV_DECIMAL_SEPARATOR_ERROR",
+            params=params,
+            technical_message_en=message,
+        )
 
     message = str(exc)
     params: dict[str, Any] = {
@@ -879,6 +896,16 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
             "Какво да направите:",
             "- Проверете заглавния ред, платформата, типа, държавата, валутата и сумите.",
             "- Коригирайте файла и стартирайте отново с --spb8-input-file <path>.",
+        ]
+
+    if diagnostic.code == "CSV_DECIMAL_SEPARATOR_ERROR":
+        target = f"файлът {filename}" if filename else f"входният файл за {analyzer}"
+        return [
+            f"Грешка: {target} изглежда съдържа смесени десетични разделители.",
+            "Какво да направите:",
+            f"- Ако знаете правилния формат, стартирайте с --{analyzer}-csv-decimal-separator dot или --{analyzer}-csv-decimal-separator comma.",
+            "- Ако файлът е комбиниран или редактиран ръчно, коригирайте числовия формат и стартирайте отново.",
+            "- Вижте diagnostics файла за примерните стойности, които са довели до отказа.",
         ]
 
     if diagnostic.code == "SPB8_MISSING_VALUES":

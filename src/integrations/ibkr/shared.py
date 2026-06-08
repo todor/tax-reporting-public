@@ -3,10 +3,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
 from services.bnb_fx import get_exchange_rate
+from integrations.shared.csv_numbers import CsvDecimalParseError, parse_csv_decimal, try_parse_csv_decimal
 
 from .constants import REVIEW_STATUS_NON_TAXABLE, ZERO, FxRateProvider
 from .models import CsvStructureError, FxConversionError, IbkrAnalyzerError, _ActiveHeader
@@ -95,8 +96,8 @@ def _parse_decimal(raw: str, *, row_number: int, field_name: str) -> Decimal:
     if text == "":
         raise IbkrAnalyzerError(f"row {row_number}: missing {field_name}")
     try:
-        return Decimal(text)
-    except InvalidOperation as exc:
+        return parse_csv_decimal(text)
+    except CsvDecimalParseError as exc:
         raise IbkrAnalyzerError(f"row {row_number}: invalid {field_name}: {raw!r}") from exc
 
 
@@ -105,8 +106,8 @@ def _parse_decimal_or_zero(raw: str, *, row_number: int, field_name: str) -> Dec
     if text == "":
         return ZERO
     try:
-        return Decimal(text)
-    except InvalidOperation as exc:
+        return parse_csv_decimal(text)
+    except CsvDecimalParseError as exc:
         raise IbkrAnalyzerError(f"row {row_number}: invalid {field_name}: {raw!r}") from exc
 
 
@@ -115,10 +116,9 @@ def _parse_optional_decimal(raw: str, *, row_number: int, field_name: str) -> De
     if text == "":
         return None
     try:
-        return Decimal(text)
-    except InvalidOperation as exc:
+        return parse_csv_decimal(text)
+    except CsvDecimalParseError as exc:
         raise IbkrAnalyzerError(f"row {row_number}: invalid {field_name}: {raw!r}") from exc
-
 
 def _parse_trade_datetime(raw: str, *, row_number: int) -> datetime:
     text = raw.strip()
@@ -246,32 +246,21 @@ def _try_parse_decimal(raw: str) -> Decimal | None:
     text = raw.strip()
     if text == "":
         return None
-    try:
-        return Decimal(text)
-    except InvalidOperation:
-        return None
+    return try_parse_csv_decimal(text)
 
 
 def _parse_reconciliation_quantity(raw: str) -> Decimal | None:
     text = raw.strip()
     if text == "":
         return ZERO
-    cleaned = text.replace(",", "")
-    try:
-        return Decimal(cleaned)
-    except InvalidOperation:
-        return None
+    return try_parse_csv_decimal(text)
 
 
 def _parse_decimal_loose_or_zero(raw: str) -> Decimal | None:
     text = raw.strip()
     if text == "":
         return ZERO
-    cleaned = text.replace(",", "")
-    try:
-        return Decimal(cleaned)
-    except InvalidOperation:
-        return None
+    return try_parse_csv_decimal(text)
 
 
 def _normalize_review_status(raw: str) -> str:

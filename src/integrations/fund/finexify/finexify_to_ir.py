@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
+from integrations.shared.csv_numbers import (
+    CsvDecimalParseError,
+    CsvDecimalSeparator,
+    CsvDecimalSeparatorMode,
+    DEFAULT_CSV_DECIMAL_SEPARATOR,
+    parse_csv_decimal,
+)
 from integrations.fund.shared.fund_ir_models import (
     FundAnalysisSummary,
     FundCurrencyState,
@@ -74,13 +81,18 @@ def parse_timestamp(raw: str, *, row_number: int) -> tuple[datetime, bool]:
     return parsed, True
 
 
-def parse_amount(raw: str, *, row_number: int) -> Decimal:
-    text = raw.strip().replace(",", "")
+def parse_amount(
+    raw: str,
+    *,
+    row_number: int,
+    decimal_separator: CsvDecimalSeparator | None = None,
+) -> Decimal:
+    text = raw.strip()
     if text == "":
         raise FinexifyAnalyzerError(f"row {row_number}: missing Amount")
     try:
-        return Decimal(text)
-    except InvalidOperation as exc:
+        return parse_csv_decimal(text, decimal_separator=decimal_separator)
+    except CsvDecimalParseError as exc:
         raise FinexifyAnalyzerError(f"row {row_number}: invalid Amount: {raw!r}") from exc
 
 
@@ -227,8 +239,12 @@ def load_and_map_finexify_csv_to_ir(
     tax_year: int,
     opening_state_by_currency: dict[str, FundCurrencyState] | None = None,
     opening_state_year_end: int | None = None,
+    csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
 ) -> FinexifyIrMappingResult:
-    loaded = load_finexify_csv(input_csv)
+    loaded = load_finexify_csv(input_csv, csv_decimal_separator=csv_decimal_separator)
+    decimal_separator = (
+        loaded.csv_decimal_info.separator if loaded.csv_decimal_info is not None else DEFAULT_CSV_DECIMAL_SEPARATOR
+    )
     schema = loaded.schema
 
     parsed_rows: list[_ParsedTxRow] = []
@@ -268,7 +284,7 @@ def load_and_map_finexify_csv_to_ir(
         if currency == "":
             raise FinexifyAnalyzerError(f"row {row_number}: missing Cryptocurrency")
 
-        amount = parse_amount(amount_raw, row_number=row_number)
+        amount = parse_amount(amount_raw, row_number=row_number, decimal_separator=decimal_separator)
         source = raw.get(schema.source, "").strip()
 
         parsed_rows.append(

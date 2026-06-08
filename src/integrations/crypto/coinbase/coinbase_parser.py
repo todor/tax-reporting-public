@@ -5,8 +5,17 @@ import io
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
+
+from integrations.shared.csv_numbers import (
+    CSV_DECIMAL_SEPARATOR_MODES,
+    CsvDecimalDetector,
+    CsvDecimalParseError,
+    CsvDecimalSeparator,
+    CsvDecimalSeparatorMode,
+    parse_csv_decimal,
+)
 
 from .constants import (
     OPTIONAL_COLUMN_CANDIDATES,
@@ -15,7 +24,6 @@ from .constants import (
 )
 from .models import CoinbaseAnalyzerError, CsvRow, CsvSchema, CsvValidationError, LoadedCoinbaseCsv
 
-_MONEY_CLEAN_RE = re.compile(r"[^0-9+\-.,]")
 _REQUIRED_HEADER_TOKENS = {
     "Timestamp",
     "Transaction Type",
@@ -58,30 +66,37 @@ def parse_timestamp(raw: str, *, row_number: int) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def parse_decimal(raw: str, *, row_number: int, field_name: str) -> Decimal:
+def parse_decimal(
+    raw: str,
+    *,
+    row_number: int,
+    field_name: str,
+    decimal_separator: CsvDecimalSeparator | None = None,
+) -> Decimal:
     text = raw.strip()
     if text == "":
         raise CoinbaseAnalyzerError(f"row {row_number}: missing {field_name}")
 
     try:
-        return Decimal(text)
-    except InvalidOperation as exc:
+        return parse_csv_decimal(text, decimal_separator=decimal_separator)
+    except CsvDecimalParseError as exc:
         raise CoinbaseAnalyzerError(f"row {row_number}: invalid {field_name}: {raw!r}") from exc
 
 
-def parse_prefixed_amount(raw: str, *, row_number: int, field_name: str) -> Decimal:
+def parse_prefixed_amount(
+    raw: str,
+    *,
+    row_number: int,
+    field_name: str,
+    decimal_separator: CsvDecimalSeparator | None = None,
+) -> Decimal:
     text = raw.strip()
     if text == "":
         raise CoinbaseAnalyzerError(f"row {row_number}: missing {field_name}")
 
-    cleaned = _MONEY_CLEAN_RE.sub("", text)
-    if cleaned in {"", "+", "-", ".", "+.", "-."}:
-        raise CoinbaseAnalyzerError(f"row {row_number}: invalid {field_name}: {raw!r}")
-
-    normalized = cleaned.replace(",", "")
     try:
-        return Decimal(normalized)
-    except InvalidOperation as exc:
+        return parse_csv_decimal(text, decimal_separator=decimal_separator, strip_non_numeric=True)
+    except CsvDecimalParseError as exc:
         raise CoinbaseAnalyzerError(f"row {row_number}: invalid {field_name}: {raw!r}") from exc
 
 
@@ -95,10 +110,15 @@ def normalize_review_status(raw: str) -> str:
     return normalized
 
 
-def parse_convert_note(raw: str, *, row_number: int) -> ConvertNote:
+def parse_convert_note(
+    raw: str,
+    *,
+    row_number: int,
+    decimal_separator: CsvDecimalSeparator | None = None,
+) -> ConvertNote:
     text = raw.strip()
     match = re.fullmatch(
-        r"Converted\s+([0-9]+(?:\.[0-9]+)?)\s+([A-Za-z0-9._-]+)\s+to\s+([0-9]+(?:\.[0-9]+)?)\s+([A-Za-z0-9._-]+)",
+        r"Converted\s+([0-9][0-9.,]*)\s+([A-Za-z0-9._-]+)\s+to\s+([0-9][0-9.,]*)\s+([A-Za-z0-9._-]+)",
         text,
     )
     if match is None:
@@ -108,9 +128,9 @@ def parse_convert_note(raw: str, *, row_number: int) -> ConvertNote:
         )
 
     try:
-        qty_sold = Decimal(match.group(1))
-        qty_bought = Decimal(match.group(3))
-    except InvalidOperation as exc:
+        qty_sold = parse_csv_decimal(match.group(1), decimal_separator=decimal_separator)
+        qty_bought = parse_csv_decimal(match.group(3), decimal_separator=decimal_separator)
+    except CsvDecimalParseError as exc:
         raise CoinbaseAnalyzerError(f"row {row_number}: invalid Convert quantity in Notes: {raw!r}") from exc
 
     if qty_sold <= 0 or qty_bought <= 0:
@@ -179,7 +199,13 @@ def _find_header_start(lines: list[str]) -> int:
     )
 
 
-def load_coinbase_csv(path: str | Path) -> LoadedCoinbaseCsv:
+def load_coinbase_csv(
+    path: str | Path,
+    *,
+    csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
+) -> LoadedCoinbaseCsv:
+    if csv_decimal_separator not in CSV_DECIMAL_SEPARATOR_MODES:
+        raise CoinbaseAnalyzerError(f"unsupported CSV decimal separator mode: {csv_decimal_separator}")
     input_path = Path(path).expanduser().resolve()
     if not input_path.exists():
         raise CoinbaseAnalyzerError(f"input CSV does not exist: {input_path}")
@@ -202,6 +228,11 @@ def load_coinbase_csv(path: str | Path) -> LoadedCoinbaseCsv:
     for row_number, raw in enumerate(reader, start=1):
         normalized_raw = {key.strip(): (value or "") for key, value in raw.items() if key is not None}
         rows.append(CsvRow(row_number=row_number, raw=normalized_raw))
+    detector = CsvDecimalDetector(analyzer_alias="coinbase", input_path=input_path)
+    for row in rows:
+        for column_name, value in row.raw.items():
+            detector.observe(value, row_number=row.row_number, column_name=column_name)
+    csv_decimal_info = detector.resolve(csv_decimal_separator)
 
     return LoadedCoinbaseCsv(
         input_path=input_path,
@@ -209,6 +240,7 @@ def load_coinbase_csv(path: str | Path) -> LoadedCoinbaseCsv:
         fieldnames=fieldnames,
         rows=rows,
         schema=schema,
+        csv_decimal_info=csv_decimal_info,
     )
 
 

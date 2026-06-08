@@ -6,6 +6,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Generic, TypeVar
 
+from integrations.shared.csv_numbers import CsvDecimalFormatInfo
+
 ZERO = Decimal("0")
 
 IR_TRANSACTION_TYPES = {
@@ -56,6 +58,7 @@ class LoadedCsv(Generic[SchemaT]):
     fieldnames: list[str]
     rows: list[CsvRow]
     schema: SchemaT
+    csv_decimal_info: CsvDecimalFormatInfo | None = None
 
 
 @dataclass(slots=True)
@@ -212,6 +215,7 @@ class IrAnalysisRunResult:
     declaration_txt_path: Path
     year_end_state_json_path: Path
     summary: IrAnalysisSummary
+    csv_decimal_info: CsvDecimalFormatInfo | None = None
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]

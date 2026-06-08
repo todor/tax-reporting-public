@@ -635,10 +635,53 @@ def _fmt_set_bg(values: set[str]) -> str:
     return ", ".join(cleaned) if cleaned else "няма"
 
 
+def _parse_csv_decimal_note(note: MainReportNote) -> dict[str, str]:
+    if not note.text.startswith("CSV_NUMBER_FORMAT|"):
+        return {}
+    result: dict[str, str] = {"analyzer": note.analyzer_alias or ""}
+    for part in note.text.split("|")[1:]:
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        result[key] = value
+    return result
+
+
+def _render_csv_decimal_notes(notes: list[MainReportNote]) -> list[str]:
+    items = [_parse_csv_decimal_note(note) for note in notes if note.category == "csv_decimal_format"]
+    items = [item for item in items if item]
+    if not items:
+        return []
+    deviations = [
+        item
+        for item in items
+        if item.get("separator") != "dot" or (item.get("source") == "explicit" and item.get("separator") != "dot")
+    ]
+    if not deviations:
+        return ['Числов формат на CSV файловете: използван е стандартният формат с десетичен разделител ".".']
+
+    lines = ["Отклонения от стандартния числов формат:"]
+    for item in sorted(deviations, key=lambda value: value.get("analyzer", "")):
+        analyzer = item.get("analyzer") or item.get("analyzer_alias") or "CSV"
+        separator = "," if item.get("separator") == "comma" else "."
+        if item.get("source") == "explicit":
+            lines.append(
+                f'{analyzer}: десетичен разделител "{separator}" зададен ръчно чрез '
+                f"--{analyzer}-csv-decimal-separator {item.get('separator')}."
+            )
+        elif item.get("source") == "auto":
+            lines.append(f'{analyzer}: автоматично разпознат десетичен разделител "{separator}".')
+        else:
+            lines.append(f'{analyzer}: използван е десетичен разделител "{separator}".')
+    return lines
+
+
 def _render_top_main_report_notes(notes: list[MainReportNote]) -> list[str]:
     top_notes = [note for note in notes if note.category != "methodology"]
     if not top_notes:
         return []
+    csv_decimal_lines = _render_csv_decimal_notes(top_notes)
+    top_notes = [note for note in top_notes if note.category != "csv_decimal_format"]
     grouped: dict[str, list[str]] = defaultdict(list)
     seen_by_section: dict[str, set[str]] = defaultdict(set)
     ordered_section_titles: list[str] = []
@@ -666,11 +709,16 @@ def _render_top_main_report_notes(notes: list[MainReportNote]) -> list[str]:
         seen.add(text)
         grouped[section_title].append(text)
     lines: list[str] = []
+    if csv_decimal_lines and "Настройки и данъчни допускания" not in ordered_section_titles:
+        ordered_section_titles.insert(0, "Настройки и данъчни допускания")
+        grouped["Настройки и данъчни допускания"] = []
     for section_title in ordered_section_titles:
         if lines:
             lines.append("")
         lines.append(section_title)
         section_texts = grouped[section_title]
+        if section_title == "Настройки и данъчни допускания" and csv_decimal_lines:
+            section_texts = [*section_texts, *csv_decimal_lines]
         if section_title == "Специфични бележки от анализа":
             section_texts = _render_specific_analysis_notes(section_texts)
         for text in section_texts:

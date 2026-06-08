@@ -110,6 +110,7 @@ These options apply to the single `ibkr` command. In aggregate mode, the same ov
 - `--skip-period-validation`: skip strict full-year Statement Period validation; development/testing only
 - `--no-net-cfd-financing`: do not net CFD financing into Appendix 5; positive amounts go to Appendix 6 code 606 and negative amounts are skipped
 - `--negative-pil-mode {position-aware,always-net,ignore}`: controls negative Payment in Lieu handling (default: `position-aware`)
+- `--csv-decimal-separator {auto,dot,comma}`: CSV decimal separator mode (default: `auto`)
 - `--output-dir`: optional output root (default `output/ibkr/activity_statement`)
 - `--cache-dir`: optional `bnb_fx` cache override
 - `--display-currency {EUR,BGN}`: optional TXT rendering currency (calculation currency remains EUR)
@@ -198,9 +199,9 @@ What is compared:
 - `Trades` rows with `DataDiscriminator=Order` (signed quantity from CSV, no sign transformation)
 - `Mark-to-Market Performance Summary` rows (`Prior Quantity`) when available
 
-Quantity parsing in this check is normalized for IBKR formatting:
+Quantity parsing in this check uses the file-level CSV decimal separator detected or configured for the IBKR statement:
 
-- comma thousands separators are accepted (for example `1,001`)
+- with the default dot-decimal convention, comma thousands separators are accepted (for example `1,001` means `1001`)
 - empty quantity is treated as `0`
 
 Expected end quantity per instrument is computed as:

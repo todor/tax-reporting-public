@@ -4,13 +4,21 @@ import csv
 import io
 import re
 from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from pathlib import Path
+
+from integrations.shared.csv_numbers import (
+    CSV_DECIMAL_SEPARATOR_MODES,
+    CsvDecimalDetector,
+    CsvDecimalParseError,
+    CsvDecimalSeparator,
+    CsvDecimalSeparatorMode,
+    parse_csv_decimal,
+)
 
 from .constants import OPTIONAL_COLUMN_CANDIDATES, REQUIRED_COLUMN_CANDIDATES
 from .models import CsvRow, CsvSchema, CsvValidationError, KrakenAnalyzerError, LoadedKrakenCsv
 
-_MONEY_CLEAN_RE = re.compile(r"[^0-9+\-.,]")
 _REQUIRED_HEADER_TOKENS = set(sum((list(values) for values in REQUIRED_COLUMN_CANDIDATES.values()), []))
 
 
@@ -25,29 +33,36 @@ def parse_timestamp(raw: str, *, row_number: int) -> datetime:
     return parsed.replace(tzinfo=timezone.utc)
 
 
-def parse_decimal(raw: str, *, row_number: int, field_name: str) -> Decimal:
+def parse_decimal(
+    raw: str,
+    *,
+    row_number: int,
+    field_name: str,
+    decimal_separator: CsvDecimalSeparator | None = None,
+) -> Decimal:
     text = raw.strip()
     if text == "":
         raise KrakenAnalyzerError(f"row {row_number}: missing {field_name}")
     try:
-        return Decimal(text)
-    except InvalidOperation as exc:
+        return parse_csv_decimal(text, decimal_separator=decimal_separator)
+    except CsvDecimalParseError as exc:
         raise KrakenAnalyzerError(f"row {row_number}: invalid {field_name}: {raw!r}") from exc
 
 
-def parse_prefixed_amount(raw: str, *, row_number: int, field_name: str) -> Decimal:
+def parse_prefixed_amount(
+    raw: str,
+    *,
+    row_number: int,
+    field_name: str,
+    decimal_separator: CsvDecimalSeparator | None = None,
+) -> Decimal:
     text = raw.strip()
     if text == "":
         raise KrakenAnalyzerError(f"row {row_number}: missing {field_name}")
 
-    cleaned = _MONEY_CLEAN_RE.sub("", text)
-    if cleaned in {"", "+", "-", ".", "+.", "-."}:
-        raise KrakenAnalyzerError(f"row {row_number}: invalid {field_name}: {raw!r}")
-
-    normalized = cleaned.replace(",", "")
     try:
-        return Decimal(normalized)
-    except InvalidOperation as exc:
+        return parse_csv_decimal(text, decimal_separator=decimal_separator, strip_non_numeric=True)
+    except CsvDecimalParseError as exc:
         raise KrakenAnalyzerError(f"row {row_number}: invalid {field_name}: {raw!r}") from exc
 
 
@@ -119,7 +134,13 @@ def _find_header_start(lines: list[str]) -> int:
     )
 
 
-def load_kraken_csv(path: str | Path) -> LoadedKrakenCsv:
+def load_kraken_csv(
+    path: str | Path,
+    *,
+    csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
+) -> LoadedKrakenCsv:
+    if csv_decimal_separator not in CSV_DECIMAL_SEPARATOR_MODES:
+        raise KrakenAnalyzerError(f"unsupported CSV decimal separator mode: {csv_decimal_separator}")
     input_path = Path(path).expanduser().resolve()
     if not input_path.exists():
         raise KrakenAnalyzerError(f"input CSV does not exist: {input_path}")
@@ -142,6 +163,11 @@ def load_kraken_csv(path: str | Path) -> LoadedKrakenCsv:
     for row_number, raw in enumerate(reader, start=1):
         normalized_raw = {key.strip(): (value or "") for key, value in raw.items() if key is not None}
         rows.append(CsvRow(row_number=row_number, raw=normalized_raw))
+    detector = CsvDecimalDetector(analyzer_alias="kraken", input_path=input_path)
+    for row in rows:
+        for column_name, value in row.raw.items():
+            detector.observe(value, row_number=row.row_number, column_name=column_name)
+    csv_decimal_info = detector.resolve(csv_decimal_separator)
 
     return LoadedKrakenCsv(
         input_path=input_path,
@@ -149,6 +175,7 @@ def load_kraken_csv(path: str | Path) -> LoadedKrakenCsv:
         fieldnames=fieldnames,
         rows=rows,
         schema=schema,
+        csv_decimal_info=csv_decimal_info,
     )
 
 

@@ -59,6 +59,11 @@ def _fx_provider(ts: datetime) -> Decimal:
     return Decimal("0.5")
 
 
+def test_change_accepts_decimal_comma_locale() -> None:
+    assert analyzer._parse_change("-1,100", row_number=2) == Decimal("-1100")
+    assert analyzer._parse_change("-1,100", row_number=2, decimal_separator="comma") == Decimal("-1.100")
+
+
 def test_positive_change_contributes_to_profit(tmp_path: Path) -> None:
     input_csv = tmp_path / "input.csv"
     _write_csv(

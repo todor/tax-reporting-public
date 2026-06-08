@@ -65,6 +65,34 @@ ibkr: ibkr_activity_statement_sample_sanitized.csv
 - diagnostics_path: <OUTPUT>/ibkr/ibkr_activity_statement_sample_sanitized_1/ibkr_activity_declaration_2025.diagnostics.txt
 - row_level_audit_csv: <OUTPUT>/ibkr/ibkr_activity_statement_sample_sanitized_1/ibkr_activity_modified_2025.csv
 Input interpretation
+  CSV numeric format
+  - analyzer: ibkr
+  - file: <REPO>/examples/inputs/ibkr_activity_statement_sample_sanitized.csv
+  - requested mode: auto
+  - resolved decimal separator: .
+  - source: auto
+  - strong evidence:
+    row 16, column Current Long: '697.225668' -> dot
+    row 16, column Current Total: '697.225668' -> dot
+    row 16, column Change: '697.225668' -> dot
+    row 17, column Current Long: '25990.29' -> dot
+    row 17, column Current Total: '25990.29' -> dot
+    row 17, column Change: '25990.29' -> dot
+    row 18, column Current Long: '23632.250056' -> dot
+    row 18, column Current Total: '23632.250056' -> dot
+    row 18, column Change: '23632.250056' -> dot
+    row 19, column Current Long: '50319.765724' -> dot
+  - ambiguous values ignored for auto-detection:
+    row 50, column Current Price: '22.547'
+    row 87, column Current Price: '148.091'
+    row 203, column Quantity: '0.935'
+    row 203, column Cost Price: '87.819'
+    row 206, column Close Price: '22.547'
+    row 207, column Close Price: '22.547'
+    row 211, column Close Price: '148.091'
+    row 212, column Close Price: '148.091'
+    row 213, column Close Price: '148.091'
+    row 214, column Close Price: '148.091'
   - detection reason: auto-detected from filename tokens
   - report alias: -
   - IBKR report date format: M/D/YYYY
@@ -139,6 +167,34 @@ ibkr: ibkr_activity_statement_sample_synthetic.csv
 - diagnostics_path: <OUTPUT>/ibkr/ibkr_activity_statement_sample_synthetic_2/ibkr_activity_declaration_2025.diagnostics.txt
 - row_level_audit_csv: <OUTPUT>/ibkr/ibkr_activity_statement_sample_synthetic_2/ibkr_activity_modified_2025.csv
 Input interpretation
+  CSV numeric format
+  - analyzer: ibkr
+  - file: <REPO>/examples/inputs/ibkr_activity_statement_sample_synthetic.csv
+  - requested mode: auto
+  - resolved decimal separator: .
+  - source: auto
+  - strong evidence:
+    row 16, column Current Long: '131.769569' -> dot
+    row 16, column Current Total: '131.769569' -> dot
+    row 16, column Change: '131.769569' -> dot
+    row 17, column Current Long: '25990.29' -> dot
+    row 17, column Current Total: '25990.29' -> dot
+    row 17, column Change: '25990.29' -> dot
+    row 18, column Current Long: '23632.250056' -> dot
+    row 18, column Current Total: '23632.250056' -> dot
+    row 18, column Change: '23632.250056' -> dot
+    row 19, column Current Long: '49754.309625' -> dot
+  - ambiguous values ignored for auto-detection:
+    row 52, column Current Price: '22.547'
+    row 89, column Current Price: '148.091'
+    row 106, column Mark-to-Market P/L Transaction: '9.122'
+    row 111, column Mark-to-Market P/L Commissions: '-3.716'
+    row 244, column Quantity: '0.935'
+    row 244, column Cost Price: '87.819'
+    row 247, column Close Price: '22.547'
+    row 248, column Close Price: '22.547'
+    row 252, column Close Price: '148.091'
+    row 253, column Close Price: '148.091'
   - detection reason: auto-detected from filename tokens
   - report alias: -
   - IBKR report date format: M/D/YYYY
@@ -267,6 +323,23 @@ kraken: kraken_report_since_inception_sample_sanitized.csv
 - diagnostics_path: <OUTPUT>/kraken/kraken_report_since_inception_sample_sanitized_declaration.diagnostics.txt
 - row_level_audit_csv: <OUTPUT>/kraken/kraken_report_since_inception_sample_sanitized_modified.csv
 Input interpretation
+  CSV numeric format
+  - analyzer: kraken
+  - file: <REPO>/examples/inputs/kraken_report_since_inception_sample_sanitized.csv
+  - requested mode: auto
+  - resolved decimal separator: .
+  - source: auto
+  - strong evidence:
+    row 2, column amount: '-4926.1' -> dot
+    row 2, column fee: '73.9' -> dot
+    row 3, column amount: '2.087059' -> dot
+    row 3, column balance: '2.087059' -> dot
+    row 5, column amount: '-1970.44' -> dot
+    row 5, column fee: '29.56' -> dot
+    row 6, column amount: '0.86501' -> dot
+    row 6, column balance: '2.952069' -> dot
+    row 7, column amount: '-985.22' -> dot
+    row 7, column fee: '14.78' -> dot
   - detection reason: auto-detected from filename tokens
   - opening_state: none (since inception)
   - opening state year end: -

@@ -17,6 +17,7 @@ from integrations.crypto.shared.runtime import (
     build_enriched_ir_output_paths,
     default_eur_unit_rate_provider,
 )
+from integrations.shared.csv_numbers import CsvDecimalSeparatorError, CsvDecimalSeparatorMode
 from .coinbase_to_ir import load_and_map_coinbase_csv_to_ir
 from .constants import DEFAULT_OUTPUT_DIR
 from .models import AnalysisResult, CoinbaseAnalyzerError
@@ -62,6 +63,7 @@ def analyze_coinbase_report(
     output_dir: str | Path | None = None,
     cache_dir: str | Path | None = None,
     display_currency: str = "EUR",
+    csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
     eur_unit_rate_provider: EurUnitRateProvider | None = None,
 ) -> AnalysisResult:
     _validate_tax_year(tax_year)
@@ -80,6 +82,7 @@ def analyze_coinbase_report(
             input_csv=str(input_csv),
             summary=ir_summary,
             eur_unit_rate_provider=rate_provider,
+            csv_decimal_separator=csv_decimal_separator,
         )
         loaded = mapping.loaded_csv
         ir_summary.processed_rows = len(loaded.rows)
@@ -104,7 +107,7 @@ def analyze_coinbase_report(
             opening_state_year_end=opening_year_end,
         )
     except Exception as exc:  # noqa: BLE001
-        if isinstance(exc, CoinbaseAnalyzerError):
+        if isinstance(exc, (CoinbaseAnalyzerError, CsvDecimalSeparatorError)):
             raise
         raise CoinbaseAnalyzerError(str(exc)) from exc
 
@@ -146,4 +149,5 @@ def analyze_coinbase_report(
         declaration_txt_path=declaration_txt_path,
         year_end_state_json_path=year_end_state_json_path,
         summary=analysis.summary,
+        csv_decimal_info=loaded.csv_decimal_info,
     )

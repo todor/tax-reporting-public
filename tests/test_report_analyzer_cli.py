@@ -949,6 +949,8 @@ def test_aggregate_help_shows_generic_options_and_override_convention() -> None:
     assert "--no-net-cfd-financing" in help_text
     assert "--negative-pil-mode {always-net,ignore,position-aware}" in help_text
     assert "--p2p-secondary-market-mode {appendix_5,appendix_6}" in help_text
+    assert "--spb8-csv-decimal-separator {auto,dot,comma}" in help_text
+    assert "--csv-decimal-separator {auto,dot,comma}" not in help_text
     assert "--list-aggregate-overrides" in help_text
     assert "--afranga-secondary-market-mode" not in help_text
     assert "--<analyzer-alias>-<option>" in help_text
@@ -976,8 +978,10 @@ def test_list_aggregate_overrides_prints_supported_matrix(
     assert "--ibkr-no-net-cfd-financing" in stdout
     assert "--ibkr-negative-pil-mode" in stdout
     assert "--ibkr-appendix8-dividend-list-mode" in stdout
+    assert "--ibkr-csv-decimal-separator" in stdout
     assert "Tax-exempt mode" in stdout
     assert "Appendix 8 dividend list mode" in stdout
+    assert "CSV decimal separator" in stdout
     assert "equivalent to" not in stdout
     assert "interactive-brokers" not in stdout
     assert "interactivebrokers" not in stdout
@@ -992,6 +996,15 @@ def test_list_aggregate_overrides_prints_supported_matrix(
     assert "--estateguru-p2p-secondary-market-mode" in stdout
     assert "iuvo:" in stdout
     assert "--iuvo-p2p-secondary-market-mode" in stdout
+    assert "coinbase:" in stdout
+    assert "--coinbase-csv-decimal-separator" in stdout
+    assert "kraken:" in stdout
+    assert "--kraken-csv-decimal-separator" in stdout
+    assert "finexify:" in stdout
+    assert "--finexify-csv-decimal-separator" in stdout
+    assert "binance_futures:" in stdout
+    assert "--binance-futures-csv-decimal-separator" in stdout
+    assert "--binance-csv-decimal-separator" in stdout
     assert "lendermarket:" in stdout
     assert "--lendermarket-p2p-secondary-market-mode" in stdout
     assert "robocash:" in stdout
@@ -1034,6 +1047,7 @@ def test_concrete_ibkr_help_shows_unprefixed_options(
     assert "--no-net-cfd-financing" in help_text
     assert "--negative-pil-mode" in help_text
     assert "--appendix8-dividend-list-mode" in help_text
+    assert "--csv-decimal-separator" in help_text
     assert "--ibkr-tax-exempt-mode" not in help_text
 
 
@@ -1048,6 +1062,19 @@ def test_concrete_p2p_help_shows_unprefixed_p2p_option(
 
     assert "--p2p-secondary-market-mode" in help_text
     assert "--afranga-p2p-secondary-market-mode" not in help_text
+
+
+def test_concrete_csv_analyzer_help_shows_unprefixed_decimal_separator_option(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = report_analyzer.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["coinbase", "--help"])
+    help_text = capsys.readouterr().out
+
+    assert "--csv-decimal-separator {auto,dot,comma}" in help_text
+    assert "--coinbase-csv-decimal-separator" not in help_text
 
 
 @pytest.mark.parametrize("legacy_value", ["execution", "listed", "listed_symbol"])
@@ -1075,7 +1102,7 @@ def test_aggregate_analyzer_specific_override_wins(
         tmp_path=tmp_path,
         run_capture=run_capture,
         supported_aggregate_overrides=frozenset(
-            {"tax_exempt_mode", "negative_pil_mode", "appendix8_dividend_list_mode"}
+            {"tax_exempt_mode", "negative_pil_mode", "appendix8_dividend_list_mode", "csv_decimal_separator"}
         ),
     )
     fake = AnalyzerDefinition(
@@ -1114,6 +1141,8 @@ def test_aggregate_analyzer_specific_override_wins(
             "company",
             "--t212-appendix8-dividend-list-mode",
             "country",
+            "--t212-csv-decimal-separator",
+            "comma",
         ]
     )
 
@@ -1121,6 +1150,14 @@ def test_aggregate_analyzer_specific_override_wins(
     assert run_capture.contexts[0].options["tax_exempt_mode"] == "execution_exchange"
     assert run_capture.contexts[0].options["negative_pil_mode"] == "ignore"
     assert run_capture.contexts[0].options["appendix8_dividend_list_mode"] == "country"
+    assert run_capture.contexts[0].options["csv_decimal_separator"] == "comma"
+
+
+def test_aggregate_unprefixed_csv_decimal_separator_is_rejected() -> None:
+    parser = report_analyzer.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--csv-decimal-separator", "comma"])
 
 
 def test_aggregate_repeatable_override_replaces_aggregate_values(

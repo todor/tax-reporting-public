@@ -78,6 +78,7 @@ class _OverridableAggregateOption:
     repeatable: bool = False
     default: object = None
     hidden: bool = False
+    aggregate_global: bool = True
 
     @property
     def concrete_flag(self) -> str:
@@ -158,6 +159,17 @@ _OVERRIDABLE_AGGREGATE_OPTIONS: tuple[_OverridableAggregateOption, ...] = (
         choices=("appendix_5", "appendix_6"),
         default="appendix_6",
     ),
+    _OverridableAggregateOption(
+        flag="csv-decimal-separator",
+        group_key="csv_decimal_separator",
+        takes_value=True,
+        help="CSV decimal separator mode where supported",
+        display_label="CSV decimal separator",
+        choices=("auto", "dot", "comma"),
+        hidden=True,
+        default="auto",
+        aggregate_global=False,
+    ),
 )
 _OVERRIDABLE_AGGREGATE_OPTION_BY_FLAG = {item.flag: item for item in _OVERRIDABLE_AGGREGATE_OPTIONS}
 
@@ -211,6 +223,12 @@ def _add_spb8_arguments(parser: argparse.ArgumentParser) -> None:
         "--spb8-exclude-crypto",
         action="store_true",
         help="Exclude crypto platforms from SPB-8 rows",
+    )
+    parser.add_argument(
+        "--spb8-csv-decimal-separator",
+        choices=["auto", "dot", "comma"],
+        default="auto",
+        help="Decimal separator mode for external SPB-8 input CSV only",
     )
 
 
@@ -320,11 +338,11 @@ def _spb8_rows_from_detected(detected: dict[str, list[Path]]) -> list[SPB8Row]:
     return rows
 
 
-def _load_spb8_input(path: Path) -> list[SPB8Row]:
+def _load_spb8_input(path: Path, *, csv_decimal_separator: str = "auto") -> list[SPB8Row]:
     if not path.expanduser().exists():
         raise InputDetectionError(f"SPB-8 input file does not exist: {path}")
     try:
-        return read_spb8_csv(path)
+        return read_spb8_csv(path, csv_decimal_separator=csv_decimal_separator)
     except SPB8Error as exc:
         raise InputDetectionError(str(exc)) from exc
 
@@ -999,7 +1017,6 @@ def _split_analyzer_aggregate_override_args(
             continue
 
         override_args.append(token)
-        flag = _overridable_flag_from_override_name(raw_name, registry=registry)
         if "=" not in token and index + 1 < len(argv) and not argv[index + 1].startswith("--"):
             index += 1
             override_args.append(argv[index])
@@ -1088,6 +1105,8 @@ def _parse_analyzer_aggregate_overrides(
 
 def _add_overridable_aggregate_arguments(parser: argparse.ArgumentParser) -> None:
     for option in _OVERRIDABLE_AGGREGATE_OPTIONS:
+        if not option.aggregate_global:
+            continue
         kwargs: dict[str, object] = {"help": argparse.SUPPRESS if option.hidden else option.help}
         if option.takes_value:
             if option.choices:
@@ -1293,7 +1312,14 @@ def _run_single_mode(args: argparse.Namespace) -> int:
     notes: list[str] = []
     if _spb8_enabled(args):
         try:
-            external_rows = _load_spb8_input(args.spb8_input_file) if args.spb8_input_file is not None else []
+            external_rows = (
+                _load_spb8_input(
+                    args.spb8_input_file,
+                    csv_decimal_separator=args.spb8_csv_decimal_separator,
+                )
+                if args.spb8_input_file is not None
+                else []
+            )
         except Exception as exc:  # noqa: BLE001
             declaration_path = result.output_paths.get("declaration_txt", output_dir / "declaration.txt")
             raw_report_text = declaration_path.read_text(encoding="utf-8") if declaration_path.exists() else ""
@@ -1525,7 +1551,10 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
     }
     try:
         spb8_input_rows = (
-            _load_spb8_input(spb8_input_file)
+            _load_spb8_input(
+                spb8_input_file,
+                csv_decimal_separator=args.spb8_csv_decimal_separator,
+            )
             if _spb8_enabled(args) and spb8_input_file is not None
             else []
         )

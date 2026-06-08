@@ -8,6 +8,7 @@ import pytest
 
 from integrations.crypto.kraken import report_analyzer as analyzer
 from integrations.crypto.kraken.kraken_parser import load_kraken_csv
+from integrations.crypto.kraken.kraken_parser import parse_decimal, parse_prefixed_amount
 from integrations.crypto.kraken.kraken_to_ir import load_and_map_kraken_csv_to_ir
 from integrations.crypto.shared.crypto_ir_models import IrAnalysisSummary
 from tests.integrations.crypto.kraken import support as h
@@ -47,6 +48,17 @@ def test_parser_loads_schema_and_rows(tmp_path: Path) -> None:
         eur_unit_rate_provider=h.rate_provider({"EUR": Decimal("1"), "USD": Decimal("1")}),
     ).ir_rows[0].timestamp
     assert timestamp.tzinfo == timezone.utc
+
+
+def test_locale_decimal_numbers_are_supported() -> None:
+    assert parse_decimal("-1,100", row_number=2, field_name="amount") == Decimal("-1100")
+    assert parse_decimal(
+        "-1,100",
+        row_number=2,
+        field_name="amount",
+        decimal_separator="comma",
+    ) == Decimal("-1.100")
+    assert parse_prefixed_amount("EUR 1,234.56", row_number=2, field_name="Cost Basis (EUR)") == Decimal("1234.56")
 
 
 def test_missing_required_column_fails(tmp_path: Path) -> None:

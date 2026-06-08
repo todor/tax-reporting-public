@@ -550,6 +550,13 @@ Overridable aggregate tax/reporting options:
 - `--appendix8-dividend-list-mode {company,country}`: advanced Appendix 8 dividend listing mode where supported
 - `--p2p-secondary-market-mode {appendix_5,appendix_6}`: P2P secondary-market handling mode
 
+Analyzer-local CSV numeric parsing:
+
+- CSV analyzers may support `--csv-decimal-separator {auto,dot,comma}` in direct analyzer mode.
+- Aggregate mode does not have one global CSV decimal option; use an analyzer-prefixed override such as `--ibkr-csv-decimal-separator dot` or `--kraken-csv-decimal-separator comma`.
+- `auto` detects one decimal separator per input file from strong evidence and otherwise uses the analyzer's trusted default where supported.
+- External SPB-8 input CSV uses the separate `--spb8-csv-decimal-separator {auto,dot,comma}` option.
+
 Analyzer-specific overrides use the analyzer alias as a prefix:
 
 - pattern: `--<analyzer-alias>-<aggregate-option>`

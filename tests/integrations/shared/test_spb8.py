@@ -61,6 +61,34 @@ def test_country_and_type_are_inferred_from_platform_csv(tmp_path: Path) -> None
     ]
 
 
+def test_spb8_csv_accepts_locale_decimal_amounts(tmp_path: Path) -> None:
+    input_path = tmp_path / "spb8.csv"
+    input_path.write_text(
+        "account,platform,type,country,currency,start,end\n"
+        'kraken account,kraken,,,EUR,"1,234.56","2,345.67"\n',
+        encoding="utf-8",
+    )
+
+    rows = read_spb8_csv(input_path)
+
+    assert rows[0].start_nav == Decimal("1234.56")
+    assert rows[0].end_nav == Decimal("2345.67")
+
+
+def test_spb8_csv_accepts_explicit_comma_decimal_amounts(tmp_path: Path) -> None:
+    input_path = tmp_path / "spb8.csv"
+    input_path.write_text(
+        "account,platform,type,country,currency,start,end\n"
+        'kraken account,kraken,,,EUR,"1 234,56","2345,67"\n',
+        encoding="utf-8",
+    )
+
+    rows = read_spb8_csv(input_path, csv_decimal_separator="comma")
+
+    assert rows[0].start_nav == Decimal("1234.56")
+    assert rows[0].end_nav == Decimal("2345.67")
+
+
 def test_bulgaria_rows_are_kept_but_excluded_from_filing_rendering() -> None:
     rows = default_platform_rows(platform="afranga", account_name="afranga report")
     filtered, notes = filter_rows_for_options(rows, enabled=True, exclude_crypto=False)

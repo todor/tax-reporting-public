@@ -4,6 +4,7 @@ import argparse
 
 from integrations.shared.cli_helpers import CliMode, add_mode_argument, option_value, resolved_cache_dir
 from integrations.shared.contracts import AnalyzerDefinition, AnalyzerRunContext
+from integrations.shared.csv_numbers import CSV_DECIMAL_SEPARATOR_MODES
 from integrations.shared.result_builders import build_ibkr_result
 
 from .activity_statement_analyzer import analyze_ibkr_activity_statement
@@ -28,6 +29,7 @@ _IBKR_SUPPORTED_AGGREGATE_OVERRIDES = frozenset(
         "skip_period_validation",
         "no_net_cfd_financing",
         "negative_pil_mode",
+        "csv_decimal_separator",
     }
 )
 
@@ -105,6 +107,15 @@ def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
         choices=sorted(NEGATIVE_PIL_MODES),
         default=NEGATIVE_PIL_MODE_POSITION_AWARE,
         help="Negative IBKR Payment in Lieu handling mode",
+    )
+    add_mode_argument(
+        parser,
+        mode=mode,
+        analyzer_alias="ibkr",
+        single_flag="csv-decimal-separator",
+        choices=list(CSV_DECIMAL_SEPARATOR_MODES),
+        default="auto",
+        help='CSV decimal separator mode: auto, dot, or comma (default: auto)',
     )
 
 
@@ -186,6 +197,16 @@ def _build_options(
                 default=NEGATIVE_PIL_MODE_POSITION_AWARE,
             )
         ),
+        "csv_decimal_separator": str(
+            option_value(
+                args,
+                mode=mode,
+                single_attr="csv_decimal_separator",
+                group_options=group_options,
+                group_key="csv_decimal_separator",
+                default="auto",
+            )
+        ),
         "display_currency": str(
             option_value(
                 args,
@@ -215,6 +236,7 @@ def _run(context: AnalyzerRunContext):
         skip_period_validation=bool(context.options.get("skip_period_validation")),
         net_cfd_financing=bool(context.options.get("net_cfd_financing", True)),
         negative_pil_mode=str(context.options.get("negative_pil_mode", NEGATIVE_PIL_MODE_POSITION_AWARE)),
+        csv_decimal_separator=str(context.options.get("csv_decimal_separator", "auto")),
     )
     return build_ibkr_result(
         analyzer_alias="ibkr",
@@ -225,6 +247,7 @@ def _run(context: AnalyzerRunContext):
             "declaration_txt": result.declaration_txt_path,
         },
         summary=result.summary,
+        csv_decimal_info=result.csv_decimal_info,
     )
 
 

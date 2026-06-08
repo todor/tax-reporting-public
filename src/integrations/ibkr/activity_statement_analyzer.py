@@ -3,11 +3,19 @@ from __future__ import annotations
 import csv
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Literal
 
 from integrations.shared.contracts import UserFacingTaxError
+from integrations.shared.csv_numbers import (
+    CSV_DECIMAL_SEPARATOR_MODES,
+    CsvDecimalDetector,
+    CsvDecimalFormatInfo,
+    CsvDecimalSeparatorMode,
+    reset_current_csv_decimal_separator,
+    set_current_csv_decimal_separator,
+    try_parse_csv_decimal,
+)
 from integrations.shared.rendering.display_currency import build_render_context
 
 from .appendices.aggregations import (
@@ -136,6 +144,7 @@ def _validate_analysis_request(
     tax_exempt_mode: str,
     appendix8_dividend_list_mode: str,
     negative_pil_mode: str,
+    csv_decimal_separator: str,
 ) -> None:
     if tax_year < 2009 or tax_year > 2100:
         raise IbkrAnalyzerError(f"invalid tax year: {tax_year}")
@@ -151,6 +160,8 @@ def _validate_analysis_request(
         )
     if negative_pil_mode not in NEGATIVE_PIL_MODES:
         raise IbkrAnalyzerError(f"unsupported negative PIL mode: {negative_pil_mode}")
+    if csv_decimal_separator not in CSV_DECIMAL_SEPARATOR_MODES:
+        raise IbkrAnalyzerError(f"unsupported CSV decimal separator mode: {csv_decimal_separator}")
 
 
 def _resolve_input_path(input_csv: str | Path) -> Path:
@@ -166,6 +177,27 @@ def _load_csv_rows(input_path: Path) -> list[list[str]]:
     if not rows:
         raise CsvStructureError("empty CSV input")
     return rows
+
+
+def _resolve_csv_decimal_info(
+    rows: list[list[str]],
+    *,
+    input_path: Path,
+    csv_decimal_separator: CsvDecimalSeparatorMode,
+) -> CsvDecimalFormatInfo:
+    active_headers, _seen_headers = _build_active_headers(rows)
+    detector = CsvDecimalDetector(analyzer_alias="ibkr", input_path=input_path)
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        active_header = active_headers.get(row_idx)
+        if active_header is None:
+            for column_idx, value in enumerate(row, start=1):
+                detector.observe(value, row_number=row_number, column_name=f"column {column_idx}")
+            continue
+        for offset, value in enumerate(row[2:], start=0):
+            column_name = active_header.headers[offset] if offset < len(active_header.headers) else f"column {offset + 3}"
+            detector.observe(value, row_number=row_number, column_name=column_name)
+    return detector.resolve(csv_decimal_separator)
 
 
 def _appendix9_bucket(
@@ -625,17 +657,13 @@ def _has_realized_disposal_amount(data: list[str], active_header: _ActiveHeader)
 
 
 def _is_zero_decimal_text(raw: str) -> bool:
-    try:
-        return Decimal(raw.strip().replace(",", "")) == ZERO
-    except InvalidOperation:
-        return False
+    parsed = try_parse_csv_decimal(raw)
+    return parsed == ZERO if parsed is not None else False
 
 
 def _is_nonzero_decimal_text(raw: str) -> bool:
-    try:
-        return Decimal(raw.strip().replace(",", "")) != ZERO
-    except InvalidOperation:
-        return False
+    parsed = try_parse_csv_decimal(raw)
+    return parsed != ZERO if parsed is not None else False
 
 
 def analyze_ibkr_activity_statement(
@@ -653,6 +681,7 @@ def analyze_ibkr_activity_statement(
     skip_period_validation: bool = False,
     net_cfd_financing: bool = True,
     negative_pil_mode: str = NEGATIVE_PIL_MODE_POSITION_AWARE,
+    csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
     fx_rate_provider: FxRateProvider | None = None,
 ) -> AnalysisResult:
     _validate_analysis_request(
@@ -660,6 +689,7 @@ def analyze_ibkr_activity_statement(
         tax_exempt_mode=tax_exempt_mode,
         appendix8_dividend_list_mode=appendix8_dividend_list_mode,
         negative_pil_mode=negative_pil_mode,
+        csv_decimal_separator=csv_decimal_separator,
     )
 
     input_path = _resolve_input_path(input_csv)
@@ -668,212 +698,222 @@ def analyze_ibkr_activity_statement(
     out_dir.mkdir(parents=True, exist_ok=True)
     fx_provider = fx_rate_provider if fx_rate_provider is not None else _default_fx_provider(cache_dir)
     rows = _load_csv_rows(input_path)
-    _validate_base_currency(rows)
-    eu_regulated_exchange_overrides = _normalize_cli_eu_regulated_exchanges(eu_regulated_exchanges)
-    closed_world_mode = closed_world or bool(eu_regulated_exchange_overrides)
-
-    summary = AnalysisSummary(
-        tax_year=tax_year,
-        tax_exempt_mode=tax_exempt_mode,
-        dividend_tax_rate=DIVIDEND_TAX_RATE,
-        appendix8_dividend_list_mode=appendix8_dividend_list_mode,
-        net_cfd_financing=net_cfd_financing,
-        negative_pil_mode=negative_pil_mode,
-    )
-    if skip_period_validation:
-        summary.warnings.append(
-            "IBKR statement period validation was skipped; results may be incomplete or wrong."
-        )
-    else:
-        _validate_statement_period(rows, tax_year=tax_year)
-    unsupported_section_warning = _unsupported_section_warning(rows)
-    if unsupported_section_warning:
-        summary.warnings.append(unsupported_section_warning)
-    summary.spb8_corporate_actions_present = _has_corporate_actions(rows)
-    summary.exchange_classification_mode = _exchange_classification_mode_label(
-        eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
-        force_closed_world=closed_world_mode,
-    )
-    summary.cli_eu_regulated_overrides = set(eu_regulated_exchange_overrides)
-
-    active_headers, seen_headers = _build_active_headers(rows)
-    _validate_required_closedlot_rows(rows, active_headers=active_headers)
-    report_date_format = _infer_ibkr_report_date_format(rows, active_headers)
-    summary.report_date_format_label = report_date_format.label
-    summary.report_date_format_reason = report_date_format.reason
-    summary.closedlot_date_format_label = report_date_format.label
-    summary.closedlot_date_format_reason = report_date_format.reason
-    listings = parse_instrument_listings_with_headers(
+    csv_decimal_info = _resolve_csv_decimal_info(
         rows,
-        active_headers=active_headers,
-        seen_headers=seen_headers,
-        summary=summary,
-        eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
-        closed_world_mode=closed_world_mode,
+        input_path=input_path,
+        csv_decimal_separator=csv_decimal_separator,
     )
-    reconciliation_warnings = run_open_position_reconciliation(
-        rows=rows,
-        active_headers=active_headers,
-        listings=listings,
-    )
-    summary.review_required_rows += len(reconciliation_warnings)
-    summary.warnings.extend(reconciliation_warnings)
+    csv_decimal_token = set_current_csv_decimal_separator(csv_decimal_info.separator)
+    try:
+        _validate_base_currency(rows)
+        eu_regulated_exchange_overrides = _normalize_cli_eu_regulated_exchanges(eu_regulated_exchanges)
+        closed_world_mode = closed_world or bool(eu_regulated_exchange_overrides)
 
-    processed = _process_sections(
-        rows=rows,
-        active_headers=active_headers,
-        listings=listings,
-        summary=summary,
-        fx_provider=fx_provider,
-        tax_year=tax_year,
-        tax_exempt_mode=tax_exempt_mode,
-        eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
-        closed_world_mode=closed_world_mode,
-        report_date_format=report_date_format,
-        net_cfd_financing=net_cfd_financing,
-        negative_pil_mode=negative_pil_mode,
-    )
-    appendix9_components = processed.interest.components_by_country
-
-    _finalize_interest_withholding_totals(
-        summary=summary,
-    )
-    _compute_appendix_outputs(
-        summary=summary,
-        appendix9_components=appendix9_components,
-        appendix8_part1_by_country_currency=processed.open_positions.part1_by_country_currency,
-        out_dir=out_dir,
-        normalized_alias=normalized_alias,
-        tax_year=tax_year,
-    )
-    spb8 = extract_ibkr_spb8_rows(
-        rows=rows,
-        active_headers=active_headers,
-        listings=listings,
-        account_name=_extract_statement_account(rows, fallback=normalized_alias or input_path.stem),
-        corporate_actions_present=summary.spb8_corporate_actions_present,
-    )
-    summary.spb8_rows = spb8.rows
-    summary.spb8_notes = spb8.warnings
-    if summary.cfd_trade_rows > 0 or summary.cfd_open_position_rows > 0:
-        summary.spb8_notes.append(
-            "CFD позициите не се включват в СПБ-8, защото са деривативни/synthetic експозиции, а не реални ценни книжа с ISIN."
+        summary = AnalysisSummary(
+            tax_year=tax_year,
+            tax_exempt_mode=tax_exempt_mode,
+            dividend_tax_rate=DIVIDEND_TAX_RATE,
+            appendix8_dividend_list_mode=appendix8_dividend_list_mode,
+            net_cfd_financing=net_cfd_financing,
+            negative_pil_mode=negative_pil_mode,
         )
-    if summary.futures_mtm_rows > 0:
-        summary.spb8_notes.append(
-            "IBKR фючърсите не се включват като ценни книжа в СПБ-8, защото са "
-            "деривативни/парично сетълнати договори, а не реално притежавани ценни книжа "
-            "с ISIN. IBKR паричните средства/сметки се разглеждат отделно по правилата за СПБ-8."
-        )
-    if (
-        summary.option_closedlot_rows > 0
-        or summary.option_open_position_rows > 0
-        or summary.option_exercise_assignment_without_closedlot_rows > 0
-        or summary.option_unhandled_trade_rows > 0
-    ):
-        summary.spb8_notes.append("Опциите не се включват в СПБ-8 като притежавани ценни книжа.")
-
-    populate_trade_aggregate_extras(
-        rows=rows,
-        active_headers=active_headers,
-        listings=listings,
-        trades_row_extras=processed.trades.row_extras,
-    )
-
-    output_rows = build_output_rows(
-        rows=rows,
-        active_headers=active_headers,
-        trades_row_extras=processed.trades.row_extras,
-        trades_row_base_len=processed.trades.row_base_len,
-        interest_row_extras=processed.interest.row_extras,
-        interest_row_base_len=processed.interest.row_base_len,
-        dividends_row_extras=processed.dividends.row_extras,
-        dividends_row_base_len=processed.dividends.row_base_len,
-        dividends_row_added_columns=processed.dividends.row_added_columns,
-        withholding_row_extras=processed.withholding.row_extras,
-        withholding_row_base_len=processed.withholding.row_base_len,
-        withholding_row_added_columns=processed.withholding.row_added_columns,
-        open_positions_row_extras=processed.open_positions.row_extras,
-        open_positions_row_base_len=processed.open_positions.row_base_len,
-        open_positions_row_added_columns=processed.open_positions.row_added_columns,
-        fees_row_extras=processed.fees.row_extras,
-        fees_row_base_len=processed.fees.row_base_len,
-        fees_row_added_columns=processed.fees.row_added_columns,
-        futures_mtm_row_extras=processed.futures_mtm.row_extras,
-        futures_mtm_row_base_len=processed.futures_mtm.row_base_len,
-        futures_mtm_row_added_columns=processed.futures_mtm.row_added_columns,
-    )
-    validate_output_rows(
-        output_rows=output_rows,
-        active_headers=active_headers,
-        trades_row_base_len=processed.trades.row_base_len,
-        interest_row_base_len=processed.interest.row_base_len,
-        dividends_row_base_len=processed.dividends.row_base_len,
-        dividends_row_added_columns=processed.dividends.row_added_columns,
-        withholding_row_base_len=processed.withholding.row_base_len,
-        withholding_row_added_columns=processed.withholding.row_added_columns,
-        open_positions_row_base_len=processed.open_positions.row_base_len,
-        open_positions_row_added_columns=processed.open_positions.row_added_columns,
-        fees_row_base_len=processed.fees.row_base_len,
-        fees_row_added_columns=processed.fees.row_added_columns,
-        futures_mtm_row_base_len=processed.futures_mtm.row_base_len,
-        futures_mtm_row_added_columns=processed.futures_mtm.row_added_columns,
-    )
-
-    output_csv_path, declaration_txt_path = _output_paths(
-        out_dir=out_dir,
-        normalized_alias=normalized_alias,
-        tax_year=tax_year,
-    )
-
-    with output_csv_path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle)
-        writer.writerows(output_rows)
-
-    sanity = _run_sanity_checks(
-        rows=rows,
-        active_headers=active_headers,
-        listings=listings,
-        output_dir=out_dir,
-        normalized_alias=normalized_alias,
-        tax_year=tax_year,
-    )
-    _apply_sanity_to_summary(summary, sanity=sanity)
-
-    result = AnalysisResult(
-        input_csv_path=input_path,
-        output_csv_path=output_csv_path,
-        declaration_txt_path=declaration_txt_path,
-        report_alias=normalized_alias,
-        summary=summary,
-    )
-    render_context = build_render_context(
-        tax_year=tax_year,
-        display_currency=display_currency,
-        cache_dir=cache_dir,
-    )
-
-    declaration_txt_path.write_text(
-        _build_declaration_text(
-            result,
-            appendix9_allowable_credit_rate=APPENDIX_9_ALLOWABLE_CREDIT_RATE,
-            money_context=render_context.money_context,
-        ),
-        encoding="utf-8",
-    )
-    if not sanity.passed:
-        report_exists = sanity.report_path.exists()
-        debug_exists = sanity.debug_csv_path.exists()
-        raise IbkrAnalyzerError(
-            "SANITY CHECKS FAILED: {count} issues.\n"
-            "Sanity report: {report} (exists={report_exists})\n"
-            "Sanity debug CSV: {debug} (exists={debug_exists})".format(
-                count=len(sanity.failures),
-                report=sanity.report_path,
-                debug=sanity.debug_csv_path,
-                report_exists=str(report_exists).lower(),
-                debug_exists=str(debug_exists).lower(),
+        if skip_period_validation:
+            summary.warnings.append(
+                "IBKR statement period validation was skipped; results may be incomplete or wrong."
             )
+        else:
+            _validate_statement_period(rows, tax_year=tax_year)
+        unsupported_section_warning = _unsupported_section_warning(rows)
+        if unsupported_section_warning:
+            summary.warnings.append(unsupported_section_warning)
+        summary.spb8_corporate_actions_present = _has_corporate_actions(rows)
+        summary.exchange_classification_mode = _exchange_classification_mode_label(
+            eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
+            force_closed_world=closed_world_mode,
+        )
+        summary.cli_eu_regulated_overrides = set(eu_regulated_exchange_overrides)
+
+        active_headers, seen_headers = _build_active_headers(rows)
+        _validate_required_closedlot_rows(rows, active_headers=active_headers)
+        report_date_format = _infer_ibkr_report_date_format(rows, active_headers)
+        summary.report_date_format_label = report_date_format.label
+        summary.report_date_format_reason = report_date_format.reason
+        summary.closedlot_date_format_label = report_date_format.label
+        summary.closedlot_date_format_reason = report_date_format.reason
+        listings = parse_instrument_listings_with_headers(
+            rows,
+            active_headers=active_headers,
+            seen_headers=seen_headers,
+            summary=summary,
+            eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
+            closed_world_mode=closed_world_mode,
+        )
+        reconciliation_warnings = run_open_position_reconciliation(
+            rows=rows,
+            active_headers=active_headers,
+            listings=listings,
+        )
+        summary.review_required_rows += len(reconciliation_warnings)
+        summary.warnings.extend(reconciliation_warnings)
+
+        processed = _process_sections(
+            rows=rows,
+            active_headers=active_headers,
+            listings=listings,
+            summary=summary,
+            fx_provider=fx_provider,
+            tax_year=tax_year,
+            tax_exempt_mode=tax_exempt_mode,
+            eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
+            closed_world_mode=closed_world_mode,
+            report_date_format=report_date_format,
+            net_cfd_financing=net_cfd_financing,
+            negative_pil_mode=negative_pil_mode,
+        )
+        appendix9_components = processed.interest.components_by_country
+
+        _finalize_interest_withholding_totals(
+            summary=summary,
+        )
+        _compute_appendix_outputs(
+            summary=summary,
+            appendix9_components=appendix9_components,
+            appendix8_part1_by_country_currency=processed.open_positions.part1_by_country_currency,
+            out_dir=out_dir,
+            normalized_alias=normalized_alias,
+            tax_year=tax_year,
+        )
+        spb8 = extract_ibkr_spb8_rows(
+            rows=rows,
+            active_headers=active_headers,
+            listings=listings,
+            account_name=_extract_statement_account(rows, fallback=normalized_alias or input_path.stem),
+            corporate_actions_present=summary.spb8_corporate_actions_present,
+        )
+        summary.spb8_rows = spb8.rows
+        summary.spb8_notes = spb8.warnings
+        if summary.cfd_trade_rows > 0 or summary.cfd_open_position_rows > 0:
+            summary.spb8_notes.append(
+                "CFD позициите не се включват в СПБ-8, защото са деривативни/synthetic експозиции, а не реални ценни книжа с ISIN."
+            )
+        if summary.futures_mtm_rows > 0:
+            summary.spb8_notes.append(
+                "IBKR фючърсите не се включват като ценни книжа в СПБ-8, защото са "
+                "деривативни/парично сетълнати договори, а не реално притежавани ценни книжа "
+                "с ISIN. IBKR паричните средства/сметки се разглеждат отделно по правилата за СПБ-8."
+            )
+        if (
+            summary.option_closedlot_rows > 0
+            or summary.option_open_position_rows > 0
+            or summary.option_exercise_assignment_without_closedlot_rows > 0
+            or summary.option_unhandled_trade_rows > 0
+        ):
+            summary.spb8_notes.append("Опциите не се включват в СПБ-8 като притежавани ценни книжа.")
+
+        populate_trade_aggregate_extras(
+            rows=rows,
+            active_headers=active_headers,
+            listings=listings,
+            trades_row_extras=processed.trades.row_extras,
         )
 
-    return result
+        output_rows = build_output_rows(
+            rows=rows,
+            active_headers=active_headers,
+            trades_row_extras=processed.trades.row_extras,
+            trades_row_base_len=processed.trades.row_base_len,
+            interest_row_extras=processed.interest.row_extras,
+            interest_row_base_len=processed.interest.row_base_len,
+            dividends_row_extras=processed.dividends.row_extras,
+            dividends_row_base_len=processed.dividends.row_base_len,
+            dividends_row_added_columns=processed.dividends.row_added_columns,
+            withholding_row_extras=processed.withholding.row_extras,
+            withholding_row_base_len=processed.withholding.row_base_len,
+            withholding_row_added_columns=processed.withholding.row_added_columns,
+            open_positions_row_extras=processed.open_positions.row_extras,
+            open_positions_row_base_len=processed.open_positions.row_base_len,
+            open_positions_row_added_columns=processed.open_positions.row_added_columns,
+            fees_row_extras=processed.fees.row_extras,
+            fees_row_base_len=processed.fees.row_base_len,
+            fees_row_added_columns=processed.fees.row_added_columns,
+            futures_mtm_row_extras=processed.futures_mtm.row_extras,
+            futures_mtm_row_base_len=processed.futures_mtm.row_base_len,
+            futures_mtm_row_added_columns=processed.futures_mtm.row_added_columns,
+        )
+        validate_output_rows(
+            output_rows=output_rows,
+            active_headers=active_headers,
+            trades_row_base_len=processed.trades.row_base_len,
+            interest_row_base_len=processed.interest.row_base_len,
+            dividends_row_base_len=processed.dividends.row_base_len,
+            dividends_row_added_columns=processed.dividends.row_added_columns,
+            withholding_row_base_len=processed.withholding.row_base_len,
+            withholding_row_added_columns=processed.withholding.row_added_columns,
+            open_positions_row_base_len=processed.open_positions.row_base_len,
+            open_positions_row_added_columns=processed.open_positions.row_added_columns,
+            fees_row_base_len=processed.fees.row_base_len,
+            fees_row_added_columns=processed.fees.row_added_columns,
+            futures_mtm_row_base_len=processed.futures_mtm.row_base_len,
+            futures_mtm_row_added_columns=processed.futures_mtm.row_added_columns,
+        )
+
+        output_csv_path, declaration_txt_path = _output_paths(
+            out_dir=out_dir,
+            normalized_alias=normalized_alias,
+            tax_year=tax_year,
+        )
+
+        with output_csv_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerows(output_rows)
+
+        sanity = _run_sanity_checks(
+            rows=rows,
+            active_headers=active_headers,
+            listings=listings,
+            output_dir=out_dir,
+            normalized_alias=normalized_alias,
+            tax_year=tax_year,
+        )
+        _apply_sanity_to_summary(summary, sanity=sanity)
+
+        result = AnalysisResult(
+            input_csv_path=input_path,
+            output_csv_path=output_csv_path,
+            declaration_txt_path=declaration_txt_path,
+            report_alias=normalized_alias,
+            summary=summary,
+            csv_decimal_info=csv_decimal_info,
+        )
+        render_context = build_render_context(
+            tax_year=tax_year,
+            display_currency=display_currency,
+            cache_dir=cache_dir,
+        )
+
+        declaration_txt_path.write_text(
+            _build_declaration_text(
+                result,
+                appendix9_allowable_credit_rate=APPENDIX_9_ALLOWABLE_CREDIT_RATE,
+                money_context=render_context.money_context,
+            ),
+            encoding="utf-8",
+        )
+        if not sanity.passed:
+            report_exists = sanity.report_path.exists()
+            debug_exists = sanity.debug_csv_path.exists()
+            raise IbkrAnalyzerError(
+                "SANITY CHECKS FAILED: {count} issues.\n"
+                "Sanity report: {report} (exists={report_exists})\n"
+                "Sanity debug CSV: {debug} (exists={debug_exists})".format(
+                    count=len(sanity.failures),
+                    report=sanity.report_path,
+                    debug=sanity.debug_csv_path,
+                    report_exists=str(report_exists).lower(),
+                    debug_exists=str(debug_exists).lower(),
+                )
+            )
+
+        return result
+    finally:
+        reset_current_csv_decimal_separator(csv_decimal_token)

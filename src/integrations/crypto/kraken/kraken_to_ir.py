@@ -14,6 +14,7 @@ from integrations.crypto.shared.crypto_ir_models import (
     ZERO,
 )
 from integrations.crypto.shared.runtime import EurUnitRateProvider
+from integrations.shared.csv_numbers import CsvDecimalSeparator, CsvDecimalSeparatorMode, DEFAULT_CSV_DECIMAL_SEPARATOR
 
 from .constants import USD_LIKE_ASSETS
 from .kraken_parser import (
@@ -51,7 +52,13 @@ class _ParsedKrakenRow:
     cost_basis_raw: str
 
 
-def _parse_row(raw: dict[str, str], *, row_number: int, schema) -> _ParsedKrakenRow:
+def _parse_row(
+    raw: dict[str, str],
+    *,
+    row_number: int,
+    schema,
+    decimal_separator: CsvDecimalSeparator,
+) -> _ParsedKrakenRow:
     return _ParsedKrakenRow(
         row_number=row_number,
         txid=raw.get(schema.txid, "").strip(),
@@ -63,9 +70,24 @@ def _parse_row(raw: dict[str, str], *, row_number: int, schema) -> _ParsedKraken
         subclass=raw.get(schema.subclass, "").strip().lower(),
         asset=raw.get(schema.asset, "").strip().upper(),
         wallet=raw.get(schema.wallet, "").strip(),
-        amount=parse_decimal(raw.get(schema.amount, ""), row_number=row_number, field_name="amount"),
-        fee=parse_decimal(raw.get(schema.fee, ""), row_number=row_number, field_name="fee"),
-        balance=parse_decimal(raw.get(schema.balance, ""), row_number=row_number, field_name="balance"),
+        amount=parse_decimal(
+            raw.get(schema.amount, ""),
+            row_number=row_number,
+            field_name="amount",
+            decimal_separator=decimal_separator,
+        ),
+        fee=parse_decimal(
+            raw.get(schema.fee, ""),
+            row_number=row_number,
+            field_name="fee",
+            decimal_separator=decimal_separator,
+        ),
+        balance=parse_decimal(
+            raw.get(schema.balance, ""),
+            row_number=row_number,
+            field_name="balance",
+            decimal_separator=decimal_separator,
+        ),
         review_status_raw=raw.get(schema.review_status, "").strip() if schema.review_status is not None else "",
         cost_basis_raw=raw.get(schema.cost_basis_eur, "").strip() if schema.cost_basis_eur is not None else "",
     )
@@ -149,6 +171,7 @@ def _manual_receive_fields_or_warn(
     row: _ParsedKrakenRow,
     summary: IrAnalysisSummary,
     combo_name: str,
+    decimal_separator: CsvDecimalSeparator,
 ) -> tuple[str, Decimal | None, bool] | None:
     if row.review_status_raw == "":
         _add_unsupported_row(
@@ -194,6 +217,7 @@ def _manual_receive_fields_or_warn(
             row.cost_basis_raw,
             row_number=row.row_number,
             field_name="Cost Basis (EUR)",
+            decimal_separator=decimal_separator,
         )
     except KrakenAnalyzerError:
         _add_unsupported_row(
@@ -297,11 +321,20 @@ def load_and_map_kraken_csv_to_ir(
     input_csv: str,
     summary: IrAnalysisSummary,
     eur_unit_rate_provider: EurUnitRateProvider,
+    csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
 ) -> KrakenIrMappingResult:
-    loaded = load_kraken_csv(input_csv)
+    loaded = load_kraken_csv(input_csv, csv_decimal_separator=csv_decimal_separator)
+    decimal_separator = (
+        loaded.csv_decimal_info.separator if loaded.csv_decimal_info is not None else DEFAULT_CSV_DECIMAL_SEPARATOR
+    )
     parsed_rows: list[_ParsedKrakenRow] = []
     for row in loaded.rows:
-        parsed = _parse_row(row.raw, row_number=row.row_number, schema=loaded.schema)
+        parsed = _parse_row(
+            row.raw,
+            row_number=row.row_number,
+            schema=loaded.schema,
+            decimal_separator=decimal_separator,
+        )
         parsed_rows.append(parsed)
         if parsed.review_status_raw != "":
             summary.manual_check_overrides_rows += 1
@@ -389,6 +422,7 @@ def load_and_map_kraken_csv_to_ir(
                     row=row,
                     summary=summary,
                     combo_name=combo,
+                    decimal_separator=decimal_separator,
                 )
                 if manual_fields is None:
                     consumed_rows.add(row.row_number)
@@ -616,6 +650,7 @@ def load_and_map_kraken_csv_to_ir(
                     row=row,
                     summary=summary,
                     combo_name=combo,
+                    decimal_separator=decimal_separator,
                 )
                 if manual_fields is None:
                     consumed_rows.add(row.row_number)
