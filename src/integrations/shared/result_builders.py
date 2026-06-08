@@ -794,15 +794,14 @@ def build_ibkr_result(
         AnalysisDiagnostic(severity="MANUAL_REVIEW", message=reason, analyzer_alias=analyzer_alias)
         for reason in _build_manual_check_reasons(summary)
     )
-    if summary.positive_wht_rows_netted > 0 or summary.withholding_non_positive_net_buckets > 0:
+    if summary.withholding_non_positive_net_buckets > 0:
         legacy_diagnostics.append(
             AnalysisDiagnostic(
                 severity="WARNING",
                 analyzer_alias=analyzer_alias,
                 code="IBKR_DIVIDEND_WHT_REVERSAL_REVIEW",
                 message=(
-                    "Positive dividend withholding tax rows were netted against current-year "
-                    "Appendix 8 foreign tax."
+                    "Appendix 8 groups have non-positive net foreign tax after positive WHT corrections."
                 ),
                 params={
                     "positive_wht_rows": summary.positive_wht_rows_netted,

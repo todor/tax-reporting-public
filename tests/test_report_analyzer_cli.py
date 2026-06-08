@@ -1684,10 +1684,7 @@ def test_ibkr_positive_withholding_reversal_is_one_structured_action_item() -> N
     diagnostics = [
         AnalysisDiagnostic(
             severity="WARNING",
-            message=(
-                "Positive dividend withholding tax rows were netted against current-year "
-                "Appendix 8 foreign tax."
-            ),
+            message="Appendix 8 groups have non-positive net foreign tax after positive WHT corrections.",
             analyzer_alias="ibkr",
             code="IBKR_DIVIDEND_WHT_REVERSAL_REVIEW",
             params={"positive_wht_rows": 1, "non_positive_net_buckets": 1},
@@ -1703,15 +1700,15 @@ def test_ibkr_positive_withholding_reversal_is_one_structured_action_item() -> N
     )
 
     assert "UNCLASSIFIED" not in main
-    assert main.count("IBKR: открити са положителни Withholding Tax редове") == 1
+    assert main.count("IBKR: има Appendix 8 групи с нулев или отрицателен нетен чуждестранен данък") == 1
     assert "Положителни Withholding Tax редове: 1." not in main
-    assert "Избран е режим current-year-net" in main
-    assert "--positive-wht-mode prior-year-correction" in main
-    assert "--ibkr-positive-wht-mode prior-year-correction" in main
-    assert "Има Appendix 8 групи с нулев или отрицателен нетен чуждестранен данък" in main
+    assert "Избран е режим current-year-net" not in main
+    assert "--positive-wht-mode prior-year-correction" not in main
+    assert "--ibkr-positive-wht-mode prior-year-correction" not in main
+    assert "има Appendix 8 групи с нулев или отрицателен нетен чуждестранен данък" in main
     assert "UNCLASSIFIED" not in technical
     assert "[WARNING] [ibkr] IBKR_DIVIDEND_WHT_REVERSAL_REVIEW" in technical
-    assert "message: Positive dividend withholding tax rows were netted" in technical
+    assert "message: Appendix 8 groups have non-positive net foreign tax after positive WHT corrections." in technical
     assert "message: Открит е положителен ред" not in technical
     assert "Нетният чуждестранен данък" not in technical
 
@@ -1720,7 +1717,7 @@ def test_ibkr_positive_withholding_prior_year_mode_warning_is_mode_aware() -> No
     diagnostics = [
         AnalysisDiagnostic(
             severity="WARNING",
-            message="Positive dividend withholding tax rows were netted against current-year Appendix 8 foreign tax.",
+            message="Appendix 8 groups have non-positive net foreign tax after positive WHT corrections.",
             analyzer_alias="ibkr",
             code="IBKR_DIVIDEND_WHT_REVERSAL_REVIEW",
             params={
@@ -1733,9 +1730,10 @@ def test_ibkr_positive_withholding_prior_year_mode_warning_is_mode_aware() -> No
 
     main = "\n".join(render_action_items(diagnostics))
 
-    assert "Избран е режим prior-year-correction" in main
-    assert "с дата в текущата данъчна година" in main
-    assert "с дата в предходни години се показват отделно" in main
+    assert "IBKR: има Appendix 8 групи с нулев или отрицателен нетен чуждестранен данък" in main
+    assert "Избран е режим prior-year-correction" not in main
+    assert "с дата в текущата данъчна година" not in main
+    assert "с дата в предходни години се показват отделно" not in main
     assert "--positive-wht-mode prior-year-correction" not in main
 
 

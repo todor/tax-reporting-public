@@ -1212,53 +1212,12 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
 
     if diagnostic.code == "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW":
         non_positive_buckets = diagnostic.params.get("non_positive_net_buckets")
-        mode = str(diagnostic.params.get("positive_wht_mode") or "current-year-net")
         lines = [
-            "IBKR: открити са положителни Withholding Tax редове за дивиденти, които изглеждат като "
-            "възстановен/коригиран чуждестранен данък.",
+            "IBKR: има Appendix 8 групи с нулев или отрицателен нетен чуждестранен данък след "
+            "положителни WHT корекции. За тях инструментът не признава данъчен кредит.",
         ]
-        if mode == "prior-year-correction":
-            lines.extend(
-                [
-                    "Избран е режим prior-year-correction. Положителните WHT редове с дата в текущата "
-                    "данъчна година се приспадат от чуждестранния данък за текущия отчет.",
-                    "Положителните WHT редове с дата в предходни години се показват отделно в секцията "
-                    '"Корекции към предходни години".',
-                ]
-            )
-        else:
-            lines.append(
-                f"Избран е режим {mode}. В този режим инструментът ги приспада от чуждестранния данък "
-                "за текущия отчет."
-            )
         if non_positive_buckets:
-            lines.extend(
-                [
-                    "Има Appendix 8 групи с нулев или отрицателен нетен чуждестранен данък след корекциите.",
-                    "За тях инструментът не признава данъчен кредит.",
-                ]
-            )
-        lines.extend(
-            [
-                "Какво да направите:",
-            ]
-        )
-        if mode == "prior-year-correction":
-            lines.extend(
-                [
-                    "- Проверете текущогодишните положителни WHT редове, които остават нетирани в текущия отчет.",
-                    '- За редовете от предходни години използвайте секцията "Корекции към предходни години".',
-                ]
-            )
-        else:
-            lines.extend(
-                [
-                    "- Проверете дали избраният режим отговаря на начина, по който искате да третирате положителните WHT корекции.",
-                    "- Ако искате да ги разглеждате като корекции към вече деклариран чуждестранен данък за предходни години, използвайте --positive-wht-mode prior-year-correction.",
-                    "- В aggregate режим може да зададете IBKR-специфичен override с --ibkr-positive-wht-mode prior-year-correction, ако общият режим трябва да остане различен.",
-                    "- Ако използвате прагматичния current-year-net подход, не е нужно да прехвърляте тези редове ръчно към предходна декларация.",
-                ]
-            )
+            lines.append(f"Засегнати Appendix 8 групи: {non_positive_buckets}.")
         return lines
 
     if diagnostic.code == "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL":

@@ -581,6 +581,12 @@ def test_positive_dividend_withholding_larger_than_negative_withholding_creates_
     assert company_row.method_code == "3"
     assert result.summary.withholding_non_positive_net_buckets == 1
     assert not any("Нетният чуждестранен данък" in warning for warning in result.summary.warnings)
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "IBKR — положителен Withholding Tax" in text
+    assert "Открити положителни IBKR Withholding Tax редове за дивиденти: 1." in text
+    assert "Избран режим: current-year-net." in text
+    assert "--positive-wht-mode prior-year-correction" in text
+    assert "--ibkr-positive-wht-mode prior-year-correction" in text
 
 
 def test_positive_dividend_withholding_amount_eur_stays_signed_in_enriched_csv(tmp_path: Path) -> None:

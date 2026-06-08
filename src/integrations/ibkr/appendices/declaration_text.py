@@ -1066,6 +1066,36 @@ def _positive_wht_corrections_methodology_text() -> str:
     )
 
 
+def _positive_wht_mode_methodology_text(summary: AnalysisSummary) -> str:
+    lines = [
+        f"Открити положителни IBKR Withholding Tax редове за дивиденти: {summary.positive_wht_rows_found}.",
+        f"Избран режим: {summary.positive_wht_mode}.",
+    ]
+    if summary.positive_wht_mode == "prior-year-correction":
+        lines.extend(
+            [
+                "В този режим положителните WHT редове с дата в текущата данъчна година се приспадат от "
+                "чуждестранния данък за текущия отчет.",
+                "Положителните WHT редове с дата в предходни години се показват отделно в секцията "
+                '"Корекции към предходни години".',
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                "В режим current-year-net инструментът приспада положителните WHT редове от чуждестранния "
+                "данък за текущия отчет.",
+                "Ако искате да ги разглеждате като корекции към вече деклариран чуждестранен данък за "
+                "предходни години, използвайте --positive-wht-mode prior-year-correction.",
+                "В aggregate режим може да зададете IBKR-специфичен override с "
+                "--ibkr-positive-wht-mode prior-year-correction, ако общият режим трябва да остане различен.",
+                "Ако използвате прагматичния current-year-net подход, не е нужно да прехвърляте тези редове "
+                "ръчно към предходна декларация.",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def _positive_wht_corrections_section_lines(summary: AnalysisSummary) -> list[str]:
     if not summary.appendix_8_positive_wht_corrections:
         return []
@@ -1113,14 +1143,15 @@ def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainRe
             category="duplicate_individual_context",
         )
     ]
-    notes.append(
-        MainReportNote(
-            section_title="Настройки на анализа",
-            text=f"Режим за положителен IBKR Withholding Tax: {summary.positive_wht_mode}.",
-            analyzer_alias="ibkr",
-            category="setting",
+    if summary.positive_wht_rows_found > 0:
+        notes.append(
+            MainReportNote(
+                section_title="IBKR — положителен Withholding Tax",
+                text=_positive_wht_mode_methodology_text(summary),
+                analyzer_alias="ibkr",
+                category="methodology",
+            )
         )
-    )
     notes.append(
         MainReportNote(
             section_title=market_section,
