@@ -173,6 +173,23 @@ class Appendix8Part1Row:
 
 
 @dataclass(slots=True)
+class PositiveWhtCorrection:
+    row_number: int
+    tax_date: date
+    currency: str
+    amount: Decimal
+    amount_eur: Decimal
+    description: str
+    payer_name: str
+    country_english: str
+    country_bulgarian: str
+    income_code: str
+    method_code: str
+    review_required: bool
+    review_reason: str = ""
+
+
+@dataclass(slots=True)
 class Appendix9CountryTotals:
     country_iso: str
     country_english: str
@@ -267,6 +284,13 @@ class AnalysisSummary:
     withholding_non_dividend_rows: int = 0
     withholding_country_errors_rows: int = 0
     withholding_positive_dividend_rows: int = 0
+    positive_wht_mode: str = "current-year-net"
+    positive_wht_rows_found: int = 0
+    positive_wht_rows_netted: int = 0
+    positive_wht_rows_prior_year_corrections: int = 0
+    positive_wht_rows_mapped: int = 0
+    positive_wht_rows_unmapped: int = 0
+    appendix_8_positive_wht_corrections: list[PositiveWhtCorrection] = field(default_factory=list)
     withholding_non_positive_net_buckets: int = 0
     appendix8_dividend_list_mode: str = APPENDIX8_LIST_MODE_COMPANY
     appendix_8_by_country: dict[str, Appendix8CountryTotals] = field(default_factory=dict)
@@ -344,6 +368,7 @@ class AnalysisSummary:
     pil_negative_deferred_eur: Decimal = ZERO
     pil_negative_review_eur: Decimal = ZERO
     pil_negative_skipped_eur: Decimal = ZERO
+    pil_appendix8_rows: int = 0
     negative_pil_decisions: list[NegativePilDecision] = field(default_factory=list)
     negative_pil_closed_exposure_ranges: int = 0
 

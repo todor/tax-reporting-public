@@ -173,8 +173,10 @@ def test_futures_spb8_exclusion_note_appears_once_in_aggregate_report(tmp_path: 
 
     note = "IBKR фючърсите не се включват като ценни книжа в СПБ-8"
     assert rendered.count(note) == 1
-    assert "Бележки към СПБ-8" in rendered
+    assert "Бележки към СПБ-8" not in rendered
     lines = rendered.splitlines()
+    assert "Методологични бележки" in lines
+    assert "СПБ-8" in lines[lines.index("Методологични бележки") :]
     futures_index = lines.index("Фючърси — IBKR daily cash-settled MTM")
     futures_block: list[str] = []
     for line in lines[futures_index + 1 :]:

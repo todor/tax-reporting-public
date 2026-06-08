@@ -94,7 +94,7 @@ Important notes:
 - Use one full report for the selected tax year. The `Statement -> Period` row must cover exactly January 1 through December 31 of `--tax-year`, for example `January 1, 2025 - December 31, 2025`.
 - The account base currency must be EUR. The analyzer validates the `Account Information,Data,Base Currency,EUR` row before tax calculations start.
 - Wrong or missing statement periods fail by default because tax reporting and SPB-8 can be incorrect.
-- `--skip-period-validation` is for development/testing with partial reports only; do not use it for real tax reporting.
+- IBKR section row dates are not used as a generic discard rule. Rows in sections such as `Dividends` and `Withholding Tax` can have a `Date` outside the tax year and still be relevant when IBKR includes them in the annual statement, for example correction/refund rows.
 
 ## CLI Options
 
@@ -107,9 +107,9 @@ These options apply to the single `ibkr` command. In aggregate mode, the same ov
 - `--eu-regulated-exchange`: additional EU-regulated exchange code override; can be passed multiple times or comma-separated
 - `--closed-world`: force closed-world exchange classification even without `--eu-regulated-exchange`
 - `--report-alias`: optional alias added in output filenames
-- `--skip-period-validation`: skip strict full-year Statement Period validation; development/testing only
 - `--no-net-cfd-financing`: do not net CFD financing into Appendix 5; positive amounts go to Appendix 6 code 606 and negative amounts are skipped
 - `--negative-pil-mode {position-aware,always-net,ignore}`: controls negative Payment in Lieu handling (default: `position-aware`)
+- `--positive-wht-mode {current-year-net,prior-year-correction}`: controls positive dividend Withholding Tax corrections (default: `current-year-net`)
 - `--csv-decimal-separator {auto,dot,comma}`: CSV decimal separator mode (default: `auto`)
 - `--output-dir`: optional output root (default `output/ibkr/activity_statement`)
 - `--cache-dir`: optional `bnb_fx` cache override
@@ -294,12 +294,49 @@ If the active section header contains a `Review Status` column, the analyzer use
 - expected values are `TAXABLE` / `NON-TAXABLE` (or empty)
 - any other value is treated as invalid and triggers warning + manual review
 - recognized routing:
-  - dividend withholding rows (`Cash Dividend`) -> `Appendix 8`
+  - dividend withholding rows (`Cash Dividend` or `Payment in Lieu of Dividend`) -> `Appendix 8`
   - withholding rows whose description contains `interest` -> `Appendix 9` (`Country=Ireland`, `ISIN` empty)
 - interest rows in `Withholding Tax` are the Appendix 9 paid-tax source of truth
 - `Mark-to-Market Performance Summary / Withholding on Interest Received` is not used for Appendix 9 paid tax
+- negative dividend WHT normally means foreign tax withheld/paid; positive dividend WHT normally means a refund, reversal, or correction of previously withheld foreign tax
+- in the default `--positive-wht-mode current-year-net`, positive dividend WHT reduces current-report Appendix 8 foreign tax and declared foreign tax is clamped at zero
+- in `--positive-wht-mode prior-year-correction`, positive dividend WHT is excluded from current-year WHT and printed under `Корекции към предходни години` / `Приложение 8, Част III`
 
 Unknown or unresolved rows contribute to the global manual-check state.
+
+### Positive dividend WHT corrections
+
+IBKR may include positive `Withholding Tax` rows in the annual statement. A negative WHT amount normally means foreign tax was withheld/paid; a positive WHT amount normally means a refund, reversal, or correction of previously withheld foreign tax. The row `Date` may be outside the selected tax year even when the row belongs to the annual statement.
+
+Modes:
+
+```bash
+uv run tax-reporting ibkr --positive-wht-mode current-year-net ...
+uv run tax-reporting ibkr --positive-wht-mode prior-year-correction ...
+uv run tax-reporting --input-dir inputs --tax-year 2025 --positive-wht-mode prior-year-correction
+uv run tax-reporting --input-dir inputs --tax-year 2025 --positive-wht-mode current-year-net --ibkr-positive-wht-mode prior-year-correction
+```
+
+- `current-year-net` is the default pragmatic mode. Positive dividend WHT reduces foreign tax in the current report, and declared foreign tax is never allowed to become negative.
+- `prior-year-correction` excludes positive dividend WHT from current-year Appendix 8 WHT and prints `Корекции към предходни години` / `Приложение 8, Част III`.
+- In `prior-year-correction`, use the correction section to revisit the previous Appendix 8, Part III row. The tool does not automatically amend already-filed declarations.
+
+Sample correction instructions:
+
+```text
+Платен данък в чужбина = max(0, Платен данък в чужбина преди корекция - Платен данък в чужбина (корекция))
+Размер на признатия данъчен кредит = min(Платен данък в чужбина, Допустим размер на данъчния кредит)
+Дължим данък, подлежащ на внасяне = Допустим размер на данъчния кредит - Размер на признатия данъчен кредит
+```
+
+### Security identifiers in dividend/WHT descriptions
+
+The parser distinguishes real ISINs from IBKR numeric contract ids:
+
+- `HTGC (US4270965084)` -> symbol `HTGC`, identifier `US4270965084`, type `ISIN`
+- `HTGC(34822226)` -> symbol `HTGC`, identifier `34822226`, type `IBKR_CONID`
+
+Numeric-only identifiers are not treated as ISINs. When the cash row contains only a numeric IBKR contract id, the analyzer uses the symbol and `Financial Instrument Information` mapping where available.
 
 ## Exchange Rules
 
@@ -415,19 +452,11 @@ IBKR may report CFD financing in the `Fees` section, for example `Long CFD Inter
 
 IBKR may report `Payment in Lieu of Dividend (Ordinary Dividend)` in the `Dividends` section.
 
-- PIL is not treated as a real dividend and is not declared in `Приложение 8`.
-- Only negative PIL rows are netted by default.
-- Positive PIL is treated as dividend-equivalent income and is declared in `Приложение 6`, code `606`.
-- Negative PIL is treated as a position-related cost/adjustment. With the default `--negative-pil-mode position-aware`, only rows whose final status is `NET` are included in `Приложение 5`, code `508`.
+- Dividend-like PIL rows are included in `Приложение 8` together with foreign dividends by default.
+- The tool prints an informational note when `Payment in Lieu of Dividend` rows are used. These rows do not require manual review merely because they are PIL.
+- Negative `Payment in Lieu of Dividend (Ordinary Dividend)` rows are still handled by the position-aware negative-PIL flow. With the default `--negative-pil-mode position-aware`, only rows whose final status is `NET` are included in `Приложение 5`, code `508`.
 - IBKR Activity Statements do not reliably identify from the PIL row alone whether the payment relates to a CFD, short stock position, stock lending / substitute payment mechanics, synthetic exposure, or a correction/reversal.
 - Because of this, the tool does not classify negative PIL as specifically CFD-related. In `position-aware` mode it matches against short exposure ranges for netting eligibility, but it does not claim a definitive source or allocate the PIL amount to an exact lot.
-- The sign-based policy is intentional:
-
-```text
-positive PIL -> income-like fallback -> Appendix 6, code 606
-negative PIL -> cost/adjustment-like fallback -> Appendix 5, code 508
-```
-
 - Negative PIL is netted because, regardless of whether the source is short stock, CFD-like exposure, synthetic exposure, or a reversal, it is generally not ordinary dividend income. It is more appropriately treated as a cost or adjustment connected to the exposure that generated the dividend-equivalent payment.
 - This is a pragmatic fallback. Since the IBKR row is not matched to a specific open or closed position, the tool cannot guarantee that the related position was closed during the same tax year.
 - Use `--negative-pil-mode ignore` to skip automatic negative PIL netting and review those rows manually. Use `--negative-pil-mode always-net` only when you intentionally want the previous blind-netting behavior.
@@ -448,7 +477,7 @@ Some rows require user review before they can be applied automatically.
 
 ### Negative Payment in Lieu manual review
 
-Only negative `Payment in Lieu of Dividend (Ordinary Dividend)` rows use this flow. Positive PIL remains dividend-equivalent income and is declared in `Приложение 6`, code `606`.
+Only negative `Payment in Lieu of Dividend (Ordinary Dividend)` rows use this flow. Positive/dividend-like PIL rows remain in the normal Appendix 8 dividend flow and do not require manual review merely because they are PIL.
 
 Negative PIL is position-related because it is generally not ordinary dividend income; it is a cost/adjustment connected to the exposure that generated the dividend-equivalent payment. The tool supports these statuses:
 

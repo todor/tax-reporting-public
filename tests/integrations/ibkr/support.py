@@ -273,6 +273,7 @@ def _run(
     closed_world: bool = False,
     net_cfd_financing: bool = True,
     negative_pil_mode: str = "position-aware",
+    positive_wht_mode: str = "current-year-net",
 ):
     input_csv = tmp_path / "input.csv"
     _write_rows(input_csv, rows)
@@ -287,6 +288,7 @@ def _run(
         closed_world=closed_world,
         net_cfd_financing=net_cfd_financing,
         negative_pil_mode=negative_pil_mode,
+        positive_wht_mode=positive_wht_mode,
         fx_rate_provider=_fx_provider,
     )
 

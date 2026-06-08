@@ -726,18 +726,20 @@ def test_negative_pil_ignore_note_row_refs_use_final_ignored_rows_only(tmp_path:
     assert f"Засегнати редове: {overridden_row}" not in text
 
 
-def test_positive_payment_in_lieu_always_goes_to_appendix6_code606(tmp_path: Path) -> None:
+def test_positive_payment_in_lieu_goes_to_appendix8_as_dividend_like_income(tmp_path: Path) -> None:
     rows = _cfd_rows()
+    _add_eccc_listing(rows)
     rows.append(["Dividends", "Data", "USD", "2025-11-29", "ECCC(US2698097035) Payment in Lieu of Dividend (Ordinary Dividend)", "10"])
 
     result = _run(tmp_path, rows, mode="listing_exchange", negative_pil_mode="ignore")
 
-    assert result.summary.appendix_6_positive_pil_eur == Decimal("9")
-    assert result.summary.appendix_6_code_606_eur == Decimal("9")
+    assert result.summary.appendix_6_positive_pil_eur == Decimal("0")
+    assert result.summary.appendix_6_code_606_eur == Decimal("0")
+    assert result.summary.pil_appendix8_rows == 1
+    assert result.summary.appendix_8_output_rows[0].gross_dividend_eur == Decimal("9")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert "код 606" in text
-    assert "Положителният Payment in Lieu of Dividend (PIL) е деклариран в Приложение 6, код 606." in text
-    assert "Positive PIL policy: appendix_6_code_606" in text
+    assert 'IBKR редове "Payment in Lieu of Dividend" са третирани като дивидентоподобен доход' in text
+    assert "Positive PIL policy: appendix_6_code_606" not in text
 
 
 def test_readme_documents_negative_pil_manual_review_workflow() -> None:

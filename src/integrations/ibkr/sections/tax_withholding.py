@@ -9,6 +9,7 @@ from ..constants import (
     INTEREST_STATUS_NON_TAXABLE,
     INTEREST_STATUS_TAXABLE,
     INTEREST_STATUS_UNKNOWN,
+    POSITIVE_WHT_MODE_PRIOR_YEAR_CORRECTION,
     REVIEW_STATUS_NON_TAXABLE,
     REVIEW_STATUS_TAXABLE,
 )
@@ -19,6 +20,7 @@ from ..models import (
     Appendix9CountryTotals,
     CsvStructureError,
     InstrumentListing,
+    PositiveWhtCorrection,
     _ActiveHeader,
     _CountryCreditComponent,
 )
@@ -43,6 +45,7 @@ from .income import (
     _resolve_country_from_isin,
     _resolve_country_from_text,
     _resolve_dividend_company_name,
+    _resolve_listing_from_security_description,
 )
 
 
@@ -171,7 +174,7 @@ def _appendix9_component(
 
 def _classify_withholding_appendix(summary: AnalysisSummary, *, description: str) -> str:
     lowered = description.lower()
-    if "cash dividend" in lowered:
+    if "cash dividend" in lowered or "payment in lieu of dividend" in lowered:
         summary.withholding_dividend_rows += 1
         return "Appendix 8"
     summary.withholding_non_dividend_rows += 1
@@ -192,6 +195,7 @@ def _resolve_withholding_auto_fields(
     tax_amount,
     fx_provider,
     row_number: int,
+    listings: dict[str, InstrumentListing],
 ) -> tuple[str, str, Decimal | None, str]:
     auto_country_text = ""
     auto_isin = ""
@@ -201,12 +205,21 @@ def _resolve_withholding_auto_fields(
     if auto_appendix == "Appendix 8":
         isin, isin_error = _extract_isin(description)
         if isin_error is not None or isin is None:
-            summary.withholding_country_errors_rows += 1
-            summary.review_required_rows += 1
-            summary.warnings.append(
-                f"row {row_number}: {isin_error or 'missing ISIN'} for withholding description={description!r}"
+            listing, listing_error = _resolve_listing_from_security_description(
+                description=description,
+                listings=listings,
             )
-        else:
+            if listing is not None and listing.isin.strip():
+                isin = listing.isin.strip().upper()
+            else:
+                summary.withholding_country_errors_rows += 1
+                summary.review_required_rows += 1
+                reason = listing_error or isin_error or "missing ISIN"
+                summary.warnings.append(
+                    f"row {row_number}: {reason} for withholding description={description!r}"
+                )
+                isin = None
+        if isin is not None:
             country_info = _resolve_country_from_isin(isin)
             if country_info is None:
                 summary.withholding_country_errors_rows += 1
@@ -317,12 +330,67 @@ def _set_withholding_existing_values(
     )
 
 
+def _append_prior_year_positive_wht_correction(
+    summary: AnalysisSummary,
+    *,
+    row_number: int,
+    tax_date,
+    currency: str,
+    description: str,
+    tax_amount: Decimal,
+    amount_eur: Decimal,
+    effective_country_text: str,
+    company_name: str,
+    company_error: str | None,
+) -> None:
+    review_required = False
+    review_reasons: list[str] = []
+    country_english = "НУЖЕН ПРЕГЛЕД"
+    country_bulgarian = "НУЖЕН ПРЕГЛЕД"
+    if effective_country_text:
+        _, country_english, country_bulgarian = _resolve_country_from_text(effective_country_text)
+    else:
+        review_required = True
+        review_reasons.append("missing Country")
+
+    if company_error is not None:
+        review_required = True
+        review_reasons.append(company_error)
+
+    if review_required:
+        summary.positive_wht_rows_unmapped += 1
+        summary.review_required_rows += 1
+        summary.warnings.append(
+            f"row {row_number}: positive dividend withholding correction requires review "
+            f"(description={description!r}, reason={'; '.join(review_reasons)})"
+        )
+    else:
+        summary.positive_wht_rows_mapped += 1
+
+    summary.appendix_8_positive_wht_corrections.append(
+        PositiveWhtCorrection(
+            row_number=row_number,
+            tax_date=tax_date,
+            currency=currency,
+            amount=tax_amount,
+            amount_eur=amount_eur,
+            description=description,
+            payer_name=company_name,
+            country_english=country_english,
+            country_bulgarian=country_bulgarian,
+            income_code="8141",
+            method_code="1",
+            review_required=review_required,
+            review_reason="; ".join(review_reasons),
+        )
+    )
+
+
 def _apply_taxable_withholding_totals(
     *,
     summary: AnalysisSummary,
     listings: dict[str, InstrumentListing],
     row_number: int,
-    tax_year: int,
     description: str,
     tax_date,
     effective_status: str,
@@ -331,9 +399,13 @@ def _apply_taxable_withholding_totals(
     effective_amount_eur: Decimal | None,
     effective_amount_is_manual: bool,
     appendix9_components: dict[str, dict[str, _CountryCreditComponent]],
+    positive_wht_mode: str,
+    tax_year: int,
+    currency: str,
+    tax_amount: Decimal,
 ) -> None:
     is_taxable = effective_status == INTEREST_STATUS_TAXABLE
-    if tax_date.year != tax_year or not is_taxable or effective_amount_eur is None:
+    if not is_taxable or effective_amount_eur is None:
         return
 
     if effective_appendix == "Appendix 8":
@@ -341,9 +413,32 @@ def _apply_taxable_withholding_totals(
         # means returned/reversed tax. Manual Amount (EUR) is treated as the
         # user's already-normalized tax-paid value to preserve override behavior.
         tax_paid_delta_eur = effective_amount_eur if effective_amount_is_manual else -effective_amount_eur
-        if not effective_amount_is_manual and effective_amount_eur > 0:
+        is_positive_auto_wht = not effective_amount_is_manual and effective_amount_eur > 0
+        is_prior_year_positive_wht_correction = (
+            is_positive_auto_wht
+            and positive_wht_mode == POSITIVE_WHT_MODE_PRIOR_YEAR_CORRECTION
+            and tax_date.year < tax_year
+        )
+        if is_positive_auto_wht:
             summary.withholding_positive_dividend_rows += 1
+            summary.positive_wht_rows_found += 1
         if effective_country_text == "":
+            if is_prior_year_positive_wht_correction:
+                company_name = f"UNKNOWN_PAYER_ROW_{row_number}"
+                _append_prior_year_positive_wht_correction(
+                    summary,
+                    row_number=row_number,
+                    tax_date=tax_date,
+                    currency=currency,
+                    description=description,
+                    tax_amount=tax_amount,
+                    amount_eur=effective_amount_eur,
+                    effective_country_text=effective_country_text,
+                    company_name=company_name,
+                    company_error="missing Country",
+                )
+                summary.positive_wht_rows_prior_year_corrections += 1
+                return
             summary.review_required_rows += 1
             summary.warnings.append(
                 f"row {row_number}: taxable withholding row is missing Country (description={description!r})"
@@ -363,6 +458,23 @@ def _apply_taxable_withholding_totals(
                 f"row {row_number}: withholding company mapping requires review "
                 f"(description={description!r}, resolved_company={company_name!r}, reason={company_error})"
             )
+        if is_prior_year_positive_wht_correction:
+            summary.positive_wht_rows_prior_year_corrections += 1
+            _append_prior_year_positive_wht_correction(
+                summary,
+                row_number=row_number,
+                tax_date=tax_date,
+                currency=currency,
+                description=description,
+                tax_amount=tax_amount,
+                amount_eur=effective_amount_eur,
+                effective_country_text=effective_country_text,
+                company_name=company_name,
+                company_error=company_error,
+            )
+            return
+        if is_positive_auto_wht:
+            summary.positive_wht_rows_netted += 1
         _appendix8_country_bucket(
             summary,
             country_iso=country_iso,
@@ -415,9 +527,9 @@ def process_withholding_section(
     listings: dict[str, InstrumentListing],
     summary: AnalysisSummary,
     fx_provider,
-    tax_year: int,
     report_date_format: IbkrReportDateFormat,
     appendix9_components: dict[str, dict[str, _CountryCreditComponent]],
+    positive_wht_mode: str,
 ) -> WithholdingSectionResult:
     row_extras: dict[int, dict[str, str]] = {}
     row_base_len: dict[int, int] = {}
@@ -463,6 +575,7 @@ def process_withholding_section(
 
         summary.withholding_processed_rows += 1
         description = data[field_idx.description].strip()
+        is_payment_in_lieu = "payment in lieu of dividend" in description.lower()
         auto_status = _classify_status_from_description(description)
         auto_appendix = _classify_withholding_appendix(summary, description=description)
         if auto_appendix == "Appendix 9":
@@ -495,6 +608,7 @@ def process_withholding_section(
             tax_amount=tax_amount,
             fx_provider=fx_provider,
             row_number=row_number,
+            listings=listings,
         )
         effective_status = _apply_withholding_review_status(
             summary,
@@ -537,6 +651,7 @@ def process_withholding_section(
                 "Appendix": effective_appendix,
                 "Status": effective_status,
                 "Review Status": review_status_raw,
+                "Is Payment In Lieu": "YES" if is_payment_in_lieu else "",
             },
         )
 
@@ -544,7 +659,6 @@ def process_withholding_section(
             summary=summary,
             listings=listings,
             row_number=row_number,
-            tax_year=tax_year,
             description=description,
             tax_date=tax_date,
             effective_status=effective_status,
@@ -553,6 +667,10 @@ def process_withholding_section(
             effective_amount_eur=effective_amount_eur,
             effective_amount_is_manual=manual_amount_eur is not None,
             appendix9_components=appendix9_components,
+            positive_wht_mode=positive_wht_mode,
+            tax_year=summary.tax_year,
+            currency=currency,
+            tax_amount=tax_amount,
         )
 
     return WithholdingSectionResult(

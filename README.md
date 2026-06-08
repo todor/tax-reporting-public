@@ -544,9 +544,9 @@ Overridable aggregate tax/reporting options:
 - `--tax-exempt-mode {execution_exchange,listing_exchange}`: controls how securities analyzers determine tax-exempt treatment, by execution exchange or listing exchange (default where supported: `listing_exchange`)
 - `--eu-regulated-exchange VALUE`: additional EU-regulated exchange override where supported; repeatable and supports comma-separated values
 - `--closed-world`: enable conservative closed-world exchange/market classification where supported
-- `--skip-period-validation`: skip period validation where supported; development/testing only
 - `--no-net-cfd-financing`: disable automatic CFD financing netting where supported
 - `--negative-pil-mode {position-aware,always-net,ignore}`: controls negative Payment in Lieu treatment where supported
+- `--positive-wht-mode {current-year-net,prior-year-correction}`: controls positive dividend Withholding Tax correction treatment where supported
 - `--appendix8-dividend-list-mode {company,country}`: advanced Appendix 8 dividend listing mode where supported
 - `--p2p-secondary-market-mode {appendix_5,appendix_6}`: P2P secondary-market handling mode
 
@@ -864,7 +864,7 @@ IBKR Activity Statement period requirements:
 - The analyzer validates the `Statement -> Period` row, for example `January 1, 2025 - December 31, 2025`.
 - The IBKR account base currency must be EUR. The analyzer validates `Account Information -> Base Currency` before tax calculations start.
 - Wrong or missing periods fail by default because tax reporting and SPB-8 can be incorrect.
-- `--skip-period-validation` exists only for development/testing with partial reports. Do not use it for real tax reporting.
+- Row dates inside statement sections are not discarded merely because they are outside the tax year. IBKR can include statement-relevant dividend or Withholding Tax corrections whose row `Date` is outside the selected year.
 - `--tax-exempt-mode` defaults to `listing_exchange`; the effective mode is printed in the Bulgarian TXT report because it affects tax treatment.
 
 IBKR Equity and Index Options handling:
@@ -882,7 +882,9 @@ IBKR CFD and PIL handling:
 - Appendix 5 CFD trade values are based on realized CFD P/L: positive P/L increases the income/sale side, while negative P/L increases the cost/loss side by absolute value. This avoids artificial inflation of Appendix 5 turnover from CFD notional values.
 - CFD holdings are not declared in Appendix 8 and are excluded from SPB-8; the tool does not infer an underlying ISIN from CFD symbols.
 - IBKR CFD financing / CFD interest from `Fees` is processed as a separate adjustment, not derived from CFD `Notional Value` / `Basis`, and is netted into Appendix 5 by default. Use `--no-net-cfd-financing` to send positive financing to Appendix 6, code 606, and skip negative financing.
-- `Payment in Lieu of Dividend (Ordinary Dividend)` is not treated as a real dividend and is processed separately from CFD trade P/L. Positive PIL is treated as dividend-equivalent income and goes to Appendix 6, code 606. Negative PIL is treated as a position-related cost/adjustment; by default `--negative-pil-mode position-aware` nets only rows with final status `NET`. Use `--negative-pil-mode ignore` to skip automatic negative PIL netting and review those rows manually.
+- IBKR `Payment in Lieu of Dividend` rows are treated as dividend-like income and included in Appendix 8 together with foreign dividends by default. The tool prints an informational note when such rows are used; they do not require manual review merely because they are PIL.
+- Negative `Payment in Lieu of Dividend (Ordinary Dividend)` rows are handled by the separate position-aware negative-PIL flow. By default `--negative-pil-mode position-aware` nets only rows with final status `NET`. Use `--negative-pil-mode ignore` to skip automatic negative PIL netting and review those rows manually.
+- Positive IBKR `Withholding Tax` rows normally mean a refund/reversal/correction of foreign tax. In the default `--positive-wht-mode current-year-net`, they reduce foreign tax in the current report and declared foreign tax is never allowed to go below zero. Use `--positive-wht-mode prior-year-correction` when you want to list positive WHT as corrections to prior-year Appendix 8, Part III instead of netting them in the current year. In aggregate mode, `--ibkr-positive-wht-mode ...` can still be used as an IBKR-specific override.
 - This is a practical interpretation for synthetic broker cashflow adjustments; confirm treatment with your accountant if needed.
 
 IBKR Futures handling:

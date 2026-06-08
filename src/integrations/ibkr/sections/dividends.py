@@ -54,6 +54,7 @@ from .income import (
     _resolve_country_from_isin,
     _resolve_country_from_text,
     _resolve_dividend_company_name,
+    _resolve_listing_from_security_description,
 )
 from .negative_pil import NegativePilExposureIndex, decide_negative_pil_auto_status
 
@@ -99,8 +100,13 @@ def _dividends_indexes(active_header: _ActiveHeader) -> _DividendsFieldIndexes:
     )
 
 
+def is_payment_in_lieu_dividend(description: str) -> bool:
+    return "payment in lieu of dividend" in description.strip().lower()
+
+
 def is_payment_in_lieu_ordinary_dividend(description: str) -> bool:
-    return "payment in lieu of dividend (ordinary dividend)" in description.strip().lower()
+    lowered = description.strip().lower()
+    return "payment in lieu of dividend" in lowered and "ordinary dividend" in lowered
 
 
 def _set_dividends_extras(
@@ -191,6 +197,7 @@ def _resolve_auto_dividend_fields(
     dividend_date,
     fx_provider,
     row_number: int,
+    listings: dict[str, InstrumentListing],
 ) -> tuple[str, str, Decimal | None, str]:
     auto_isin = ""
     auto_country_english = ""
@@ -202,12 +209,20 @@ def _resolve_auto_dividend_fields(
 
     auto_isin_value, auto_isin_error = _extract_isin(description)
     if auto_isin_error is not None or auto_isin_value is None:
-        summary.dividends_country_errors_rows += 1
-        summary.review_required_rows += 1
-        summary.warnings.append(
-            f"row {row_number}: {auto_isin_error or 'missing ISIN'} for dividend description={description!r}"
+        listing, listing_error = _resolve_listing_from_security_description(
+            description=description,
+            listings=listings,
         )
-        return auto_isin, auto_country_english, auto_amount_eur, auto_amount_eur_text
+        if listing is not None and listing.isin.strip():
+            auto_isin_value = listing.isin.strip().upper()
+        else:
+            summary.dividends_country_errors_rows += 1
+            summary.review_required_rows += 1
+            reason = listing_error or auto_isin_error or "missing ISIN"
+            summary.warnings.append(
+                f"row {row_number}: {reason} for dividend description={description!r}"
+            )
+            return auto_isin, auto_country_english, auto_amount_eur, auto_amount_eur_text
 
     auto_isin = auto_isin_value
     auto_country_info = _resolve_country_from_isin(auto_isin_value)
@@ -254,7 +269,6 @@ def _apply_taxable_dividend_totals(
     summary: AnalysisSummary,
     listings: dict[str, InstrumentListing],
     row_number: int,
-    tax_year: int,
     dividend_date,
     description: str,
     effective_status: str,
@@ -263,7 +277,7 @@ def _apply_taxable_dividend_totals(
     effective_amount_eur: Decimal | None,
 ) -> None:
     is_taxable = effective_status == INTEREST_STATUS_TAXABLE
-    if not is_taxable or dividend_date.year != tax_year or effective_amount_eur is None:
+    if not is_taxable or effective_amount_eur is None:
         return
 
     if effective_appendix == DIVIDEND_APPENDIX_8:
@@ -288,6 +302,9 @@ def _apply_taxable_dividend_totals(
                 f"(description={description!r}, resolved_company={company_name!r}, reason={company_error})"
             )
         summary.dividends_cash_rows += 1
+        if is_payment_in_lieu_dividend(description):
+            summary.pil_detected_rows += 1
+            summary.pil_appendix8_rows += 1
         _appendix8_country_bucket(
             summary,
             country_iso=country_iso,
@@ -504,7 +521,8 @@ def process_dividends_section(
         )
         description = data[field_idx.description].strip()
         amount = _parse_decimal(data[field_idx.amount], row_number=row_number, field_name="Amount")
-        if is_payment_in_lieu_ordinary_dividend(description):
+        is_payment_in_lieu = is_payment_in_lieu_dividend(description)
+        if is_payment_in_lieu and is_payment_in_lieu_ordinary_dividend(description) and amount < ZERO:
             summary.pil_detected_rows += 1
             amount_eur, _ = _to_eur(
                 amount,
@@ -583,9 +601,6 @@ def process_dividends_section(
                     )
                     effective_appendix = APPENDIX_5 if final_status == NEGATIVE_PIL_STATUS_NET else ""
                     effective_status = final_status
-                elif amount_eur > ZERO:
-                    auto_status = ""
-                    tax_status = "Positive PIL is treated as dividend-equivalent income in Appendix 6, code 606."
                 _apply_payment_in_lieu_totals(
                     summary=summary,
                     amount_eur=amount_eur,
@@ -671,6 +686,7 @@ def process_dividends_section(
                     "Review Status": review_status_raw,
                     "Auto Status": auto_status,
                     "Tax Status": tax_status,
+                    "Is Payment In Lieu": "YES",
                 },
             )
             continue
@@ -704,6 +720,7 @@ def process_dividends_section(
             dividend_date=dividend_date,
             fx_provider=fx_provider,
             row_number=row_number,
+            listings=listings,
         )
 
         effective_appendix = _effective_appendix(
@@ -729,7 +746,6 @@ def process_dividends_section(
             summary=summary,
             listings=listings,
             row_number=row_number,
-            tax_year=tax_year,
             dividend_date=dividend_date,
             description=description,
             effective_status=effective_status,
@@ -759,6 +775,7 @@ def process_dividends_section(
                 "Appendix": effective_appendix,
                 "Status": effective_status,
                 "Review Status": review_status_raw,
+                "Is Payment In Lieu": "YES" if is_payment_in_lieu else "",
             },
         )
 

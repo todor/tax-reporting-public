@@ -35,11 +35,29 @@ def test_cli_appendix8_dividend_mode_defaults_to_company(tmp_path: Path) -> None
             "2025",
             "--tax-exempt-mode",
             "listing_exchange",
-            "--skip-period-validation",
         ]
     )
     assert args.appendix8_dividend_list_mode == "company"
-    assert args.skip_period_validation is True
+    assert args.positive_wht_mode == "current-year-net"
+
+
+def test_cli_skip_period_validation_is_removed(tmp_path: Path) -> None:
+    import report_analyzer
+
+    input_csv = tmp_path / "input.csv"
+    _write_rows(input_csv, _base_rows())
+    parser = report_analyzer.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "ibkr",
+                "--input",
+                str(input_csv),
+                "--tax-year",
+                "2025",
+                "--skip-period-validation",
+            ]
+        )
 
 
 def test_cli_tax_exempt_mode_defaults_to_listing_exchange_for_single_mode(tmp_path: Path) -> None:
@@ -56,7 +74,6 @@ def test_cli_tax_exempt_mode_defaults_to_listing_exchange_for_single_mode(tmp_pa
             str(input_csv),
             "--tax-year",
             "2025",
-            "--skip-period-validation",
         ]
     )
 
@@ -81,7 +98,6 @@ def test_cli_tax_exempt_mode_explicit_override_still_works_for_single_mode(tmp_p
             "2025",
             "--tax-exempt-mode",
             "execution_exchange",
-            "--skip-period-validation",
         ]
     )
 
@@ -377,7 +393,147 @@ def test_positive_dividend_withholding_nets_against_negative_withholding(tmp_pat
     assert company_row.recognized_credit_eur == Decimal("1.25")
     assert company_row.method_code == "1"
     assert result.summary.withholding_positive_dividend_rows == 1
+    assert result.summary.positive_wht_rows_netted == 1
     assert not any("Открит е положителен ред в IBKR Withholding Tax" in warning for warning in result.summary.warnings)
+
+
+def test_withholding_rows_outside_tax_year_are_included_when_in_statement(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2024-11-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2024-11-20", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "-15", ""],
+        ],
+    )
+    rows = _inject_financial_instrument_rows(rows, [("Stocks", "AAA", "NYSE", "Alpha Corp")])
+
+    result = _run(tmp_path, rows, mode="listing_exchange", appendix8_dividend_list_mode="company")
+
+    company_row = result.summary.appendix_8_output_rows[0]
+    assert company_row.gross_dividend_eur == Decimal("100")
+    assert company_row.foreign_tax_paid_eur == Decimal("15")
+
+
+def test_positive_wht_prior_year_correction_mode_excludes_positive_rows_from_current_wht(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "-15", ""],
+            ["Withholding Tax", "Data", "EUR", "2025-03-02", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "2", ""],
+            ["Withholding Tax", "Data", "EUR", "2024-11-20", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "4", ""],
+            ["Withholding Tax", "Data", "EUR", "2024-12-20", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "6", ""],
+        ],
+    )
+    rows = _inject_financial_instrument_rows(rows, [("Stocks", "AAA", "NYSE", "Alpha Corp")])
+
+    result = _run(
+        tmp_path,
+        rows,
+        mode="listing_exchange",
+        appendix8_dividend_list_mode="company",
+        positive_wht_mode="prior-year-correction",
+    )
+
+    company_row = result.summary.appendix_8_output_rows[0]
+    assert company_row.foreign_tax_paid_eur == Decimal("13")
+    assert result.summary.positive_wht_rows_netted == 1
+    assert result.summary.positive_wht_rows_prior_year_corrections == 2
+    correction = result.summary.appendix_8_positive_wht_corrections[0]
+    assert correction.tax_date.year == 2024
+    assert correction.payer_name == "Alpha Corp"
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Корекции към предходни години" in text
+    assert "Приложение 8, Част III" in text
+    assert (
+        "Тази секция не се попълва в текущата декларация за 2025; използва се само за проверка/корекция "
+        "на вече подадени декларации за предходни години."
+    ) in text
+    assert "Година: 2024" in text
+    assert "Година: 2025" not in text
+    assert "Alpha Corp; САЩ; код 8141; метод 1; корекция 10.00000000 EUR" in text
+    assert "редове 24-25" in text
+    assert "Какво да направите за съответната предходна декларация:" in text
+    assert "- Платен данък в чужбина = max(0" in text
+    assert text.index("Приложение 8, Част III") < text.index("Тази секция не се попълва")
+    assert text.index("Методологични бележки") < text.index("Какво да направите за съответната предходна декларация:")
+
+
+def test_positive_wht_prior_year_correction_country_mode_groups_by_country(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share", "100"],
+            ["Dividends", "Data", "EUR", "2025-03-01", "BBB(US2222222222) Cash Dividend EUR 1.00 per Share", "100"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2024-11-20", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "4", ""],
+            ["Withholding Tax", "Data", "EUR", "2024-11-21", "BBB(US2222222222) Cash Dividend EUR 1.00 per Share - US Tax", "6", ""],
+        ],
+    )
+    rows = _inject_financial_instrument_rows(
+        rows,
+        [
+            ("Stocks", "AAA", "NYSE", "Alpha Corp"),
+            ("Stocks", "BBB", "NYSE", "Beta Corp"),
+        ],
+    )
+
+    result = _run(
+        tmp_path,
+        rows,
+        mode="listing_exchange",
+        appendix8_dividend_list_mode="country",
+        positive_wht_mode="prior-year-correction",
+    )
+
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert text.count("корекция 10.00000000 EUR") == 1
+    assert "Различни чуждестранни дружества (чрез Interactive Brokers)" in text
+
+
+def test_payment_in_lieu_with_numeric_conid_uses_symbol_mapping_not_isin(tmp_path: Path) -> None:
+    rows = _rows_with_dividends_and_withholding(
+        [
+            ["Dividends", "Data", "EUR", "2025-05-01", "HTGC(34822226) Payment in Lieu of Dividend (Bonus Dividend)", "100"],
+        ],
+        [
+            ["Withholding Tax", "Data", "EUR", "2025-05-02", "HTGC(34822226) Payment in Lieu of Dividend - US Tax", "-15", ""],
+        ],
+    )
+    insert_at = next(idx for idx, row in enumerate(rows) if row[:2] == ["Dividends", "Header"])
+    rows[insert_at:insert_at] = [
+        ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch", "Description", "ISIN"],
+        [
+            "Financial Instrument Information",
+            "Data",
+            "Stocks",
+            "HTGC",
+            "NYSE",
+            "Hercules Capital Inc",
+            "US4270965084",
+        ],
+    ]
+
+    result = _run(tmp_path, rows, mode="listing_exchange", appendix8_dividend_list_mode="company")
+
+    assert result.summary.pil_appendix8_rows == 1
+    assert result.summary.review_required_rows == 0
+    company_row = result.summary.appendix_8_output_rows[0]
+    assert company_row.payer_name == "Hercules Capital Inc"
+    assert company_row.country_bulgarian == "САЩ"
+    assert company_row.gross_dividend_eur == Decimal("100")
+    assert company_row.foreign_tax_paid_eur == Decimal("15")
+    output_rows = _read_rows(result.output_csv_path)
+    dividends_header = next(row for row in output_rows if row[:2] == ["Dividends", "Header"])
+    dividends_row = next(row for row in output_rows if row[:2] == ["Dividends", "Data"])
+    assert dividends_row[dividends_header.index("ISIN")] == "US4270965084"
+    assert dividends_row[dividends_header.index("Is Payment In Lieu")] == "YES"
+    withholding_header = next(row for row in output_rows if row[:2] == ["Withholding Tax", "Header"])
+    withholding_row = next(row for row in output_rows if row[:2] == ["Withholding Tax", "Data"])
+    assert withholding_row[withholding_header.index("ISIN")] == "US4270965084"
+    assert withholding_row[withholding_header.index("Is Payment In Lieu")] == "YES"
 
 
 def test_positive_only_dividend_withholding_creates_no_credit(tmp_path: Path) -> None:

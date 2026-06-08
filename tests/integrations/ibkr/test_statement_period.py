@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import csv
-from pathlib import Path
-
 import pytest
 
 from integrations.ibkr.activity_statement_analyzer import (
-    analyze_ibkr_activity_statement,
     _validate_base_currency,
     _validate_statement_period,
 )
 from integrations.ibkr.models import IbkrAnalyzerError
 from integrations.shared.contracts import UserFacingTaxError
-from tests.integrations.ibkr.support import _base_rows, _fx_provider
 
 
 def _rows(period: str | None) -> list[list[str]]:
@@ -81,24 +76,6 @@ def test_base_currency_validation_rejects_non_eur_base_currency() -> None:
         )
 
 
-def test_skip_statement_period_validation_emits_warning(tmp_path: Path) -> None:
-    input_csv = tmp_path / "input.csv"
-    with input_csv.open("w", encoding="utf-8", newline="") as handle:
-        csv.writer(handle).writerows(
-            [
-                ["Account Information", "Header", "Field Name", "Field Value"],
-                ["Account Information", "Data", "Base Currency", "EUR"],
-                *_base_rows(),
-            ]
-        )
-
-    result = analyze_ibkr_activity_statement(
-        input_csv=input_csv,
-        tax_year=2025,
-        tax_exempt_mode="listing_exchange",  # type: ignore[arg-type]
-        output_dir=tmp_path / "out",
-        skip_period_validation=True,
-        fx_rate_provider=_fx_provider,
-    )
-
-    assert "IBKR statement period validation was skipped; results may be incomplete or wrong." in result.summary.warnings
+def test_statement_period_validation_is_not_skippable() -> None:
+    with pytest.raises(IbkrAnalyzerError, match="must cover exactly"):
+        _validate_statement_period(_rows("January 1, 2024 - December 31, 2024"), tax_year=2025)

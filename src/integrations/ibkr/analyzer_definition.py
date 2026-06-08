@@ -15,6 +15,8 @@ from .constants import (
     DEFAULT_OUTPUT_DIR,
     NEGATIVE_PIL_MODE_POSITION_AWARE,
     NEGATIVE_PIL_MODES,
+    POSITIVE_WHT_MODE_CURRENT_YEAR_NET,
+    POSITIVE_WHT_MODES,
     TAX_MODE_EXECUTION_EXCHANGE,
     TAX_MODE_LISTING_EXCHANGE,
 )
@@ -26,9 +28,9 @@ _IBKR_SUPPORTED_AGGREGATE_OVERRIDES = frozenset(
         "appendix8_dividend_list_mode",
         "eu_regulated_exchange",
         "closed_world",
-        "skip_period_validation",
         "no_net_cfd_financing",
         "negative_pil_mode",
+        "positive_wht_mode",
         "csv_decimal_separator",
     }
 )
@@ -87,14 +89,6 @@ def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
         parser,
         mode=mode,
         analyzer_alias="ibkr",
-        single_flag="skip-period-validation",
-        action="store_true",
-        help="Skip strict IBKR full-year statement period validation; for development/testing only",
-    )
-    add_mode_argument(
-        parser,
-        mode=mode,
-        analyzer_alias="ibkr",
         single_flag="no-net-cfd-financing",
         action="store_true",
         help="Do not net IBKR CFD financing into Appendix 5; positive amounts go to Appendix 6 code 606",
@@ -107,6 +101,15 @@ def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
         choices=sorted(NEGATIVE_PIL_MODES),
         default=NEGATIVE_PIL_MODE_POSITION_AWARE,
         help="Negative IBKR Payment in Lieu handling mode",
+    )
+    add_mode_argument(
+        parser,
+        mode=mode,
+        analyzer_alias="ibkr",
+        single_flag="positive-wht-mode",
+        choices=sorted(POSITIVE_WHT_MODES),
+        default=POSITIVE_WHT_MODE_CURRENT_YEAR_NET,
+        help="Positive IBKR dividend Withholding Tax correction mode",
     )
     add_mode_argument(
         parser,
@@ -167,16 +170,6 @@ def _build_options(
             single_attr="report_alias",
             default=None,
         ),
-        "skip_period_validation": bool(
-            option_value(
-                args,
-                mode=mode,
-                single_attr="skip_period_validation",
-                group_options=group_options,
-                group_key="skip_period_validation",
-                default=False,
-            )
-        ),
         "net_cfd_financing": not bool(
             option_value(
                 args,
@@ -195,6 +188,16 @@ def _build_options(
                 group_options=group_options,
                 group_key="negative_pil_mode",
                 default=NEGATIVE_PIL_MODE_POSITION_AWARE,
+            )
+        ),
+        "positive_wht_mode": str(
+            option_value(
+                args,
+                mode=mode,
+                single_attr="positive_wht_mode",
+                group_options=group_options,
+                group_key="positive_wht_mode",
+                default=POSITIVE_WHT_MODE_CURRENT_YEAR_NET,
             )
         ),
         "csv_decimal_separator": str(
@@ -233,9 +236,9 @@ def _run(context: AnalyzerRunContext):
         display_currency=str(context.options.get("display_currency", "EUR")),
         eu_regulated_exchanges=context.options.get("eu_regulated_exchanges"),
         closed_world=bool(context.options.get("closed_world")),
-        skip_period_validation=bool(context.options.get("skip_period_validation")),
         net_cfd_financing=bool(context.options.get("net_cfd_financing", True)),
         negative_pil_mode=str(context.options.get("negative_pil_mode", NEGATIVE_PIL_MODE_POSITION_AWARE)),
+        positive_wht_mode=str(context.options.get("positive_wht_mode", POSITIVE_WHT_MODE_CURRENT_YEAR_NET)),
         csv_decimal_separator=str(context.options.get("csv_decimal_separator", "auto")),
     )
     return build_ibkr_result(

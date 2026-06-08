@@ -40,6 +40,8 @@ from .constants import (
     NEGATIVE_PIL_MODE_POSITION_AWARE,
     NEGATIVE_PIL_MODES,
     OPTION_ASSET_CATEGORY,
+    POSITIVE_WHT_MODE_CURRENT_YEAR_NET,
+    POSITIVE_WHT_MODES,
     SUPPORTED_ASSET_CATEGORIES,
     TAX_MODE_EXECUTION_EXCHANGE,
     TAX_MODE_LISTING_EXCHANGE,
@@ -144,6 +146,7 @@ def _validate_analysis_request(
     tax_exempt_mode: str,
     appendix8_dividend_list_mode: str,
     negative_pil_mode: str,
+    positive_wht_mode: str,
     csv_decimal_separator: str,
 ) -> None:
     if tax_year < 2009 or tax_year > 2100:
@@ -160,6 +163,8 @@ def _validate_analysis_request(
         )
     if negative_pil_mode not in NEGATIVE_PIL_MODES:
         raise IbkrAnalyzerError(f"unsupported negative PIL mode: {negative_pil_mode}")
+    if positive_wht_mode not in POSITIVE_WHT_MODES:
+        raise IbkrAnalyzerError(f"unsupported positive WHT mode: {positive_wht_mode}")
     if csv_decimal_separator not in CSV_DECIMAL_SEPARATOR_MODES:
         raise IbkrAnalyzerError(f"unsupported CSV decimal separator mode: {csv_decimal_separator}")
 
@@ -232,6 +237,7 @@ def _process_sections(
     report_date_format: IbkrReportDateFormat,
     net_cfd_financing: bool,
     negative_pil_mode: str,
+    positive_wht_mode: str,
 ) -> _ProcessedSections:
     trades = process_trades_section(
         rows=rows,
@@ -298,9 +304,9 @@ def _process_sections(
         listings=listings,
         summary=summary,
         fx_provider=fx_provider,
-        tax_year=tax_year,
         report_date_format=report_date_format,
         appendix9_components=interest.components_by_country,
+        positive_wht_mode=positive_wht_mode,
     )
     open_positions = process_open_positions_section(
         rows=rows,
@@ -391,7 +397,7 @@ def _compute_appendix_outputs(
         totals_by_company=summary.appendix_8_by_company,
         dividend_tax_rate=summary.dividend_tax_rate,
     )
-    if summary.withholding_positive_dividend_rows > 0:
+    if summary.positive_wht_rows_netted > 0:
         summary.withholding_non_positive_net_buckets = sum(
             1 for totals in summary.appendix_8_by_company.values() if totals.withholding_tax_paid_eur <= ZERO
         )
@@ -678,9 +684,9 @@ def analyze_ibkr_activity_statement(
     display_currency: str = "EUR",
     eu_regulated_exchanges: list[str] | None = None,
     closed_world: bool = False,
-    skip_period_validation: bool = False,
     net_cfd_financing: bool = True,
     negative_pil_mode: str = NEGATIVE_PIL_MODE_POSITION_AWARE,
+    positive_wht_mode: str = POSITIVE_WHT_MODE_CURRENT_YEAR_NET,
     csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
     fx_rate_provider: FxRateProvider | None = None,
 ) -> AnalysisResult:
@@ -689,6 +695,7 @@ def analyze_ibkr_activity_statement(
         tax_exempt_mode=tax_exempt_mode,
         appendix8_dividend_list_mode=appendix8_dividend_list_mode,
         negative_pil_mode=negative_pil_mode,
+        positive_wht_mode=positive_wht_mode,
         csv_decimal_separator=csv_decimal_separator,
     )
 
@@ -716,13 +723,9 @@ def analyze_ibkr_activity_statement(
             appendix8_dividend_list_mode=appendix8_dividend_list_mode,
             net_cfd_financing=net_cfd_financing,
             negative_pil_mode=negative_pil_mode,
+            positive_wht_mode=positive_wht_mode,
         )
-        if skip_period_validation:
-            summary.warnings.append(
-                "IBKR statement period validation was skipped; results may be incomplete or wrong."
-            )
-        else:
-            _validate_statement_period(rows, tax_year=tax_year)
+        _validate_statement_period(rows, tax_year=tax_year)
         unsupported_section_warning = _unsupported_section_warning(rows)
         if unsupported_section_warning:
             summary.warnings.append(unsupported_section_warning)
@@ -769,6 +772,7 @@ def analyze_ibkr_activity_statement(
             report_date_format=report_date_format,
             net_cfd_financing=net_cfd_financing,
             negative_pil_mode=negative_pil_mode,
+            positive_wht_mode=positive_wht_mode,
         )
         appendix9_components = processed.interest.components_by_country
 

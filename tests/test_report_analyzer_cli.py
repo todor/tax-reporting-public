@@ -945,9 +945,9 @@ def test_aggregate_help_shows_generic_options_and_override_convention() -> None:
     assert "--tax-exempt-mode {execution_exchange,listing_exchange}" in help_text
     assert "--eu-regulated-exchange EU_REGULATED_EXCHANGE" in help_text
     assert "--closed-world" in help_text
-    assert "--skip-period-validation" in help_text
     assert "--no-net-cfd-financing" in help_text
     assert "--negative-pil-mode {always-net,ignore,position-aware}" in help_text
+    assert "--positive-wht-mode {current-year-net,prior-year-correction}" in help_text
     assert "--p2p-secondary-market-mode {appendix_5,appendix_6}" in help_text
     assert "--spb8-csv-decimal-separator {auto,dot,comma}" in help_text
     assert "--csv-decimal-separator {auto,dot,comma}" not in help_text
@@ -974,9 +974,10 @@ def test_list_aggregate_overrides_prints_supported_matrix(
     assert "--ibkr-tax-exempt-mode" in stdout
     assert "--ibkr-eu-regulated-exchange" in stdout
     assert "--ibkr-closed-world" in stdout
-    assert "--ibkr-skip-period-validation" in stdout
+    assert "--ibkr-skip-period-validation" not in stdout
     assert "--ibkr-no-net-cfd-financing" in stdout
     assert "--ibkr-negative-pil-mode" in stdout
+    assert "--ibkr-positive-wht-mode" in stdout
     assert "--ibkr-appendix8-dividend-list-mode" in stdout
     assert "--ibkr-csv-decimal-separator" in stdout
     assert "Tax-exempt mode" in stdout
@@ -1043,9 +1044,10 @@ def test_concrete_ibkr_help_shows_unprefixed_options(
     assert "--tax-exempt-mode" in help_text
     assert "--eu-regulated-exchange" in help_text
     assert "--closed-world" in help_text
-    assert "--skip-period-validation" in help_text
+    assert "--skip-period-validation" not in help_text
     assert "--no-net-cfd-financing" in help_text
     assert "--negative-pil-mode" in help_text
+    assert "--positive-wht-mode" in help_text
     assert "--appendix8-dividend-list-mode" in help_text
     assert "--csv-decimal-separator" in help_text
     assert "--ibkr-tax-exempt-mode" not in help_text
@@ -1102,7 +1104,13 @@ def test_aggregate_analyzer_specific_override_wins(
         tmp_path=tmp_path,
         run_capture=run_capture,
         supported_aggregate_overrides=frozenset(
-            {"tax_exempt_mode", "negative_pil_mode", "appendix8_dividend_list_mode", "csv_decimal_separator"}
+            {
+                "tax_exempt_mode",
+                "negative_pil_mode",
+                "positive_wht_mode",
+                "appendix8_dividend_list_mode",
+                "csv_decimal_separator",
+            }
         ),
     )
     fake = AnalyzerDefinition(
@@ -1137,6 +1145,10 @@ def test_aggregate_analyzer_specific_override_wins(
             "--negative-pil-mode",
             "position-aware",
             "--t212-negative-pil-mode=ignore",
+            "--positive-wht-mode",
+            "current-year-net",
+            "--t212-positive-wht-mode",
+            "prior-year-correction",
             "--appendix8-dividend-list-mode",
             "company",
             "--t212-appendix8-dividend-list-mode",
@@ -1149,6 +1161,7 @@ def test_aggregate_analyzer_specific_override_wins(
     assert code == 0
     assert run_capture.contexts[0].options["tax_exempt_mode"] == "execution_exchange"
     assert run_capture.contexts[0].options["negative_pil_mode"] == "ignore"
+    assert run_capture.contexts[0].options["positive_wht_mode"] == "prior-year-correction"
     assert run_capture.contexts[0].options["appendix8_dividend_list_mode"] == "country"
     assert run_capture.contexts[0].options["csv_decimal_separator"] == "comma"
 
@@ -1691,13 +1704,39 @@ def test_ibkr_positive_withholding_reversal_is_one_structured_action_item() -> N
 
     assert "UNCLASSIFIED" not in main
     assert main.count("IBKR: открити са положителни Withholding Tax редове") == 1
-    assert "Положителни Withholding Tax редове: 1." in main
-    assert "Appendix 8 групи с нулев или отрицателен нетен чуждестранен данък: 1." in main
+    assert "Положителни Withholding Tax редове: 1." not in main
+    assert "Избран е режим current-year-net" in main
+    assert "--positive-wht-mode prior-year-correction" in main
+    assert "--ibkr-positive-wht-mode prior-year-correction" in main
+    assert "Има Appendix 8 групи с нулев или отрицателен нетен чуждестранен данък" in main
     assert "UNCLASSIFIED" not in technical
     assert "[WARNING] [ibkr] IBKR_DIVIDEND_WHT_REVERSAL_REVIEW" in technical
     assert "message: Positive dividend withholding tax rows were netted" in technical
     assert "message: Открит е положителен ред" not in technical
     assert "Нетният чуждестранен данък" not in technical
+
+
+def test_ibkr_positive_withholding_prior_year_mode_warning_is_mode_aware() -> None:
+    diagnostics = [
+        AnalysisDiagnostic(
+            severity="WARNING",
+            message="Positive dividend withholding tax rows were netted against current-year Appendix 8 foreign tax.",
+            analyzer_alias="ibkr",
+            code="IBKR_DIVIDEND_WHT_REVERSAL_REVIEW",
+            params={
+                "positive_wht_rows": 1,
+                "non_positive_net_buckets": 1,
+                "positive_wht_mode": "prior-year-correction",
+            },
+        ),
+    ]
+
+    main = "\n".join(render_action_items(diagnostics))
+
+    assert "Избран е режим prior-year-correction" in main
+    assert "с дата в текущата данъчна година" in main
+    assert "с дата в предходни години се показват отделно" in main
+    assert "--positive-wht-mode prior-year-correction" not in main
 
 
 def test_ibkr_grouped_diagnostics_are_technical_and_structured() -> None:
@@ -1817,7 +1856,6 @@ def test_spb8_notes_are_counted_and_do_not_leave_duplicate_heading() -> None:
     assert "- Информационни бележки: 4" in rendered
     assert rendered.splitlines().count("СПБ-8") == 1
     assert "Данни за попълване" in rendered
-    assert "Бележки към СПБ-8" in rendered
     assert "- CFD позициите не се включват в СПБ-8." in rendered
 
 
@@ -1856,10 +1894,12 @@ def test_aggregate_spb8_rows_and_notes_render_under_one_heading() -> None:
         spb8_notes=["CFD позициите не се включват в СПБ-8."],
     )
 
-    assert rendered.splitlines().count("СПБ-8") == 1
+    assert rendered.splitlines().count("СПБ-8") == 2
     assert "Данни за попълване" in rendered
-    assert "Бележки към СПБ-8" in rendered
+    assert "Бележки към СПБ-8" not in rendered
     assert "- CFD позициите не се включват в СПБ-8." in rendered
+    assert rendered.index("Данни за попълване") < rendered.index("Методологични бележки")
+    assert rendered.index("Методологични бележки") < rendered.rindex("СПБ-8")
     assert "CFD и PIL" in rendered
     assert "- CFD позициите не се декларират в Приложение 8" in rendered
     assert "- При CFD не се използва пълният notional/номинал на договора" in rendered
@@ -1924,6 +1964,107 @@ def test_aggregate_report_renders_generic_main_report_notes_near_top() -> None:
     assert "Alpha — режими, класификации и проверки\n- Alpha използва режим A." in rendered
     assert "Beta — режими, класификации и проверки\n- Beta използва режим B." in rendered
     assert rendered.index("Настройки и данъчни допускания") < rendered.index("Приложение 5")
+
+
+def test_aggregate_report_renders_prior_year_corrections_after_spb8_before_helpers(tmp_path: Path) -> None:
+    artifact_path = tmp_path / "ibkr_modified_2025.csv"
+    result = TaxAnalysisResult(
+        analyzer_alias="ibkr",
+        input_path=tmp_path / "ibkr.csv",
+        tax_year=2025,
+        output_paths={},
+        appendices=[
+            AppendixRecord(
+                appendix="8",
+                part="III",
+                code="8141",
+                values={
+                    "payer": "Alpha Corp",
+                    "country": "САЩ",
+                    "treaty_method": "1",
+                    "gross_income_eur": Decimal("100"),
+                    "foreign_tax_eur": Decimal("15"),
+                    "allowable_credit_eur": Decimal("5"),
+                    "recognized_credit_eur": Decimal("5"),
+                    "tax_due_eur": Decimal("0"),
+                },
+            ),
+            AppendixRecord(
+                appendix="9",
+                part="II",
+                code="603",
+                values={
+                    "country": "Ирландия",
+                    "gross_income_eur": Decimal("10"),
+                    "expenses_eur": Decimal("0"),
+                    "social_security_eur": Decimal("0"),
+                    "taxable_income_eur": Decimal("10"),
+                    "foreign_tax_eur": Decimal("2"),
+                    "allowable_credit_eur": Decimal("1"),
+                    "recognized_credit_eur": Decimal("1"),
+                },
+            ),
+        ],
+        diagnostics=[],
+        spb8_rows=[
+            SPB8Row(
+                "ibkr",
+                "ibkr",
+                "04",
+                "САЩ",
+                "USD",
+                Decimal("1"),
+                Decimal("2"),
+                isin="US1111111111",
+            )
+        ],
+        main_report_notes=[
+            MainReportNote(
+                section_title="Корекции към предходни години",
+                text=(
+                    "Приложение 8, Част III\n"
+                    "- Година: 2024\n"
+                    "  - Alpha Corp; САЩ; код 8141; метод 1; корекция 10.00000000 EUR; редове 12\n\n"
+                    "Тази секция не се попълва в текущата декларация за 2025; използва се само за "
+                    "проверка/корекция на вече подадени декларации за предходни години."
+                ),
+                analyzer_alias="ibkr",
+                category="appendix8_corrections",
+            ),
+            MainReportNote(
+                section_title="Alpha methodology",
+                text="Long explanation.",
+                analyzer_alias="ibkr",
+                category="methodology",
+            ),
+        ],
+        generated_artifacts=[
+            GeneratedArtifact(
+                artifact_type="row_level_audit_csv",
+                label="row-level audit CSV",
+                path=artifact_path,
+                show_in_main=True,
+                show_in_diagnostics=True,
+            )
+        ],
+    )
+
+    rendered = render_aggregated_report(
+        tax_year=2025,
+        detected_inputs={"ibkr": [tmp_path / "ibkr.csv"]},
+        ignored_inputs=[],
+        analyzer_results=[result],
+        analyzer_errors={},
+        spb8_rows=result.spb8_rows,
+    )
+
+    assert rendered.index("Приложение 8") < rendered.index("Приложение 9")
+    assert rendered.index("Приложение 9") < rendered.index("Корекции към предходни години")
+    assert rendered.index("Корекции към предходни години") < rendered.index("СПБ-8")
+    assert rendered.index("СПБ-8") < rendered.index("Помощни файлове за проверка")
+    assert rendered.index("Помощни файлове за проверка") < rendered.index("Методологични бележки")
+    assert "Тази секция не се попълва в текущата декларация за 2025" in rendered
+    assert "Бележки към СПБ-8" not in rendered
 
 
 def test_aggregate_report_renders_generic_methodology_notes_at_bottom(tmp_path: Path) -> None:

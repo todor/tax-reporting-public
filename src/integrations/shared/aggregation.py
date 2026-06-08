@@ -677,7 +677,7 @@ def _render_csv_decimal_notes(notes: list[MainReportNote]) -> list[str]:
 
 
 def _render_top_main_report_notes(notes: list[MainReportNote]) -> list[str]:
-    top_notes = [note for note in notes if note.category != "methodology"]
+    top_notes = [note for note in notes if note.category not in {"methodology", "appendix8_corrections"}]
     if not top_notes:
         return []
     csv_decimal_lines = _render_csv_decimal_notes(top_notes)
@@ -730,8 +730,26 @@ def _render_top_main_report_notes(notes: list[MainReportNote]) -> list[str]:
     return lines
 
 
-def _render_methodology_report_notes(notes: list[MainReportNote]) -> list[str]:
+def _render_methodology_report_notes(
+    notes: list[MainReportNote],
+    *,
+    spb8_notes: list[str] | None = None,
+    spb8_has_aggregate_rows: bool = False,
+) -> list[str]:
     methodology_notes = [note for note in notes if note.category == "methodology"]
+    extra_spb8_notes = list(spb8_notes or [])
+    if spb8_has_aggregate_rows:
+        extra_spb8_notes.append("Детайлите по платформи са налични в индивидуалните TXT файлове.")
+    if extra_spb8_notes:
+        methodology_notes.extend(
+            MainReportNote(
+                section_title="СПБ-8",
+                text=note,
+                analyzer_alias=None,
+                category="methodology",
+            )
+            for note in extra_spb8_notes
+        )
     if not methodology_notes:
         return []
     grouped: dict[str, list[str]] = defaultdict(list)
@@ -754,6 +772,28 @@ def _render_methodology_report_notes(notes: list[MainReportNote]) -> list[str]:
         lines.append("")
         lines.append(section_title)
         lines.extend(f"- {text}" for text in grouped[section_title])
+    return lines
+
+
+def _render_appendix8_correction_notes(notes: list[MainReportNote]) -> list[str]:
+    correction_notes = [note for note in notes if note.category == "appendix8_corrections"]
+    if not correction_notes:
+        return []
+    lines: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for note in correction_notes:
+        section_title = note.section_title.strip()
+        text = note.text.strip()
+        if not section_title or not text:
+            continue
+        key = (section_title, text)
+        if key in seen:
+            continue
+        seen.add(key)
+        if lines:
+            lines.append("")
+        lines.append(section_title)
+        lines.extend(text.splitlines())
     return lines
 
 
@@ -1342,7 +1382,11 @@ def render_aggregated_report(
         lines.extend(section_lines)
     if lines and lines[-1] != "":
         lines.append("")
-    methodology_report_note_lines = _render_methodology_report_notes(main_report_notes)
+    methodology_report_note_lines = _render_methodology_report_notes(
+        main_report_notes,
+        spb8_notes=spb8_notes,
+        spb8_has_aggregate_rows=bool(aggregated_spb8_rows),
+    )
     for section_lines in (
         _build_appendix5_lines(aggregated, money_context=money_context),
         _build_appendix13_lines(aggregated, money_context=money_context),
@@ -1353,10 +1397,12 @@ def render_aggregated_report(
             money_context=money_context,
         ),
         _build_appendix9_lines(aggregated, money_context=money_context),
+        _render_appendix8_correction_notes(main_report_notes),
         render_spb8_section(
             aggregated_spb8_rows,
             notes=spb8_notes,
             aggregate=bool(aggregated_spb8_rows),
+            include_notes=False,
         ),
         _render_generated_artifacts_main(analyzer_results),
         ["CFD и PIL", *(f"- {note}" for note in policy_notes)] if policy_notes else [],

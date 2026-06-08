@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 from integrations.shared.rendering.appendix13 import (
@@ -40,7 +41,10 @@ from integrations.shared.contracts import MainReportNote
 from integrations.shared.spb8 import render_spb8_section
 
 from ..constants import (
+    APPENDIX8_COUNTRY_MODE_PAYER_LABEL,
+    APPENDIX8_LIST_MODE_COUNTRY,
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
+    DECIMAL_EIGHT,
     DECIMAL_TWO,
     NEGATIVE_PIL_MODE_POSITION_AWARE,
     NEGATIVE_PIL_STATUS_DEFER,
@@ -48,8 +52,9 @@ from ..constants import (
     NEGATIVE_PIL_STATUS_REVIEW,
     TAX_MODE_EXECUTION_EXCHANGE,
     TAX_MODE_LISTING_EXCHANGE,
+    ZERO,
 )
-from ..models import AnalysisResult, AnalysisSummary, BucketTotals
+from ..models import AnalysisResult, AnalysisSummary, BucketTotals, PositiveWhtCorrection
 from ..shared import _fmt
 
 _OPEN_POSITION_MISMATCH_RE = re.compile(
@@ -59,6 +64,73 @@ _OPEN_POSITION_MISMATCH_RE = re.compile(
     r"expected_open_qty=(?P<expected>[-0-9.]+)\s+actual_open_qty=(?P<actual>[-0-9.]+)\s+"
     r"diff=(?P<diff>[-0-9.]+)"
 )
+
+_PRIOR_YEAR_CORRECTIONS_SECTION_TITLE = "Корекции към предходни години"
+_APPENDIX8_PRIOR_YEAR_CORRECTIONS_TITLE = "Приложение 8, Част III"
+_APPENDIX8_PRIOR_YEAR_CORRECTIONS_METHODOLOGY_TITLE = (
+    "Корекции към предходни години — Приложение 8, Част III"
+)
+
+
+@dataclass(slots=True)
+class _PositiveWhtCorrectionGroup:
+    year: int
+    payer_name: str
+    country_bulgarian: str
+    income_code: str
+    method_code: str
+    amount_eur: Decimal = ZERO
+    row_numbers: list[int] = field(default_factory=list)
+    review_required: bool = False
+    review_reasons: set[str] = field(default_factory=set)
+
+
+def _positive_wht_correction_payer(summary: AnalysisSummary, correction: PositiveWhtCorrection) -> str:
+    if correction.review_required:
+        return correction.payer_name
+    if summary.appendix8_dividend_list_mode == APPENDIX8_LIST_MODE_COUNTRY:
+        return APPENDIX8_COUNTRY_MODE_PAYER_LABEL
+    return correction.payer_name
+
+
+def _positive_wht_correction_groups(summary: AnalysisSummary) -> list[_PositiveWhtCorrectionGroup]:
+    groups: dict[tuple[int, str, str, str, str, bool], _PositiveWhtCorrectionGroup] = {}
+    for correction in summary.appendix_8_positive_wht_corrections:
+        payer_name = _positive_wht_correction_payer(summary, correction)
+        key = (
+            correction.tax_date.year,
+            payer_name,
+            correction.country_bulgarian,
+            correction.income_code,
+            correction.method_code,
+            correction.review_required,
+        )
+        group = groups.get(key)
+        if group is None:
+            group = _PositiveWhtCorrectionGroup(
+                year=correction.tax_date.year,
+                payer_name=payer_name,
+                country_bulgarian=correction.country_bulgarian,
+                income_code=correction.income_code,
+                method_code=correction.method_code,
+                review_required=correction.review_required,
+            )
+            groups[key] = group
+        group.amount_eur += correction.amount_eur
+        group.row_numbers.append(correction.row_number)
+        if correction.review_reason:
+            group.review_reasons.add(correction.review_reason)
+    return sorted(
+        groups.values(),
+        key=lambda item: (
+            item.year,
+            item.country_bulgarian,
+            item.payer_name,
+            item.income_code,
+            item.method_code,
+            min(item.row_numbers) if item.row_numbers else 0,
+        ),
+    )
 
 
 def _sum_bucket(
@@ -416,9 +488,16 @@ def _append_appendix8_sections(
         ),
         money_context=money_context,
     )
-    if not appendix_lines:
+    if appendix_lines:
+        lines.extend(appendix_lines)
+        lines.append("")
+
+
+def _append_prior_year_actions_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+    correction_lines = _positive_wht_corrections_section_lines(summary)
+    if not correction_lines:
         return
-    lines.extend(appendix_lines)
+    lines.extend(correction_lines)
     lines.append("")
 
 
@@ -635,11 +714,10 @@ def cfd_pil_policy_notes(summary: AnalysisSummary) -> list[str]:
                 'или изискват ръчна проверка. Подробните инструкции са в секцията "Изискват '
                 f'ръчен преглед".{affected_text}'
             )
-    if summary.pil_positive_rows > 0:
-        notes.append("Положителният Payment in Lieu of Dividend (PIL) е деклариран в Приложение 6, код 606.")
+    if summary.pil_appendix8_rows > 0:
         notes.append(
-            "Причина: точният произход на положителния PIL не може надеждно да се определи "
-            "само от IBKR Activity Statement и не се третира като реален дивидент по Приложение 8."
+            'Информационно: IBKR редове "Payment in Lieu of Dividend" са третирани като '
+            "дивидентоподобен доход и са включени в Приложение 8 заедно с чуждестранните дивиденти."
         )
     return notes
 
@@ -696,7 +774,7 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
         )
     ):
         return []
-    included_pil_rows = summary.pil_positive_rows + summary.pil_negative_net_rows
+    included_pil_rows = summary.pil_appendix8_rows + summary.pil_negative_net_rows
     appendix5_cfd_financing_adjustment_rows = summary.cfd_financing_rows if summary.net_cfd_financing else 0
     appendix5_negative_pil_adjustment_rows = summary.pil_negative_net_rows
     appendix5_non_trade_adjustment_rows = (
@@ -714,7 +792,7 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
             "- PIL policy: "
             f"{summary.negative_pil_mode}"
         ),
-        "- Positive PIL policy: appendix_6_code_606",
+        "- Positive/dividend-like PIL policy: appendix_8_dividend_like_income",
         f"- CFD trade rows count: {summary.cfd_trade_rows}",
         f"- CFD open position rows excluded from Appendix 8/SPB-8: {summary.cfd_open_position_rows}",
         f"- Appendix 5 non-trade adjustment rows not counted as trades: {appendix5_non_trade_adjustment_rows}",
@@ -734,6 +812,7 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
         f"- CFD financing negative skipped EUR total: {_fmt(summary.cfd_financing_negative_skipped_eur)}",
         f"- PIL rows detected in statement: {summary.pil_detected_rows}",
         f"- PIL rows included in tax year: {included_pil_rows}",
+        f"- PIL rows included in Appendix 8 dividend flow: {summary.pil_appendix8_rows}",
         f"- PIL rows outside tax year ignored: {summary.pil_outside_tax_year_rows}",
         f"- Positive PIL EUR total: {_fmt(summary.pil_positive_eur)}",
         f"- Negative PIL EUR total: {_fmt(summary.pil_negative_eur)}",
@@ -865,10 +944,56 @@ def _append_options_notes_section(lines: list[str], *, summary: AnalysisSummary)
 
 
 def _append_spb8_section(lines: list[str], *, summary: AnalysisSummary) -> None:
-    section = render_spb8_section(summary.spb8_rows, notes=summary.spb8_notes)
+    section = render_spb8_section(summary.spb8_rows, notes=summary.spb8_notes, include_notes=False)
     if not section:
         return
     lines.extend(section)
+    lines.append("")
+
+
+def _append_methodology_notes_section(lines: list[str], *, summary: AnalysisSummary) -> None:
+    notes = [
+        note
+        for note in analysis_settings_main_report_notes(summary)
+        if note.category == "methodology" and note.text.strip()
+    ]
+    notes.extend(
+        MainReportNote(
+            section_title="СПБ-8",
+            text=note,
+            analyzer_alias="ibkr",
+            category="methodology",
+        )
+        for note in summary.spb8_notes
+        if note.strip()
+    )
+    if not notes:
+        return
+
+    grouped: dict[str, list[str]] = {}
+    ordered_titles: list[str] = []
+    seen_by_section: dict[str, set[str]] = {}
+    for note in notes:
+        section_title = note.section_title.strip()
+        text = note.text.strip()
+        if not section_title or not text:
+            continue
+        seen = seen_by_section.setdefault(section_title, set())
+        if text in seen:
+            continue
+        seen.add(text)
+        if section_title not in grouped:
+            grouped[section_title] = []
+            ordered_titles.append(section_title)
+        grouped[section_title].append(text)
+
+    if not grouped:
+        return
+    lines.append("Методологични бележки")
+    for section_title in ordered_titles:
+        lines.append("")
+        lines.append(section_title)
+        lines.extend(f"- {text}" for text in grouped[section_title])
     lines.append("")
 
 
@@ -920,6 +1045,59 @@ def _fmt_set_bg(values: set[str]) -> str:
     return ", ".join(cleaned) if cleaned else "няма"
 
 
+def _positive_wht_corrections_note_text(summary: AnalysisSummary) -> str:
+    correction_lines = _positive_wht_corrections_section_lines(summary)
+    if not correction_lines:
+        return ""
+    return "\n".join(correction_lines[1:])
+
+
+def _positive_wht_corrections_methodology_text() -> str:
+    return "\n".join(
+        [
+            "В режим prior-year-correction положителните IBKR Withholding Tax редове се третират като корекции "
+            "към вече деклариран чуждестранен данък за предходни години.",
+            "Какво да направите за съответната предходна декларация:",
+            "- Платен данък в чужбина = max(0, Платен данък в чужбина преди корекция - Платен данък в чужбина (корекция))",
+            "- Размер на признатия данъчен кредит = min(Платен данък в чужбина, Допустим размер на данъчния кредит)",
+            "- Дължим данък, подлежащ на внасяне = Допустим размер на данъчния кредит - Размер на признатия данъчен кредит",
+            "Инструментът не променя автоматично вече подадени декларации.",
+        ]
+    )
+
+
+def _positive_wht_corrections_section_lines(summary: AnalysisSummary) -> list[str]:
+    if not summary.appendix_8_positive_wht_corrections:
+        return []
+    lines: list[str] = []
+    lines.append(_PRIOR_YEAR_CORRECTIONS_SECTION_TITLE)
+    lines.append(_APPENDIX8_PRIOR_YEAR_CORRECTIONS_TITLE)
+    grouped_by_year: dict[int, list[_PositiveWhtCorrectionGroup]] = {}
+    for correction_group in _positive_wht_correction_groups(summary):
+        grouped_by_year.setdefault(correction_group.year, []).append(correction_group)
+    for correction_year in sorted(grouped_by_year):
+        if lines[-1] != _APPENDIX8_PRIOR_YEAR_CORRECTIONS_TITLE:
+            lines.append("")
+        lines.append(f"- Година: {correction_year}")
+        for correction in grouped_by_year[correction_year]:
+            review_reason = "; ".join(sorted(correction.review_reasons))
+            review_suffix = f" (нужен преглед: {review_reason})" if correction.review_required else ""
+            lines.append(
+                f"  - {correction.payer_name}{review_suffix}; "
+                f"{correction.country_bulgarian}; код {correction.income_code}; метод {correction.method_code}; "
+                f"корекция {_fmt(correction.amount_eur, quant=DECIMAL_EIGHT)} EUR; "
+                f"редове {_compact_row_numbers(correction.row_numbers)}"
+            )
+    lines.extend(
+        [
+            "",
+            f"Тази секция не се попълва в текущата декларация за {summary.tax_year}; "
+            "използва се само за проверка/корекция на вече подадени декларации за предходни години.",
+        ]
+    )
+    return lines
+
+
 def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainReportNote]:
     market_section = "IBKR — класификация на пазари"
     instrument_methods_section = "IBKR — използвани методи за инструменти"
@@ -935,6 +1113,14 @@ def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainRe
             category="duplicate_individual_context",
         )
     ]
+    notes.append(
+        MainReportNote(
+            section_title="Настройки на анализа",
+            text=f"Режим за положителен IBKR Withholding Tax: {summary.positive_wht_mode}.",
+            analyzer_alias="ibkr",
+            category="setting",
+        )
+    )
     notes.append(
         MainReportNote(
             section_title=market_section,
@@ -1007,6 +1193,23 @@ def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainRe
                 text=f"Разпознат формат на датите в IBKR отчета: {summary.report_date_format_label}.",
                 analyzer_alias="ibkr",
                 category="info",
+            )
+        )
+    if summary.appendix_8_positive_wht_corrections:
+        notes.append(
+            MainReportNote(
+                section_title=_PRIOR_YEAR_CORRECTIONS_SECTION_TITLE,
+                text=_positive_wht_corrections_note_text(summary),
+                analyzer_alias="ibkr",
+                category="appendix8_corrections",
+            )
+        )
+        notes.append(
+            MainReportNote(
+                section_title=_APPENDIX8_PRIOR_YEAR_CORRECTIONS_METHODOLOGY_TITLE,
+                text=_positive_wht_corrections_methodology_text(),
+                analyzer_alias="ibkr",
+                category="methodology",
             )
         )
     if cfd_pil_policy_notes(summary):
@@ -1088,7 +1291,7 @@ def _append_configuration_section(lines: list[str], *, summary: AnalysisSummary)
     notes = [
         note
         for note in analysis_settings_main_report_notes(summary)
-        if note.category not in {"methodology", "duplicate_individual_context"}
+        if note.category not in {"methodology", "duplicate_individual_context", "appendix8_corrections"}
     ]
     if not notes:
         return
@@ -1198,11 +1401,29 @@ def _append_proof_section(
     lines.append(f"- withholding total rows skipped: {summary.withholding_total_rows_skipped}")
     lines.append(f"- withholding dividend rows: {summary.withholding_dividend_rows}")
     lines.append(f"- withholding non-dividend rows: {summary.withholding_non_dividend_rows}")
+    lines.append(f"- positive WHT mode: {summary.positive_wht_mode}")
     lines.append(f"- positive dividend withholding rows: {summary.withholding_positive_dividend_rows}")
+    lines.append(f"- positive dividend withholding rows found: {summary.positive_wht_rows_found}")
+    lines.append(f"- positive dividend withholding rows netted: {summary.positive_wht_rows_netted}")
+    lines.append(
+        "- positive dividend withholding rows listed as prior-year corrections: "
+        f"{summary.positive_wht_rows_prior_year_corrections}"
+    )
+    lines.append(f"- positive dividend withholding rows mapped: {summary.positive_wht_rows_mapped}")
+    lines.append(f"- positive dividend withholding rows requiring review: {summary.positive_wht_rows_unmapped}")
     lines.append(
         "- Appendix 8 withholding buckets with non-positive net tax paid: "
         f"{summary.withholding_non_positive_net_buckets}"
     )
+    for correction in summary.appendix_8_positive_wht_corrections:
+        lines.append(
+            "- positive WHT prior-year correction: "
+            f"row={correction.row_number}; date={correction.tax_date.isoformat()}; "
+            f"amount={_fmt(correction.amount)} {correction.currency}; amount_eur={_fmt(correction.amount_eur)}; "
+            f"payer={correction.payer_name}; country={correction.country_english}; "
+            f"review_required={correction.review_required}; reason={correction.review_reason or '-'}; "
+            f"description={correction.description}"
+        )
     lines.append(f"- open positions summary rows: {summary.open_positions_summary_rows}")
     lines.append(f"- Appendix 8 Part I rows: {summary.open_positions_part1_rows}")
     lines.append(f"- dividend tax rate: {_fmt(summary.dividend_tax_rate)}")
@@ -1241,7 +1462,6 @@ def _build_declaration_text(
     _append_cfd_pil_notes_section(lines, summary=summary)
     _append_futures_notes_section(lines, summary=summary)
     _append_options_notes_section(lines, summary=summary)
-    _append_spb8_section(lines, summary=summary)
     _append_appendix5_section(lines, summary=summary, money_context=money_context)
     _append_appendix13_section(lines, summary=summary, money_context=money_context)
     _append_appendix6_section(lines, summary=summary, money_context=money_context)
@@ -1252,8 +1472,11 @@ def _build_declaration_text(
         appendix9_allowable_credit_rate=appendix9_allowable_credit_rate,
         money_context=money_context,
     )
+    _append_prior_year_actions_section(lines, summary=summary)
     _append_review_section(lines, summary=summary, money_context=money_context)
+    _append_spb8_section(lines, summary=summary)
     _append_appendix8_part1_note(lines, has_part1_rows=bool(summary.appendix_8_part1_rows))
+    _append_methodology_notes_section(lines, summary=summary)
     technical_lines: list[str] = []
     _append_processing_notes_section(technical_lines, summary=summary)
     _append_proof_section(technical_lines, result=result, money_context=money_context)

@@ -477,9 +477,10 @@ def render_spb8_section(
     *,
     notes: list[str] | None = None,
     aggregate: bool = False,
+    include_notes: bool = True,
 ) -> list[str]:
-    note_lines = list(notes or [])
-    if aggregate:
+    note_lines = list(notes or []) if include_notes else []
+    if include_notes and aggregate:
         note_lines.append("Детайлите по платформи са налични в индивидуалните TXT файлове.")
     filing_source_rows = [row for row in rows if not row.is_bulgaria]
     rows_are_blocked = bool(missing_spb8_value_notes(filing_source_rows))

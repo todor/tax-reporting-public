@@ -120,13 +120,6 @@ _OVERRIDABLE_AGGREGATE_OPTIONS: tuple[_OverridableAggregateOption, ...] = (
         display_label="Closed-world validation",
     ),
     _OverridableAggregateOption(
-        flag="skip-period-validation",
-        group_key="skip_period_validation",
-        takes_value=False,
-        help="Skip strict full-period validation where supported; for development/testing only",
-        display_label="Skip period validation",
-    ),
-    _OverridableAggregateOption(
         flag="no-net-cfd-financing",
         group_key="no_net_cfd_financing",
         takes_value=False,
@@ -140,6 +133,15 @@ _OVERRIDABLE_AGGREGATE_OPTIONS: tuple[_OverridableAggregateOption, ...] = (
         help="Negative Payment in Lieu handling mode where supported",
         display_label="Negative PIL mode",
         choices=("always-net", "ignore", "position-aware"),
+    ),
+    _OverridableAggregateOption(
+        flag="positive-wht-mode",
+        group_key="positive_wht_mode",
+        takes_value=True,
+        help="Positive dividend Withholding Tax correction mode where supported",
+        display_label="Positive WHT mode",
+        choices=("current-year-net", "prior-year-correction"),
+        default="current-year-net",
     ),
     _OverridableAggregateOption(
         flag="appendix8-dividend-list-mode",
@@ -1550,9 +1552,9 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
         "tax_exempt_mode": args.tax_exempt_mode,
         "eu_regulated_exchange": args.eu_regulated_exchange,
         "closed_world": bool(args.closed_world),
-        "skip_period_validation": bool(args.skip_period_validation),
         "no_net_cfd_financing": bool(args.no_net_cfd_financing),
         "negative_pil_mode": args.negative_pil_mode,
+        "positive_wht_mode": args.positive_wht_mode,
         "appendix8_dividend_list_mode": args.appendix8_dividend_list_mode,
     }
     try:

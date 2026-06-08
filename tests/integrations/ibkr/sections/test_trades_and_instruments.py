@@ -206,6 +206,9 @@ def test_order_discriminator_is_ignored_even_if_code_contains_c(tmp_path: Path) 
 def test_trades_multiple_headers_use_correct_active_mapping(tmp_path: Path) -> None:
     rows = [
         ["Statement", "Header", "Field", "Value"],
+        ["Statement", "Data", "Period", "January 1, 2025 - December 31, 2025"],
+        ["Account Information", "Header", "Field Name", "Field Value"],
+        ["Account Information", "Data", "Base Currency", "EUR"],
         ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch"],
         ["Financial Instrument Information", "Data", "Stocks", "BMW", "IBIS2"],
         [
@@ -246,6 +249,9 @@ def test_trades_multiple_headers_use_correct_active_mapping(tmp_path: Path) -> N
 def test_forex_trades_header_without_basis_is_accepted(tmp_path: Path) -> None:
     rows = [
         ["Statement", "Header", "Field", "Value"],
+        ["Statement", "Data", "Period", "January 1, 2025 - December 31, 2025"],
+        ["Account Information", "Header", "Field Name", "Field Value"],
+        ["Account Information", "Data", "Base Currency", "EUR"],
         ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch"],
         ["Financial Instrument Information", "Data", "Stocks", "BMW", "IBIS2"],
         [
@@ -321,6 +327,9 @@ def test_closedlot_grouping_stops_on_next_trade(tmp_path: Path) -> None:
 def test_financial_instrument_multiple_headers_use_correct_mapping(tmp_path: Path) -> None:
     rows = [
         ["Statement", "Header", "Field", "Value"],
+        ["Statement", "Data", "Period", "January 1, 2025 - December 31, 2025"],
+        ["Account Information", "Header", "Field Name", "Field Value"],
+        ["Account Information", "Data", "Base Currency", "EUR"],
         ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch"],
         ["Financial Instrument Information", "Data", "Stocks", "BMW", "NASDAQ"],
         ["Financial Instrument Information", "Header", "Listing Exch", "Symbol", "Asset Category"],
@@ -856,6 +865,9 @@ def test_commission_is_applied_for_short_closing_trade(tmp_path: Path) -> None:
 def test_mixed_close_open_trade_prorates_proceeds_and_commission_to_closed_quantity(tmp_path: Path) -> None:
     rows = [
         ["Statement", "Header", "Field", "Value"],
+        ["Statement", "Data", "Period", "January 1, 2024 - December 31, 2024"],
+        ["Account Information", "Header", "Field Name", "Field Value"],
+        ["Account Information", "Data", "Base Currency", "EUR"],
         ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Listing Exch"],
         ["Financial Instrument Information", "Data", "Stocks", "SF PRD", "NASDAQ"],
         [
@@ -909,7 +921,6 @@ def test_mixed_close_open_trade_prorates_proceeds_and_commission_to_closed_quant
         tax_exempt_mode="listing_exchange",
         output_dir=tmp_path / "out",
         fx_rate_provider=_fx_provider,
-        skip_period_validation=True,
     )
 
     assert result.summary.appendix_5.losses_eur == Decimal("8.770403353849526387009472260")

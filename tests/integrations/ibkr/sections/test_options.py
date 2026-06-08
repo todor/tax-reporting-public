@@ -148,7 +148,10 @@ def test_option_policy_note_is_rendered_in_individual_and_aggregate_reports(tmp_
     assert "Опциите не се включват в СПБ-8 като притежавани ценни книжа." in result.summary.spb8_notes
     option_section = individual_text.split("Опции върху акции и индекси", 1)[1].split("\n\n", 1)[0]
     assert "Опциите не се включват в СПБ-8" not in option_section
-    assert "Бележки към СПБ-8" in individual_text
+    assert "Бележки към СПБ-8" not in individual_text
+    individual_lines = individual_text.splitlines()
+    assert "Методологични бележки" in individual_lines
+    assert "СПБ-8" in individual_lines[individual_lines.index("Методологични бележки") :]
 
     tax_result = build_ibkr_result(
         analyzer_alias="ibkr",
@@ -171,7 +174,10 @@ def test_option_policy_note_is_rendered_in_individual_and_aggregate_reports(tmp_
     assert rendered.count("Опциите не се включват в СПБ-8 като притежавани ценни книжа.") == 1
     aggregate_option_section = rendered.split("Опции върху акции и индекси", 1)[1].split("\n\n", 1)[0]
     assert "Опциите не се включват в СПБ-8" not in aggregate_option_section
-    assert "Бележки към СПБ-8" in rendered
+    assert "Бележки към СПБ-8" not in rendered
+    assert "Методологични бележки\n\nОпции върху акции и индекси" in rendered
+    rendered_lines = rendered.splitlines()
+    assert "СПБ-8" in rendered_lines[rendered_lines.index("Методологични бележки") :]
 
 
 def test_outside_tax_year_option_rows_do_not_render_main_policy_notes(tmp_path: Path) -> None:

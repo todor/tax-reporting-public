@@ -20,23 +20,38 @@ from ..models import IbkrAnalyzerError, InstrumentListing
 from .instruments import _resolve_instrument_for_trade_symbol
 
 
+def _description_security_token(description: str) -> tuple[str | None, str | None, str | None]:
+    match = re.match(r"\s*([A-Za-z0-9._-]+)\s*\(([A-Za-z0-9]+)\)", description)
+    if match is None:
+        return None, None, None
+    symbol = match.group(1).upper()
+    identifier = match.group(2).upper()
+    if re.fullmatch(r"[A-Z]{2}[A-Z0-9]{9}[0-9]", identifier):
+        return symbol, identifier, "ISIN"
+    if re.fullmatch(r"[0-9]+", identifier):
+        return symbol, identifier, "IBKR_CONID"
+    return symbol, identifier, "UNKNOWN"
+
+
 def _extract_isin(description: str) -> tuple[str | None, str | None]:
-    matches = re.findall(r"\(([A-Za-z0-9]{12})\)", description)
+    matches = re.findall(r"\(([A-Za-z0-9]+)\)", description)
     if not matches:
         return None, "missing ISIN in description"
-    normalized = [item.upper() for item in matches if re.fullmatch(r"[A-Z]{2}[A-Z0-9]{10}", item.upper())]
+    normalized = [item.upper() for item in matches if re.fullmatch(r"[A-Z]{2}[A-Z0-9]{9}[0-9]", item.upper())]
     if len(normalized) == 1:
         return normalized[0], None
     if len(normalized) > 1:
         return None, "multiple ISIN candidates in description"
+    if any(re.fullmatch(r"[0-9]+", item) for item in matches):
+        return None, "numeric IBKR contract id found instead of ISIN in description"
     return None, "invalid ISIN format in description"
 
 
 def _extract_symbol_from_security_description(description: str) -> str | None:
-    match = re.match(r"\s*([A-Za-z0-9._-]+)\s*\([A-Za-z0-9]{12}\)", description)
-    if match is None:
+    symbol, _, _ = _description_security_token(description)
+    if symbol is None:
         return None
-    return match.group(1).upper()
+    return symbol
 
 
 def _resolve_country_from_isin(isin: str) -> tuple[str, str, str] | None:
@@ -69,7 +84,7 @@ def _appendix9_default_country() -> tuple[str, str, str]:
 
 def _classify_dividend_description(description: str) -> str:
     lowered = description.lower()
-    if "cash dividend" in lowered:
+    if "cash dividend" in lowered or "payment in lieu of dividend" in lowered:
         return DIVIDEND_APPENDIX_8
     if "lieu received" in lowered:
         return DIVIDEND_APPENDIX_6
@@ -78,7 +93,12 @@ def _classify_dividend_description(description: str) -> str:
 
 def _classify_status_from_description(description: str) -> str:
     lowered = description.lower()
-    if "cash dividend" in lowered or "credit interest" in lowered or "lieu received" in lowered:
+    if (
+        "cash dividend" in lowered
+        or "payment in lieu of dividend" in lowered
+        or "credit interest" in lowered
+        or "lieu received" in lowered
+    ):
         return INTEREST_STATUS_TAXABLE
     return INTEREST_STATUS_UNKNOWN
 
@@ -136,6 +156,26 @@ def _resolve_dividend_company_name(
     if normalized_symbol:
         return normalized_symbol, forced_reason or "symbol was normalized without instrument mapping"
     return symbol, forced_reason or "symbol was not resolved via Financial Instrument Information"
+
+
+def _resolve_listing_from_security_description(
+    *,
+    description: str,
+    listings: dict[str, InstrumentListing],
+) -> tuple[InstrumentListing | None, str | None]:
+    symbol = _extract_symbol_from_security_description(description)
+    if symbol is None:
+        return None, "missing symbol token in description"
+    instrument, normalized_symbol, forced_reason = _resolve_instrument_for_trade_symbol(
+        asset_category="Stocks",
+        trade_symbol=symbol,
+        listings=listings,
+    )
+    if instrument is not None:
+        return instrument, None
+    if normalized_symbol:
+        return None, forced_reason or "symbol was normalized without instrument mapping"
+    return None, forced_reason or "symbol was not resolved via Financial Instrument Information"
 
 
 __all__ = [name for name in globals() if not name.startswith("__")]
