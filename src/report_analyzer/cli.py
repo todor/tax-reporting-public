@@ -879,15 +879,21 @@ def _all_result_diagnostics(
     results: list[TaxAnalysisResult],
     extra_diagnostics: list[AnalysisDiagnostic],
 ) -> list[AnalysisDiagnostic]:
+    has_aggregate_spb8_missing_values = any(
+        diagnostic.code == "SPB8_MISSING_VALUES" for diagnostic in extra_diagnostics
+    )
     diagnostics: list[AnalysisDiagnostic] = []
     for result in results:
-        diagnostics.extend(
-            _with_report_context(
-                result.diagnostics,
-                source_file=result.input_path,
-                report_path=result.output_paths.get("declaration_txt"),
-            )
+        result_diagnostics = _with_report_context(
+            result.diagnostics,
+            source_file=result.input_path,
+            report_path=result.output_paths.get("declaration_txt"),
         )
+        if has_aggregate_spb8_missing_values:
+            result_diagnostics = [
+                diagnostic for diagnostic in result_diagnostics if diagnostic.code != "SPB8_MISSING_VALUES"
+            ]
+        diagnostics.extend(result_diagnostics)
     diagnostics.extend(extra_diagnostics)
     return diagnostics
 

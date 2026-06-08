@@ -3426,7 +3426,7 @@ def test_aggregate_mode_generates_spb8_template_from_detected_inputs(
     assert "Третирането на крипто активи за СПБ-8" not in report
     assert "Използвана интерпретация за този отчет: крипто платформите са включени" in report
     assert "Какво трябва да направите" in report
-    assert "СПБ-8: липсват начални/крайни стойности" in report
+    assert report.count("СПБ-8: липсват начални/крайни стойности") == 1
     assert "kraken / Ирландия / EUR / тип 03" in report
     assert "Тип на вземането" not in report
     assert "Забележки за СПБ-8" not in report
@@ -4098,6 +4098,7 @@ def test_spb8_corporate_actions_with_missing_start_quantity_warns_for_manual_com
     assert "Тип на вземането" not in report
     assert "Попълнете липсващите начални количества" in report
     assert "ISIN IE00BK5BQT80" in report
+    assert report.count("СПБ-8: липсват начални/крайни стойности") == 1
     assert "Попълнете липсващите стойности в генерирания SPB-8 input файл:" in report
     assert str(out_dir / "spb8-input-file.csv") in report
     assert "Стартирайте отново с --spb8-input-file <path>" in report

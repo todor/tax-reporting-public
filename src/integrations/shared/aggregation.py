@@ -1371,7 +1371,12 @@ def render_aggregated_report(
     _append_appendix8_part1_note(lines, aggregated=aggregated)
 
     result_diagnostics = [diagnostic for result in analyzer_results for diagnostic in normalize_diagnostics(result.diagnostics)]
-    all_report_diagnostics = [*result_diagnostics, *(analyzer_error_diagnostics or [])]
+    extra_diagnostics = analyzer_error_diagnostics or []
+    if any(diagnostic.code == "SPB8_MISSING_VALUES" for diagnostic in extra_diagnostics):
+        result_diagnostics = [
+            diagnostic for diagnostic in result_diagnostics if diagnostic.code != "SPB8_MISSING_VALUES"
+        ]
+    all_report_diagnostics = [*result_diagnostics, *extra_diagnostics]
     analyzer_input_count = sum(len(paths) for paths in detected_inputs.values())
     auxiliary_input_count = max(0, len(detected_input_items or []) - analyzer_input_count)
     successful_analyzer_input_count = sum(1 for result in analyzer_results if result.status != "ERROR")
