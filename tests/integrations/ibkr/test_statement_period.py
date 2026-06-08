@@ -95,7 +95,7 @@ def test_skip_statement_period_validation_emits_warning(tmp_path: Path) -> None:
     result = analyze_ibkr_activity_statement(
         input_csv=input_csv,
         tax_year=2025,
-        tax_exempt_mode="listed_symbol",  # type: ignore[arg-type]
+        tax_exempt_mode="listing_exchange",  # type: ignore[arg-type]
         output_dir=tmp_path / "out",
         skip_period_validation=True,
         fx_rate_provider=_fx_provider,

@@ -1124,7 +1124,7 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
         if listing_related:
             lines.append(
                 "Важно: execution_exchange показва къде е изпълнена сделката, но не е достатъчен "
-                "за класификацията при listed_symbol режим."
+                "за класификацията при listing_exchange режим."
             )
         examples = _diagnostic_examples_bg(diagnostic.params, include_raw=False)
         if examples:
@@ -1398,12 +1398,12 @@ def _reason_bg(reason: str) -> str:
     if "unmapped listing exchange" in lowered:
         return (
             "борсата на листване от IBKR Financial Instrument Information липсва или не е мапната "
-            "за целите на данъчното освобождаване при режим listed_symbol."
+            "за целите на данъчното освобождаване при режим listing_exchange."
         )
     if "missing listing exchange" in lowered:
         return (
             "борсата на листване от IBKR Financial Instrument Information липсва или не е мапната "
-            "за целите на данъчното освобождаване при режим listed_symbol."
+            "за целите на данъчното освобождаване при режим listing_exchange."
         )
     if "invalid listing exchange" in lowered:
         return "невалидна стойност за listing exchange."

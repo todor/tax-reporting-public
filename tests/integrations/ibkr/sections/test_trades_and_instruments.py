@@ -46,7 +46,7 @@ def test_financial_instrument_parsing_supports_stocks_and_treasury_bills(tmp_pat
     rows = _base_rows()
     rows[7][2] = "Treasury Bills"
     rows[7][4] = "BGTB"
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_13.rows == 1
     assert result.summary.appendix_5.rows == 1
 
@@ -55,12 +55,12 @@ def test_financial_instrument_symbol_aliases_are_supported(tmp_path: Path) -> No
     rows[3] = ["Financial Instrument Information", "Data", "Stocks", "4GLD, 4GLDd", "IBIS2"]
     rows[7] = ["Trades", "Data", "Stocks", "USD", "4GLDD", "2025-01-10, 10:00:00", "IBIS2", "C;O", "100", "Trade", ""]
     rows[8] = ["Trades", "Data", "Stocks", "USD", "4GLDD", "2024-12-20", "IBIS2", "", "0", "ClosedLot", "30"]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_13.rows >= 1
 
 def test_treasury_bills_exact_symbol_match(tmp_path: Path) -> None:
     rows = _treasury_rows(trade_symbol="912797NP8")
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_13.rows == 1
 
     output_rows = _read_rows(result.output_csv_path)
@@ -72,7 +72,7 @@ def test_treasury_bills_exact_symbol_match(tmp_path: Path) -> None:
 
 def test_treasury_bills_extracted_identifier_match(tmp_path: Path) -> None:
     rows = _treasury_rows(trade_symbol="United States Treasury B 06/05/25<br/>912797NP8 4.28601533%")
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_13.rows == 1
 
     output_rows = _read_rows(result.output_csv_path)
@@ -85,7 +85,7 @@ def test_treasury_bills_extracted_identifier_match(tmp_path: Path) -> None:
 
 def test_treasury_bills_multiple_identifier_candidates_mark_review(tmp_path: Path) -> None:
     rows = _treasury_rows(trade_symbol="TBill AAA111BBB and 912797NP8")
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_5.rows == 1
     assert any("multiple 9-char identifier candidates" in warning for warning in result.summary.warnings)
 
@@ -98,7 +98,7 @@ def test_treasury_bills_multiple_identifier_candidates_mark_review(tmp_path: Pat
 
 def test_treasury_bills_no_identifier_candidates_mark_review(tmp_path: Path) -> None:
     rows = _treasury_rows(trade_symbol="United States Treasury Bill June 2025")
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_5.rows == 1
     assert any("no 9-char identifier candidate" in warning for warning in result.summary.warnings)
 
@@ -114,7 +114,7 @@ def test_treasury_bills_extracted_identifier_uses_financial_instrument_mapping(t
         trade_symbol="United States Treasury B 06/05/25<br/>912797NP8 4.28601533%",
         listing_exchange="NASDAQ",
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_5.rows == 1
     assert result.summary.appendix_13.rows == 0
 
@@ -138,7 +138,7 @@ def test_treasury_bills_missing_listing_exchange_is_non_eu_not_invalid(tmp_path:
     assert "Не-EU пазари, открити в отчета: ," not in text
 
 def test_listing_mode_eu_vs_non_eu_classification(tmp_path: Path) -> None:
-    result = _run(tmp_path, _base_rows(), mode="listed_symbol")
+    result = _run(tmp_path, _base_rows(), mode="listing_exchange")
     assert result.summary.appendix_13.rows == 1  # BMW (IBIS2)
     assert result.summary.appendix_5.rows == 1  # TSLA (NASDAQ)
 
@@ -170,7 +170,7 @@ def test_trade_filtering_only_code_with_closing_token(tmp_path: Path) -> None:
             "",
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.ignored_non_closing_trade_rows == 1
 
 def test_order_discriminator_is_ignored_even_if_code_contains_c(tmp_path: Path) -> None:
@@ -191,7 +191,7 @@ def test_order_discriminator_is_ignored_even_if_code_contains_c(tmp_path: Path) 
             "",
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.ignored_non_closing_trade_rows >= 1
     assert result.summary.appendix_13.rows == 1
 
@@ -231,7 +231,7 @@ def test_trades_multiple_headers_use_correct_active_mapping(tmp_path: Path) -> N
         ["Trades", "Data", "BMW", "Stocks", "2025-02-10, 10:00:00", "USD", "IBIS2", "Trade", "C", "", "200"],
         ["Trades", "Data", "BMW", "Stocks", "2025-01-20", "USD", "IBIS2", "ClosedLot", "", "50", "0"],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_13.rows == 2
     assert result.summary.appendix_13.wins_eur == Decimal("198")
 
@@ -269,7 +269,7 @@ def test_forex_trades_header_without_basis_is_accepted(tmp_path: Path) -> None:
         ["Trades", "Data", "Stocks", "USD", "BMW", "2025-01-10, 10:00:00", "IBIS2", "C", "100", "Trade", ""],
         ["Trades", "Data", "Stocks", "USD", "BMW", "2024-12-20", "IBIS2", "", "0", "ClosedLot", "30"],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.forex_ignored_rows == 1
     assert result.summary.appendix_13.rows == 1
 
@@ -307,7 +307,7 @@ def test_closedlot_grouping_stops_on_next_trade(tmp_path: Path) -> None:
             "10",
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_13.rows == 2
 
 def test_financial_instrument_multiple_headers_use_correct_mapping(tmp_path: Path) -> None:
@@ -333,12 +333,12 @@ def test_financial_instrument_multiple_headers_use_correct_mapping(tmp_path: Pat
         ["Trades", "Data", "Stocks", "USD", "TSLA", "2025-02-10, 12:00:00", "IBIS2", "C", "120", "Trade", ""],
         ["Trades", "Data", "Stocks", "USD", "TSLA", "2025-02-09", "IBIS2", "", "0", "ClosedLot", "20"],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_13.rows == 1
     assert result.summary.appendix_5.rows == 0
 
 def test_prior_year_closedlot_is_used_for_basis(tmp_path: Path) -> None:
-    result = _run(tmp_path, _base_rows(), mode="listed_symbol")
+    result = _run(tmp_path, _base_rows(), mode="listing_exchange")
     # BMW: proceeds=100*0.9=90, basis=30*0.9=27, pnl=63
     assert result.summary.appendix_13.wins_eur == Decimal("63")
 
@@ -346,7 +346,7 @@ def test_closedlot_us_slash_date_is_supported_and_reported(tmp_path: Path) -> No
     rows = _base_rows()
     rows[8][5] = "9/13/2024"
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.appendix_13.wins_eur == Decimal("63")
     assert result.summary.report_date_format_label == "M/D/YYYY"
@@ -371,7 +371,7 @@ def test_ambiguous_closedlot_slash_dates_default_to_ibkr_us_format(tmp_path: Pat
     result = analyze_ibkr_activity_statement(
         input_csv=input_csv,
         tax_year=2025,
-        tax_exempt_mode="listed_symbol",
+        tax_exempt_mode="listing_exchange",
         output_dir=tmp_path / "out",
         fx_rate_provider=dated_fx_provider,
     )
@@ -384,7 +384,7 @@ def test_ambiguous_closedlot_slash_dates_default_to_ibkr_us_format(tmp_path: Pat
     )
 
 def test_existing_closedlot_iso_date_format_still_passes(tmp_path: Path) -> None:
-    result = _run(tmp_path, _base_rows(), mode="listed_symbol")
+    result = _run(tmp_path, _base_rows(), mode="listing_exchange")
 
     assert result.summary.appendix_13.wins_eur == Decimal("63")
     assert result.summary.report_date_format_label == "M/D/YYYY"
@@ -399,14 +399,14 @@ def test_fx_logic_eur_rate_identity(tmp_path: Path) -> None:
     rows[8][3] = "EUR"
     rows[7][8] = "100"
     rows[8][10] = "40"
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_13.wins_eur == Decimal("60")
 
 def test_pnl_formula_for_positive_and_negative_proceeds(tmp_path: Path) -> None:
     rows = _base_rows()
     rows[7][8] = "-50"  # proceeds EUR=-45
     rows[8][10] = "-20"  # basis EUR=-18 (signed IBKR basis for short close)
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     # pnl = proceeds - basis = -27
     assert result.summary.appendix_13.losses_eur == Decimal("27")
 
@@ -416,7 +416,7 @@ def test_review_status_taxable_routes_row_to_appendix_5(tmp_path: Path) -> None:
         execution_exchange="IBIS2",
         review_status="TAXABLE",
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_5.rows == 1
     assert result.summary.appendix_13.rows == 0
     assert result.summary.review_status_overrides_rows == 1
@@ -458,7 +458,7 @@ def test_review_status_non_taxable_routes_row_to_appendix_13(tmp_path: Path) -> 
         execution_exchange="NASDAQ",
         review_status="NON-TAXABLE",
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_5.rows == 0
     assert result.summary.appendix_13.rows == 1
     assert result.summary.review_status_overrides_rows == 1
@@ -482,7 +482,7 @@ def test_unknown_review_status_is_reported(tmp_path: Path) -> None:
         execution_exchange="IBIS2",
         review_status="MAYBE",
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_13.rows == 1
     assert result.summary.unknown_review_status_rows == 1
     assert "MAYBE" in result.summary.unknown_review_status_values
@@ -500,7 +500,7 @@ def test_unknown_review_status_is_reported(tmp_path: Path) -> None:
 
 def test_csv_integrity_non_trades_unchanged_and_trades_consistent(tmp_path: Path) -> None:
     input_rows = _base_rows()
-    result = _run(tmp_path, input_rows, mode="listed_symbol")
+    result = _run(tmp_path, input_rows, mode="listing_exchange")
     output_rows = _read_rows(result.output_csv_path)
 
     for in_row, out_row in zip(input_rows, output_rows):
@@ -517,7 +517,7 @@ def test_closedlot_discriminator_allows_ibkr_footnote_marker(tmp_path: Path) -> 
     rows[8][9] = "ClosedLot*"
     rows[10][9] = "ClosedLot*"
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.closedlot_discriminator_rows == 2
     assert result.summary.sanity_checked_closedlots == 2
@@ -530,7 +530,7 @@ def test_no_closedlot_fails(tmp_path: Path) -> None:
     rows = _base_rows()
     rows.pop(8)
     with pytest.raises(IbkrAnalyzerError, match="no ClosedLot rows attached"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 
 def test_incomplete_statement_without_any_closedlot_rows_is_actionable_in_cli_main_report(
@@ -629,14 +629,14 @@ def test_incomplete_statement_with_realized_subtotal_without_closedlots_is_actio
     ]
 
     with pytest.raises(UserFacingTaxError, match="realized_summary_count=1"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 
 def test_incomplete_statement_without_any_closedlot_rows_raises_user_facing_error(tmp_path: Path) -> None:
     rows = [row for row in _base_rows() if len(row) < 10 or row[9] != "ClosedLot"]
 
     with pytest.raises(UserFacingTaxError, match="realized disposal activity but no Trades/Data/ClosedLot rows"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 
 def test_unsupported_asset_category_is_skipped_with_warning(tmp_path: Path) -> None:
@@ -644,7 +644,7 @@ def test_unsupported_asset_category_is_skipped_with_warning(tmp_path: Path) -> N
     rows[7][2] = "Options"
     rows[8][2] = "Options"
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.appendix_13.rows == 0
     assert result.summary.appendix_5.rows == 1
@@ -674,7 +674,7 @@ def test_unsupported_asset_category_with_different_header_is_skipped(tmp_path: P
         ]
     )
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.appendix_13.rows == 1
     assert result.summary.appendix_5.rows == 1
@@ -686,14 +686,14 @@ def test_trades_data_before_header_fails(tmp_path: Path) -> None:
     header = rows.pop(6)
     rows.insert(11, header)
     with pytest.raises(IbkrAnalyzerError, match="Trades row encountered before Trades Header"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 def test_financial_instrument_data_before_header_fails(tmp_path: Path) -> None:
     rows = _base_rows()
     header = rows.pop(2)
     rows.insert(5, header)
     with pytest.raises(IbkrAnalyzerError, match="Financial Instrument Information Data row encountered before Financial Instrument Information Header"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 def test_trades_missing_required_column_in_active_header_fails(tmp_path: Path) -> None:
     rows = _base_rows()
@@ -710,7 +710,7 @@ def test_trades_missing_required_column_in_active_header_fails(tmp_path: Path) -
         "DataDiscriminator",
     ]  # Basis missing
     with pytest.raises(IbkrAnalyzerError, match="missing required column"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 def test_supported_trades_missing_required_column_still_fails(tmp_path: Path) -> None:
     rows = _base_rows()
@@ -728,13 +728,13 @@ def test_supported_trades_missing_required_column_still_fails(tmp_path: Path) ->
     ]  # Proceeds missing
 
     with pytest.raises(IbkrAnalyzerError, match="missing required column.*Proceeds"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 def test_financial_instrument_missing_required_column_in_active_header_fails(tmp_path: Path) -> None:
     rows = _base_rows()
     rows[2] = ["Financial Instrument Information", "Header", "Asset Category", "Symbol"]  # Listing Exch missing
     with pytest.raises(IbkrAnalyzerError, match="missing required column"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 def test_missing_symbol_mapping_review_not_silent(tmp_path: Path) -> None:
     rows = _base_rows()
@@ -747,12 +747,12 @@ def test_conflicting_symbol_mapping_fails_when_classification_differs(tmp_path: 
     rows = _base_rows()
     rows.insert(4, ["Financial Instrument Information", "Data", "Stocks", "BMW", "NASDAQ"])
     with pytest.raises(IbkrAnalyzerError, match="conflicting symbol mapping"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 def test_conflicting_symbol_mapping_allowed_when_same_classification(tmp_path: Path) -> None:
     rows = _base_rows()
     rows.insert(4, ["Financial Instrument Information", "Data", "Stocks", "BMW", "IBIS"])
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_13.rows >= 1
 
 def test_realistic_fixture_with_requested_exchanges(tmp_path: Path) -> None:
@@ -811,7 +811,7 @@ def test_commission_is_applied_for_long_closing_trade(tmp_path: Path) -> None:
         ["Trades", "Data", "Stocks", "USD", "BMW", "2025-01-10, 10:00:00", "IBIS2", "C", "100", "-1", "Trade", ""],
         ["Trades", "Data", "Stocks", "USD", "BMW", "2025-01-09", "IBIS2", "", "0", "", "ClosedLot", "20"],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_13.wins_eur == Decimal("71.1")
     out_rows = _read_rows(result.output_csv_path)
     header, data = _trades_header_and_data(out_rows)
@@ -842,7 +842,7 @@ def test_commission_is_applied_for_short_closing_trade(tmp_path: Path) -> None:
         ["Trades", "Data", "Stocks", "USD", "BMW", "2025-01-10, 10:00:00", "IBIS2", "C", "-100", "-1", "Trade", ""],
         ["Trades", "Data", "Stocks", "USD", "BMW", "2025-01-09", "IBIS2", "", "0", "", "ClosedLot", "-20"],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_13.losses_eur == Decimal("72.9")
 
 def test_mixed_close_open_trade_prorates_proceeds_and_commission_to_closed_quantity(tmp_path: Path) -> None:
@@ -898,7 +898,7 @@ def test_mixed_close_open_trade_prorates_proceeds_and_commission_to_closed_quant
     result = analyze_ibkr_activity_statement(
         input_csv=input_csv,
         tax_year=2024,
-        tax_exempt_mode="listed_symbol",
+        tax_exempt_mode="listing_exchange",
         output_dir=tmp_path / "out",
         fx_rate_provider=_fx_provider,
         skip_period_validation=True,
@@ -919,14 +919,14 @@ def test_standalone_cli_is_not_user_facing(
     assert not hasattr(module, "main")
 
 def test_report_alias_is_in_output_filenames(tmp_path: Path) -> None:
-    result = _run(tmp_path, _base_rows(), mode="listed_symbol", report_alias="acc_1")
+    result = _run(tmp_path, _base_rows(), mode="listing_exchange", report_alias="acc_1")
     assert "acc_1" in result.output_csv_path.name
     assert "acc_1" in result.declaration_txt_path.name
 
 def test_report_alias_is_normalized_for_filename(tmp_path: Path) -> None:
-    result = _run(tmp_path, _base_rows(), mode="listed_symbol", report_alias="  acc main #1 ")
+    result = _run(tmp_path, _base_rows(), mode="listing_exchange", report_alias="  acc main #1 ")
     assert "acc_main_1" in result.output_csv_path.name
 
 def test_invalid_report_alias_fails(tmp_path: Path) -> None:
     with pytest.raises(IbkrAnalyzerError, match="report alias must contain at least one alphanumeric character"):
-        _ = _run(tmp_path, _base_rows(), mode="listed_symbol", report_alias="!!!")
+        _ = _run(tmp_path, _base_rows(), mode="listing_exchange", report_alias="!!!")

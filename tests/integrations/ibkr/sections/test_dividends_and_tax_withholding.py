@@ -34,7 +34,7 @@ def test_cli_appendix8_dividend_mode_defaults_to_company(tmp_path: Path) -> None
             "--tax-year",
             "2025",
             "--tax-exempt-mode",
-            "listed_symbol",
+            "listing_exchange",
             "--skip-period-validation",
         ]
     )
@@ -42,7 +42,7 @@ def test_cli_appendix8_dividend_mode_defaults_to_company(tmp_path: Path) -> None
     assert args.skip_period_validation is True
 
 
-def test_cli_tax_exempt_mode_defaults_to_listed_symbol_for_single_mode(tmp_path: Path) -> None:
+def test_cli_tax_exempt_mode_defaults_to_listing_exchange_for_single_mode(tmp_path: Path) -> None:
     import report_analyzer
     from integrations.ibkr.analyzer_definition import ANALYZER
 
@@ -62,7 +62,7 @@ def test_cli_tax_exempt_mode_defaults_to_listed_symbol_for_single_mode(tmp_path:
 
     options = ANALYZER.build_options(args, "single", {})
 
-    assert options["tax_exempt_mode"] == "listed_symbol"
+    assert options["tax_exempt_mode"] == "listing_exchange"
 
 
 def test_cli_tax_exempt_mode_explicit_override_still_works_for_single_mode(tmp_path: Path) -> None:
@@ -90,7 +90,7 @@ def test_cli_tax_exempt_mode_explicit_override_still_works_for_single_mode(tmp_p
     assert options["tax_exempt_mode"] == "execution_exchange"
 
 
-def test_cli_tax_exempt_mode_defaults_to_listed_symbol_for_aggregate_mode() -> None:
+def test_cli_tax_exempt_mode_defaults_to_listing_exchange_for_aggregate_mode() -> None:
     import report_analyzer
     from integrations.ibkr.analyzer_definition import ANALYZER
 
@@ -106,7 +106,7 @@ def test_cli_tax_exempt_mode_defaults_to_listed_symbol_for_aggregate_mode() -> N
 
     options = ANALYZER.build_options(args, "aggregate", {})
 
-    assert options["tax_exempt_mode"] == "listed_symbol"
+    assert options["tax_exempt_mode"] == "listing_exchange"
 
 
 def test_dividends_scoped_headers_are_resolved_from_active_header(tmp_path: Path) -> None:
@@ -119,7 +119,7 @@ def test_dividends_scoped_headers_are_resolved_from_active_header(tmp_path: Path
             ["Dividends", "Data", "IS04(IE00BSKRJZ44) Cash Dividend USD 0.0735 per Share", "2", "2025-03-02", "EUR"],
         ]
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.dividends_processed_rows == 2
     assert result.summary.dividends_cash_rows == 2
 
@@ -159,7 +159,7 @@ def test_ambiguous_slash_dates_use_default_ibkr_report_format_across_sections(tm
     )
     rows[8][5] = "1/2/2024"
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.report_date_format_label == "M/D/YYYY"
     assert result.summary.report_date_format_reason == "all slash dates were ambiguous; defaulted to IBKR M/D/YYYY"
@@ -176,7 +176,7 @@ def test_dividend_total_rows_are_skipped(tmp_path: Path) -> None:
         ],
         [],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.dividends_total_rows_skipped == 2
     assert result.summary.dividends_processed_rows == 1
     assert result.summary.dividends_cash_rows == 1
@@ -190,7 +190,7 @@ def test_dividend_routing_cash_lieu_unknown(tmp_path: Path) -> None:
         ],
         [],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.dividends_cash_rows == 1
     assert result.summary.dividends_lieu_rows == 1
     assert result.summary.dividends_unknown_rows == 1
@@ -218,7 +218,7 @@ def test_dividend_isin_country_mapping_us_lu_ie(tmp_path: Path) -> None:
         ],
         [],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert set(result.summary.appendix_8_by_country) == {"US", "LU", "IE"}
 
     out_rows = _read_rows(result.output_csv_path)
@@ -241,7 +241,7 @@ def test_withholding_tax_filtering_and_country_aggregation(tmp_path: Path) -> No
             ["Withholding Tax", "Data", "Total in EUR", "2025-03-31", "Totals", "", ""],
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.withholding_processed_rows == 3
     assert result.summary.withholding_total_rows_skipped == 1
     assert result.summary.withholding_dividend_rows == 2
@@ -269,7 +269,7 @@ def test_dividends_and_withholding_do_not_duplicate_manual_columns(tmp_path: Pat
             ["Withholding Tax", "Data", "USD", "2025-03-01", "TPR(US8760301072) Cash Dividend USD 0.35 per Share - US Tax", "-2", "", "", "", "", "", ""],
         ]
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     out_rows = _read_rows(result.output_csv_path)
     div_header = next(r for r in out_rows if len(r) > 1 and r[0] == "Dividends" and r[1] == "Header")
     wh_header = next(r for r in out_rows if len(r) > 1 and r[0] == "Withholding Tax" and r[1] == "Header")
@@ -298,7 +298,7 @@ def test_withholding_review_status_taxable_uses_manual_values_for_aggregation(tm
             ["Withholding Tax", "Data", "USD", "2025-03-02", "Withholding @ 20% on Credit Interest for Mar-2025", "-1", "", "Ireland", "-2.00000000", "Appendix 9", "TAXABLE"],
         ]
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_8_by_country["LU"].withholding_tax_paid_eur == Decimal("5")
     assert result.summary.appendix_9_withholding_paid_eur == Decimal("2")
     assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("2")
@@ -315,7 +315,7 @@ def test_appendix_8_tax_credit_math_uses_configurable_rate(tmp_path: Path, monke
             ["Withholding Tax", "Data", "EUR", "2025-03-01", "TPR(US8760301072) Cash Dividend EUR 1.00 per Share - US Tax", "-7", ""],
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert result.summary.dividend_tax_rate == Decimal("0.10")
     assert "Приложение 8" in text
@@ -335,7 +335,7 @@ def test_appendix_8_method_code_is_3_when_withholding_is_zero(tmp_path: Path) ->
             ["Withholding Tax", "Data", "EUR", "2025-03-01", "AAA(US1111111111) Cash Dividend EUR 1.00 per Share - US Tax", "0", ""],
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Код за прилагане на метод за избягване на двойното данъчно облагане: 3" in text
     assert "Платен данък в чужбина: 0.00" in text
@@ -350,7 +350,7 @@ def test_appendix_8_method_code_is_3_when_withholding_is_missing_or_blank(tmp_pa
             ["Withholding Tax", "Data", "Total in EUR", "2025-03-31", "Totals", "", ""],
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Код за прилагане на метод за избягване на двойното данъчно облагане: 3" in text
     assert "Платен данък в чужбина: 0.00" in text
@@ -369,7 +369,7 @@ def test_positive_dividend_withholding_nets_against_negative_withholding(tmp_pat
     )
     rows = _inject_financial_instrument_rows(rows, [("Stocks", "AAA", "NYSE", "Alpha Corp")])
 
-    result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="company")
+    result = _run(tmp_path, rows, mode="listing_exchange", appendix8_dividend_list_mode="company")
 
     company_row = result.summary.appendix_8_output_rows[0]
     assert result.summary.appendix_8_by_company[("US", "Alpha Corp")].withholding_tax_paid_eur == Decimal("1.25")
@@ -391,7 +391,7 @@ def test_positive_only_dividend_withholding_creates_no_credit(tmp_path: Path) ->
     )
     rows = _inject_financial_instrument_rows(rows, [("Stocks", "AAA", "NYSE", "Alpha Corp")])
 
-    result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="company")
+    result = _run(tmp_path, rows, mode="listing_exchange", appendix8_dividend_list_mode="company")
 
     company_row = result.summary.appendix_8_output_rows[0]
     assert result.summary.appendix_8_by_company[("US", "Alpha Corp")].withholding_tax_paid_eur == Decimal("-1")
@@ -417,7 +417,7 @@ def test_positive_dividend_withholding_larger_than_negative_withholding_creates_
     )
     rows = _inject_financial_instrument_rows(rows, [("Stocks", "AAA", "NYSE", "Alpha Corp")])
 
-    result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="company")
+    result = _run(tmp_path, rows, mode="listing_exchange", appendix8_dividend_list_mode="company")
 
     company_row = result.summary.appendix_8_output_rows[0]
     assert result.summary.appendix_8_by_company[("US", "Alpha Corp")].withholding_tax_paid_eur == Decimal("-1")
@@ -437,7 +437,7 @@ def test_positive_dividend_withholding_amount_eur_stays_signed_in_enriched_csv(t
         ],
     )
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     out_rows = _read_rows(result.output_csv_path)
     header, data_rows = _withholding_header_and_data(out_rows)
     idx = {column: i for i, column in enumerate(header[2:])}
@@ -461,7 +461,7 @@ def test_appendix_8_company_mode_groups_rows_and_computes_credit_per_company(tmp
         rows,
         [("Stocks", "AAA", "NYSE", "Alpha Corp")],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="company")
+    result = _run(tmp_path, rows, mode="listing_exchange", appendix8_dividend_list_mode="company")
     assert result.summary.appendix8_dividend_list_mode == "company"
     assert len(result.summary.appendix_8_company_results) == 1
     company_row = result.summary.appendix_8_company_results[0]
@@ -494,8 +494,8 @@ def test_appendix_8_country_mode_aggregates_company_rows_with_same_method(tmp_pa
             ("Stocks", "BBB", "NYSE", "Beta Corp"),
         ],
     )
-    company_result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="company")
-    country_result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="country")
+    company_result = _run(tmp_path, rows, mode="listing_exchange", appendix8_dividend_list_mode="company")
+    country_result = _run(tmp_path, rows, mode="listing_exchange", appendix8_dividend_list_mode="country")
 
     assert len(company_result.summary.appendix_8_output_rows) == 2
     assert len(country_result.summary.appendix_8_output_rows) == 1
@@ -535,7 +535,7 @@ def test_appendix_8_country_mode_splits_same_country_by_method_code(tmp_path: Pa
             ("Stocks", "BBB", "NYSE", "Beta Corp"),
         ],
     )
-    country_result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="country")
+    country_result = _run(tmp_path, rows, mode="listing_exchange", appendix8_dividend_list_mode="country")
     output_rows = country_result.summary.appendix_8_output_rows
     assert len(output_rows) == 2
     assert {item.method_code for item in output_rows} == {"1", "3"}
@@ -568,7 +568,7 @@ def test_appendix_8_country_mode_never_recomputes_country_credit_min(tmp_path: P
             ("Stocks", "BBB", "NYSE", "Beta Corp"),
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol", appendix8_dividend_list_mode="country")
+    result = _run(tmp_path, rows, mode="listing_exchange", appendix8_dividend_list_mode="country")
     recognized_total = sum((item.recognized_credit_eur for item in result.summary.appendix_8_output_rows), Decimal("0"))
     assert recognized_total == Decimal("5")
 
@@ -588,7 +588,7 @@ def test_dividend_unknown_or_bad_isin_marks_review(tmp_path: Path) -> None:
         ],
         [],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.review_required_rows >= 3
     assert result.summary.dividends_unknown_rows == 1
     assert result.summary.dividends_country_errors_rows == 2
@@ -607,7 +607,7 @@ def test_dividend_status_column_auto_fill_and_unknown_triggers_review(tmp_path: 
         ],
         [],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     out_rows = _read_rows(result.output_csv_path)
     header, data_rows = _dividends_header_and_data(out_rows)
     idx = {c: i for i, c in enumerate(header[2:])}
@@ -625,7 +625,7 @@ def test_withholding_status_column_auto_fill_and_unknown_triggers_review(tmp_pat
             ["Withholding Tax", "Data", "USD", "2025-03-03", "Some Adjustment", "-1", ""],
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     out_rows = _read_rows(result.output_csv_path)
     header, data_rows = _withholding_header_and_data(out_rows)
     idx = {c: i for i, c in enumerate(header[2:])}
@@ -677,7 +677,7 @@ def test_dividend_review_status_human_override_is_applied(tmp_path: Path) -> Non
             ["Withholding Tax", "Header", "Currency", "Date", "Description", "Amount", "Code"],
         ]
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.review_status_overrides_rows >= 2
     assert result.summary.dividends_unknown_rows == 0
     assert result.summary.appendix_8_by_country["US"].gross_dividend_eur == Decimal("9")
@@ -713,7 +713,7 @@ def test_dividend_realistic_fixture_and_output_rendering(tmp_path: Path) -> None
             ["Withholding Tax", "Data", "USD", "2025-03-03", "Withholding @ 20% on Credit Interest for Mar-2025", "-1", ""],
         ]
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Приложение 6" in text
     assert "Приложение 8" in text
@@ -735,7 +735,7 @@ def test_dividends_data_before_header_fails(tmp_path: Path) -> None:
         ]
     )
     with pytest.raises(IbkrAnalyzerError, match="Dividends row encountered before Dividends Header"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 def test_dividends_missing_required_column_fails(tmp_path: Path) -> None:
     rows = _base_rows()
@@ -746,4 +746,4 @@ def test_dividends_missing_required_column_fails(tmp_path: Path) -> None:
         ]
     )
     with pytest.raises(IbkrAnalyzerError, match="Dividends header at row"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")

@@ -66,7 +66,7 @@ def _option_rows() -> list[list[str]]:
 
 
 def test_equity_and_index_options_use_stock_style_closedlot_appendix5_model(tmp_path: Path) -> None:
-    result = _run(tmp_path, _option_rows(), mode="listed_symbol", year=2024)
+    result = _run(tmp_path, _option_rows(), mode="listing_exchange", year=2024)
 
     sale_native = Decimal("429.9318782") + Decimal("136.291851") + Decimal("134.9418792") + Decimal("489.122038") + Decimal("119.360924")
     purchase_native = Decimal("373.05165") + Decimal("37.05155") + Decimal("372.70155") + Decimal("517.80155") + Decimal("110.63295")
@@ -84,7 +84,7 @@ def test_equity_and_index_options_use_stock_style_closedlot_appendix5_model(tmp_
 
 
 def test_options_ignore_order_rows_mtm_and_spb8_holdings(tmp_path: Path) -> None:
-    result = _run(tmp_path, _option_rows(), mode="listed_symbol", year=2024)
+    result = _run(tmp_path, _option_rows(), mode="listing_exchange", year=2024)
     tax_result = build_ibkr_result(
         analyzer_alias="ibkr",
         input_path=result.input_csv_path,
@@ -112,7 +112,7 @@ def test_option_expiry_with_closedlot_is_processed_without_c_token(tmp_path: Pat
         ]
     )
 
-    result = _run(tmp_path, rows, mode="listed_symbol", year=2024)
+    result = _run(tmp_path, rows, mode="listing_exchange", year=2024)
 
     assert result.summary.option_closedlot_rows == 1
     assert result.summary.appendix_5.purchase_eur == Decimal("22.5")
@@ -125,7 +125,7 @@ def test_option_assignment_without_closedlot_is_informational_and_not_taxed(tmp_
         ["Trades", "Data", "Trade", "Equity and Index Options", "USD", "ABC 17JAN24 10 P", "2024-01-17, 16:00:00", "CBOE", "-1", "0", "0", "-25", "-25", "AEx"]
     )
 
-    result = _run(tmp_path, rows, mode="listed_symbol", year=2024)
+    result = _run(tmp_path, rows, mode="listing_exchange", year=2024)
     tax_result = build_ibkr_result(
         analyzer_alias="ibkr",
         input_path=result.input_csv_path,
@@ -140,7 +140,7 @@ def test_option_assignment_without_closedlot_is_informational_and_not_taxed(tmp_
 
 
 def test_option_policy_note_is_rendered_in_individual_and_aggregate_reports(tmp_path: Path) -> None:
-    result = _run(tmp_path, _option_rows(), mode="listed_symbol", year=2024)
+    result = _run(tmp_path, _option_rows(), mode="listing_exchange", year=2024)
 
     individual_text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Опции върху акции и индекси" in individual_text
@@ -181,7 +181,7 @@ def test_outside_tax_year_option_rows_do_not_render_main_policy_notes(tmp_path: 
         *_option_rows()[2:-3],
     ]
 
-    result = _run(tmp_path, rows, mode="listed_symbol", year=2025)
+    result = _run(tmp_path, rows, mode="listing_exchange", year=2025)
     tax_result = build_ibkr_result(
         analyzer_alias="ibkr",
         input_path=result.input_csv_path,

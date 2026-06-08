@@ -84,11 +84,11 @@ def test_declaration_text_contains_required_sections(tmp_path: Path) -> None:
     assert text.index("Sanity Check") > text.index("Audit Data")
 
 
-def test_declaration_text_contains_effective_listed_symbol_tax_exempt_mode(tmp_path: Path) -> None:
+def test_declaration_text_contains_effective_listing_exchange_tax_exempt_mode(tmp_path: Path) -> None:
     result = _run(tmp_path, _base_rows())
     text = result.declaration_txt_path.read_text(encoding="utf-8")
 
-    assert "Режим за данъчно освобождаване: listed_symbol." in text
+    assert "Режим за данъчно освобождаване: listing_exchange." in text
     assert "борсата на изпълнение е само информативна" in text
 
 
@@ -126,7 +126,7 @@ def test_forex_rows_are_ignored_with_warning_in_text(tmp_path: Path) -> None:
             "2",
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.forex_ignored_rows == 1
     assert result.summary.forex_review_required_rows == 1
     text = result.declaration_txt_path.read_text(encoding="utf-8")
@@ -162,7 +162,7 @@ def test_forex_non_taxable_review_status_does_not_require_manual_check(tmp_path:
         ["Trades", "Data", "Stocks", "USD", "BMW", "2025-01-10, 10:00:00", "IBIS2", "C", "100", "Trade", "", ""],
         ["Trades", "Data", "Stocks", "USD", "BMW", "2024-12-01", "IBIS2", "", "0", "ClosedLot", "20", ""],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.forex_ignored_rows == 1
     assert result.summary.forex_non_taxable_ignored_rows == 1
     assert result.summary.forex_review_required_rows == 0
@@ -195,7 +195,7 @@ def test_forex_taxable_review_status_requires_manual_check(tmp_path: Path) -> No
         ["Trades", "Data", "Stocks", "USD", "BMW", "2025-01-10, 10:00:00", "IBIS2", "C", "100", "Trade", "", ""],
         ["Trades", "Data", "Stocks", "USD", "BMW", "2024-12-01", "IBIS2", "", "0", "ClosedLot", "20", ""],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.forex_ignored_rows == 1
     assert result.summary.forex_non_taxable_ignored_rows == 0
     assert result.summary.forex_review_required_rows == 1
@@ -207,7 +207,7 @@ def test_forex_taxable_review_status_requires_manual_check(tmp_path: Path) -> No
 def test_forex_taxable_from_here_applies_to_current_and_following_blank_rows(tmp_path: Path) -> None:
     rows = _rows_with_forex_review_statuses(["TAXABLE-FROM-HERE", ""])
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.forex_ignored_rows == 2
     assert result.summary.forex_non_taxable_ignored_rows == 0
@@ -219,7 +219,7 @@ def test_forex_taxable_from_here_applies_to_current_and_following_blank_rows(tmp
 def test_forex_non_taxable_from_here_applies_to_current_and_following_blank_rows(tmp_path: Path) -> None:
     rows = _rows_with_forex_review_statuses(["NON-TAXABLE-FROM-HERE", ""])
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.forex_ignored_rows == 2
     assert result.summary.forex_non_taxable_ignored_rows == 2
@@ -231,7 +231,7 @@ def test_forex_non_taxable_from_here_applies_to_current_and_following_blank_rows
 def test_forex_explicit_status_overrides_inherited_status_for_one_row_only(tmp_path: Path) -> None:
     rows = _rows_with_forex_review_statuses(["NON-TAXABLE-FROM-HERE", "", "TAXABLE", ""])
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.forex_ignored_rows == 4
     assert result.summary.forex_non_taxable_ignored_rows == 3
@@ -243,7 +243,7 @@ def test_forex_explicit_status_overrides_inherited_status_for_one_row_only(tmp_p
 def test_forex_later_from_here_directive_changes_inherited_status(tmp_path: Path) -> None:
     rows = _rows_with_forex_review_statuses(["TAXABLE-FROM-HERE", "", "NON-TAXABLE-FROM-HERE", ""])
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.forex_ignored_rows == 4
     assert result.summary.forex_non_taxable_ignored_rows == 2
@@ -255,7 +255,7 @@ def test_forex_later_from_here_directive_changes_inherited_status(tmp_path: Path
 def test_forex_missing_status_before_from_here_still_requires_review(tmp_path: Path) -> None:
     rows = _rows_with_forex_review_statuses(["", "NON-TAXABLE-FROM-HERE", ""])
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.forex_ignored_rows == 3
     assert result.summary.forex_non_taxable_ignored_rows == 2
@@ -297,21 +297,21 @@ def test_manual_check_section_is_omitted_when_not_required(tmp_path: Path) -> No
         ["Trades", "Data", "Stocks", "EUR", "BMW", "2025-01-10, 10:00:00", "IBIS2", "C", "100", "0", "Trade", ""],
         ["Trades", "Data", "Stocks", "EUR", "BMW", "2024-12-01", "IBIS2", "", "0", "", "ClosedLot", "20"],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" not in text
     assert "СТАТУС: NOT REQUIRED" not in text
 
 
-def test_listed_symbol_execution_exchange_note_is_global_not_per_row_warning(tmp_path: Path) -> None:
+def test_listing_exchange_execution_exchange_note_is_global_not_per_row_warning(tmp_path: Path) -> None:
     rows = _base_rows()
-    rows[7][6] = "EUDARK"  # execution exchange should be ignored for classification in listed_symbol mode
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    rows[7][6] = "EUDARK"  # execution exchange should be ignored for classification in listing_exchange mode
+    result = _run(tmp_path, rows, mode="listing_exchange")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert not any("informational only in listed_symbol mode" in warning for warning in result.summary.warnings)
+    assert not any("informational only in listing_exchange mode" in warning for warning in result.summary.warnings)
     assert result.summary.review_required_rows == 0
     assert "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!" not in text
     assert (
-        "In listed_symbol mode, execution exchange does not participate in classification and is informational only."
+        "In listing_exchange mode, execution exchange does not participate in classification and is informational only."
         in text
     )

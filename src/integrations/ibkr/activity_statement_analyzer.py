@@ -34,7 +34,7 @@ from .constants import (
     OPTION_ASSET_CATEGORY,
     SUPPORTED_ASSET_CATEGORIES,
     TAX_MODE_EXECUTION_EXCHANGE,
-    TAX_MODE_LISTED_SYMBOL,
+    TAX_MODE_LISTING_EXCHANGE,
     ZERO,
 )
 from .models import (
@@ -140,7 +140,7 @@ def _validate_analysis_request(
     if tax_year < 2009 or tax_year > 2100:
         raise IbkrAnalyzerError(f"invalid tax year: {tax_year}")
 
-    if tax_exempt_mode not in {TAX_MODE_LISTED_SYMBOL, TAX_MODE_EXECUTION_EXCHANGE}:
+    if tax_exempt_mode not in {TAX_MODE_LISTING_EXCHANGE, TAX_MODE_EXECUTION_EXCHANGE}:
         raise IbkrAnalyzerError(f"unsupported tax exempt mode: {tax_exempt_mode}")
     if appendix8_dividend_list_mode not in {
         APPENDIX8_LIST_MODE_COMPANY,
@@ -642,7 +642,7 @@ def analyze_ibkr_activity_statement(
     *,
     input_csv: str | Path,
     tax_year: int,
-    tax_exempt_mode: Literal["listed_symbol", "execution_exchange"],
+    tax_exempt_mode: Literal["listing_exchange", "execution_exchange"],
     appendix8_dividend_list_mode: Literal["company", "country"] = APPENDIX8_LIST_MODE_COMPANY,
     report_alias: str | None = None,
     output_dir: str | Path | None = None,

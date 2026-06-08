@@ -4,6 +4,7 @@ import argparse
 import fnmatch
 import logging
 import shutil
+import sys
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
@@ -63,6 +64,102 @@ class _OpeningStateResolution:
     state_path: Path | None
     source: str
     sidecar_path: Path | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _OverridableAggregateOption:
+    flag: str
+    group_key: str
+    takes_value: bool
+    help: str
+    display_label: str
+    single_flag: str | None = None
+    choices: tuple[str, ...] = ()
+    repeatable: bool = False
+    default: object = None
+    hidden: bool = False
+
+    @property
+    def concrete_flag(self) -> str:
+        return self.single_flag or self.flag
+
+
+# These are analyzer tax/reporting settings that may be set once for an aggregate
+# run, then overridden for individual analyzers with --<alias>-<option>. Global
+# run controls such as input discovery, output location, SPB-8 inputs, logging,
+# and rendering currency intentionally do not live here.
+_OVERRIDABLE_AGGREGATE_OPTIONS: tuple[_OverridableAggregateOption, ...] = (
+    _OverridableAggregateOption(
+        flag="tax-exempt-mode",
+        group_key="tax_exempt_mode",
+        takes_value=True,
+        help=(
+            "Controls how securities analyzers determine tax-exempt treatment: "
+            "by execution exchange or listing exchange."
+        ),
+        display_label="Tax-exempt mode",
+        choices=("execution_exchange", "listing_exchange"),
+    ),
+    _OverridableAggregateOption(
+        flag="eu-regulated-exchange",
+        group_key="eu_regulated_exchange",
+        takes_value=True,
+        help="Additional EU-regulated exchange override where supported (repeatable or comma-separated)",
+        display_label="EU regulated exchange",
+        repeatable=True,
+    ),
+    _OverridableAggregateOption(
+        flag="closed-world",
+        group_key="closed_world",
+        takes_value=False,
+        help=(
+            "Enable conservative closed-world exchange/market classification where supported; "
+            "unknown or unrecognized markets/exchanges are treated conservatively."
+        ),
+        display_label="Closed-world validation",
+    ),
+    _OverridableAggregateOption(
+        flag="skip-period-validation",
+        group_key="skip_period_validation",
+        takes_value=False,
+        help="Skip strict full-period validation where supported; for development/testing only",
+        display_label="Skip period validation",
+    ),
+    _OverridableAggregateOption(
+        flag="no-net-cfd-financing",
+        group_key="no_net_cfd_financing",
+        takes_value=False,
+        help="Do not net CFD financing into Appendix 5 where supported; positive amounts go to Appendix 6 code 606",
+        display_label="Disable CFD financing netting",
+    ),
+    _OverridableAggregateOption(
+        flag="negative-pil-mode",
+        group_key="negative_pil_mode",
+        takes_value=True,
+        help="Negative Payment in Lieu handling mode where supported",
+        display_label="Negative PIL mode",
+        choices=("always-net", "ignore", "position-aware"),
+    ),
+    _OverridableAggregateOption(
+        flag="appendix8-dividend-list-mode",
+        group_key="appendix8_dividend_list_mode",
+        takes_value=True,
+        help="Appendix 8 dividend listing mode where supported",
+        display_label="Appendix 8 dividend list mode",
+        choices=("company", "country"),
+        hidden=True,
+    ),
+    _OverridableAggregateOption(
+        flag="p2p-secondary-market-mode",
+        group_key="p2p_secondary_market_mode",
+        takes_value=True,
+        help="Group-level P2P secondary-market mode",
+        display_label="P2P secondary market mode",
+        choices=("appendix_5", "appendix_6"),
+        default="appendix_6",
+    ),
+)
+_OVERRIDABLE_AGGREGATE_OPTION_BY_FLAG = {item.flag: item for item in _OVERRIDABLE_AGGREGATE_OPTIONS}
 
 
 def _configure_logging(log_level: str) -> None:
@@ -837,14 +934,226 @@ def _validate_tax_year(tax_year: int) -> None:
         raise InputDetectionError(f"invalid tax year: {tax_year}")
 
 
+def _aggregate_override_usage() -> str:
+    return (
+        "Analyzer-specific overrides:\n"
+        "  In analyzer-specific commands, use normal unprefixed option names.\n"
+        "  In aggregate mode, use analyzer-prefixed overrides:\n"
+        "    --<analyzer-alias>-<option>\n"
+        "\n"
+        "Examples:\n"
+        "  tax-reporting ibkr --tax-exempt-mode listing_exchange\n"
+        "  tax-reporting --input-dir inputs --tax-year 2025 --ibkr-tax-exempt-mode execution_exchange\n"
+        "\n"
+        "To see the supported analyzer-prefixed options, run:\n"
+        "  tax-reporting --list-aggregate-overrides\n"
+        "\n"
+        "When both forms are present, the analyzer-prefixed value wins over the aggregate value.\n"
+        "Options that control the whole run, such as input discovery, output paths, logging,\n"
+        "SPB-8 inputs, opening-state mappings, and display currency, are configured only once."
+    )
+
+
+def _overridable_flag_from_override_name(raw_name: str, *, registry) -> str:
+    for raw_alias in sorted(registry.alias_lookup, key=len, reverse=True):
+        prefix = raw_alias.replace("_", "-") + "-"
+        if raw_name.startswith(prefix):
+            return raw_name[len(prefix) :]
+    for flag in sorted(_OVERRIDABLE_AGGREGATE_OPTION_BY_FLAG, key=len, reverse=True):
+        suffix = "-" + flag
+        if raw_name.endswith(suffix):
+            return flag
+    return ""
+
+
+def _is_aggregate_override_candidate(raw_name: str, *, registry) -> bool:
+    if _overridable_flag_from_override_name(raw_name, registry=registry):
+        return True
+    return any(raw_name.startswith(raw_alias.replace("_", "-") + "-") for raw_alias in registry.alias_lookup)
+
+
+def _split_analyzer_aggregate_override_args(
+    argv: list[str],
+    *,
+    registered_option_strings: set[str],
+    registry,
+) -> tuple[list[str], list[str]]:
+    parser_args: list[str] = []
+    override_args: list[str] = []
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if not token.startswith("--"):
+            parser_args.append(token)
+            index += 1
+            continue
+
+        raw_name = token[2:].split("=", 1)[0]
+        if "--" + raw_name in registered_option_strings:
+            parser_args.append(token)
+            index += 1
+            continue
+        if not _is_aggregate_override_candidate(raw_name, registry=registry):
+            parser_args.append(token)
+            index += 1
+            continue
+
+        override_args.append(token)
+        flag = _overridable_flag_from_override_name(raw_name, registry=registry)
+        if "=" not in token and index + 1 < len(argv) and not argv[index + 1].startswith("--"):
+            index += 1
+            override_args.append(argv[index])
+        index += 1
+    return parser_args, override_args
+
+
+def _parse_analyzer_aggregate_overrides(
+    unknown_args: list[str],
+    *,
+    registry,
+) -> dict[str, dict[str, object]]:
+    overrides: dict[str, dict[str, object]] = {}
+    index = 0
+    while index < len(unknown_args):
+        token = unknown_args[index]
+        if not token.startswith("--"):
+            raise InputDetectionError(f"unexpected aggregate CLI argument: {token}")
+        if "=" in token:
+            raw_name, inline_value = token[2:].split("=", 1)
+        else:
+            raw_name, inline_value = token[2:], None
+        matched_alias = ""
+        matched_flag = ""
+        for raw_alias in sorted(registry.alias_lookup, key=len, reverse=True):
+            prefix = raw_alias.replace("_", "-") + "-"
+            if raw_name.startswith(prefix):
+                candidate_flag = raw_name[len(prefix) :]
+                if candidate_flag in _OVERRIDABLE_AGGREGATE_OPTION_BY_FLAG:
+                    matched_alias = raw_alias
+                    matched_flag = candidate_flag
+                    break
+        if matched_alias == "":
+            for raw_alias in sorted(registry.alias_lookup, key=len, reverse=True):
+                prefix = raw_alias.replace("_", "-") + "-"
+                if raw_name.startswith(prefix):
+                    definition = registry.resolve(raw_alias)
+                    option_name = raw_name[len(prefix) :]
+                    raise InputDetectionError(
+                        f"Unsupported analyzer override: --{raw_name}\n\n"
+                        f"The option {option_name} is not supported by analyzer {definition.alias}.\n"
+                        "Use --list-aggregate-overrides to see supported analyzer overrides."
+                    )
+            raise InputDetectionError(
+                f"Unsupported analyzer override: --{raw_name}\n\n"
+                "The analyzer alias or option is not supported in aggregate mode.\n"
+                "Use --list-aggregate-overrides to see supported analyzer overrides."
+            )
+
+        definition = registry.resolve(matched_alias)
+        option = _OVERRIDABLE_AGGREGATE_OPTION_BY_FLAG[matched_flag]
+        if option.group_key not in definition.supported_aggregate_overrides:
+            raise InputDetectionError(
+                f"Unsupported analyzer override: --{raw_name}\n\n"
+                f"The option {option.flag} is not supported by analyzer {definition.alias}.\n"
+                "Use --list-aggregate-overrides to see supported analyzer overrides."
+            )
+
+        if option.takes_value:
+            if inline_value is not None:
+                value = inline_value
+            else:
+                index += 1
+                if index >= len(unknown_args) or unknown_args[index].startswith("--"):
+                    raise InputDetectionError(f"missing value for --{raw_name}")
+                value = unknown_args[index]
+            if option.choices and value not in option.choices:
+                choices = ", ".join(option.choices)
+                raise InputDetectionError(f"invalid value for --{raw_name}: {value!r} (choose from: {choices})")
+        else:
+            if inline_value is not None:
+                raise InputDetectionError(f"--{raw_name} does not take a value")
+            value = True
+
+        alias_overrides = overrides.setdefault(definition.alias, {})
+        if option.repeatable:
+            current = alias_overrides.setdefault(option.group_key, [])
+            if not isinstance(current, list):
+                raise InputDetectionError(f"internal option conflict for --{raw_name}")
+            current.append(value)
+        else:
+            alias_overrides[option.group_key] = value
+        index += 1
+    return overrides
+
+
+def _add_overridable_aggregate_arguments(parser: argparse.ArgumentParser) -> None:
+    for option in _OVERRIDABLE_AGGREGATE_OPTIONS:
+        kwargs: dict[str, object] = {"help": argparse.SUPPRESS if option.hidden else option.help}
+        if option.takes_value:
+            if option.choices:
+                kwargs["choices"] = list(option.choices)
+            if option.repeatable:
+                kwargs["action"] = "append"
+            if option.default is not None:
+                kwargs["default"] = option.default
+        else:
+            kwargs["action"] = "store_true"
+        parser.add_argument(f"--{option.flag}", **kwargs)
+
+
+def _aggregate_override_lines(*, registry) -> list[str]:
+    lines = ["Supported aggregate analyzer overrides:"]
+    analyzer_lines: list[tuple[str, list[tuple[str, str]]]] = []
+    max_flag_length = 0
+    for definition in registry.definitions():
+        supported_options = [
+            option
+            for option in _OVERRIDABLE_AGGREGATE_OPTIONS
+            if option.group_key in definition.supported_aggregate_overrides
+        ]
+        if not supported_options:
+            continue
+        aliases = (definition.alias,) if definition.alias == "ibkr" else (definition.alias, *definition.aliases)
+        entries: list[tuple[str, str]] = []
+        for alias in aliases:
+            prefix = alias.replace("_", "-")
+            for option in supported_options:
+                aggregate_flag = f"--{prefix}-{option.flag}"
+                max_flag_length = max(max_flag_length, len(aggregate_flag))
+                entries.append((aggregate_flag, option.display_label))
+        analyzer_lines.append((definition.alias, entries))
+    for alias, entries in analyzer_lines:
+        lines.append("")
+        lines.append(f"{alias}:")
+        for aggregate_flag, display_label in entries:
+            lines.append(f"  {aggregate_flag:<{max_flag_length}}  {display_label}")
+    if len(lines) == 1:
+        lines.append("")
+        lines.append("(none)")
+    return lines
+
+
+def _print_aggregate_overrides(*, registry) -> None:
+    print("\n".join(_aggregate_override_lines(registry=registry)))
+
+
 def build_parser() -> argparse.ArgumentParser:
     registry = discover_analyzer_registry()
-    parser = argparse.ArgumentParser(prog="tax-reporting")
+    parser = argparse.ArgumentParser(
+        prog="tax-reporting",
+        epilog=_aggregate_override_usage(),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.set_defaults(_registry=registry)
     parser.add_argument(
         "--list-analyzers",
         action="store_true",
         help="List available analyzers and exit",
+    )
+    parser.add_argument(
+        "--list-aggregate-overrides",
+        action="store_true",
+        help="List analyzer-specific aggregate overrides and exit",
     )
 
     # Aggregate mode arguments (when no subcommand/analyzer alias is provided).
@@ -873,13 +1182,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-level", default="INFO")
     parser.add_argument("--clean-output", action="store_true", help="Delete output-dir before processing")
     _add_spb8_arguments(parser)
-
-    parser.add_argument(
-        "--p2p-secondary-market-mode",
-        type=str,
-        default="appendix_6",
-        help="Group-level P2P secondary-market mode",
-    )
+    _add_overridable_aggregate_arguments(parser)
 
     for definition in registry.definitions():
         definition.add_arguments(parser, "aggregate")
@@ -1212,6 +1515,13 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
         "p2p_secondary_market_mode": args.p2p_secondary_market_mode,
         "cache_dir": str(args.cache_dir) if args.cache_dir is not None else None,
         "display_currency": str(args.display_currency),
+        "tax_exempt_mode": args.tax_exempt_mode,
+        "eu_regulated_exchange": args.eu_regulated_exchange,
+        "closed_world": bool(args.closed_world),
+        "skip_period_validation": bool(args.skip_period_validation),
+        "no_net_cfd_financing": bool(args.no_net_cfd_financing),
+        "negative_pil_mode": args.negative_pil_mode,
+        "appendix8_dividend_list_mode": args.appendix8_dividend_list_mode,
     }
     try:
         spb8_input_rows = (
@@ -1269,7 +1579,9 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
             continue
         alias_output_dir = (output_dir / alias).resolve()
         alias_output_dir.mkdir(parents=True, exist_ok=True)
-        options = definition.build_options(args, "aggregate", group_options)
+        analyzer_group_options = dict(group_options)
+        analyzer_group_options.update(getattr(args, "analyzer_option_overrides", {}).get(alias, {}))
+        options = definition.build_options(args, "aggregate", analyzer_group_options)
         options["display_currency"] = str(args.display_currency)
         options["cache_dir"] = str(args.cache_dir) if args.cache_dir is not None else options.get("cache_dir")
         if len(input_paths) == 1:
@@ -1477,13 +1789,35 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     try:
         parser = build_parser()
-        args = parser.parse_args(argv)
+        registry = parser.get_default("_registry")
+        parser_argv, override_args = _split_analyzer_aggregate_override_args(
+            list(sys.argv[1:] if argv is None else argv),
+            registered_option_strings={
+                option_string for action in parser._actions for option_string in action.option_strings
+            },
+            registry=registry,
+        )
+        args, unknown_args = parser.parse_known_args(parser_argv)
+        unknown_args.extend(override_args)
+        if args.list_aggregate_overrides:
+            if unknown_args:
+                parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
+            _print_aggregate_overrides(registry=registry)
+            return 0
         if args.list_analyzers:
+            if unknown_args:
+                parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
             for analyzer in list_analyzers():
                 print(analyzer)
             return 0
         if getattr(args, "single_analyzer_alias", None):
+            if unknown_args:
+                parser.error(f"unrecognized arguments: {' '.join(unknown_args)}")
             return _run_single_mode(args)
+        args.analyzer_option_overrides = _parse_analyzer_aggregate_overrides(
+            unknown_args,
+            registry=args._registry,
+        )
         return _run_aggregate_mode(args)
     except (AnalyzerRegistryError, InputDetectionError, DisplayCurrencyError, SPB8Error) as exc:
         logger.error("%s", exc)

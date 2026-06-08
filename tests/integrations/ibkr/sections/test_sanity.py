@@ -19,7 +19,7 @@ _write_rows = h._write_rows
 
 
 def test_sanity_checks_pass_and_debug_artifacts_are_created(tmp_path: Path) -> None:
-    result = _run(tmp_path, _sanity_rows(), mode="listed_symbol")
+    result = _run(tmp_path, _sanity_rows(), mode="listing_exchange")
     assert result.summary.sanity_passed is True
     assert result.summary.sanity_failures_count == 0
     assert "_sanity_debug" in result.summary.sanity_debug_artifacts_dir
@@ -41,7 +41,7 @@ def test_sanity_basis_sign_mismatch_fails_with_diagnostics(tmp_path: Path) -> No
         _ = analyze_ibkr_activity_statement(
             input_csv=input_csv,
             tax_year=2025,
-            tax_exempt_mode="listed_symbol",  # type: ignore[arg-type]
+            tax_exempt_mode="listing_exchange",  # type: ignore[arg-type]
             output_dir=tmp_path / "out",
             fx_rate_provider=_fx_provider,
         )
@@ -60,7 +60,7 @@ def test_sanity_ignores_eur_aggregate_rows_when_non_eur_exists(tmp_path: Path) -
     rows = _sanity_rows()
     rows.insert(7, ["Trades", "SubTotal", "Stocks", "EUR", "BMW", "", "", "", "999", "999", "", "999", "999"])
     rows.append(["Trades", "Total", "Stocks", "EUR", "", "", "", "", "999", "999", "", "999", "999"])
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.sanity_passed is True
     assert result.summary.sanity_failures_count == 0
 
@@ -93,7 +93,7 @@ def test_sanity_checks_real_eur_totals_when_eur_trades_exist(tmp_path: Path) -> 
         ["Trades", "Total", "Stocks", "USD", "", "", "", "", "100", "-1", "", "-20", "79"],
         ["Trades", "Total", "Stocks", "EUR", "", "", "", "", "50", "-1", "", "-10", "39"],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.sanity_passed is True
     assert result.summary.sanity_failures_count == 0
     assert result.summary.sanity_checked_subtotals == 2
@@ -130,13 +130,13 @@ def test_sanity_ignores_derived_eur_totals_when_real_eur_total_exists(tmp_path: 
         ["Trades", "Total", "Stocks", "EUR", "", "", "", "", "999", "999", "", "999", "999"],        # derived EUR for USD block
         ["Trades", "Total", "Stocks", "EUR", "", "", "", "", "50", "-1", "", "-10", "39"],           # real EUR block
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.sanity_passed is True
     assert result.summary.sanity_failures_count == 0
 
 def test_output_populates_subtotal_total_eur_columns(tmp_path: Path) -> None:
     rows = _sanity_rows(trade_basis="-20", realized_pl="79")
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     output_rows = _read_rows(result.output_csv_path)
     header, _data_rows = _trades_header_and_data(output_rows)
     idx = {c: i for i, c in enumerate(header[2:])}
@@ -187,7 +187,7 @@ def test_sale_purchase_price_columns_empty_for_open_and_closedlot(tmp_path: Path
         ["Trades", "Data", "Stocks", "USD", "BMW", "2025-01-02, 10:00:00", "IBIS2", "C", "100", "-1", "Trade", "-20", "79"],
         ["Trades", "Data", "Stocks", "USD", "BMW", "2025-01-02", "IBIS2", "", "0", "", "ClosedLot", "20", ""],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     output_rows = _read_rows(result.output_csv_path)
     header, data_rows = _trades_header_and_data(output_rows)
     idx = {c: i for i, c in enumerate(header[2:])}

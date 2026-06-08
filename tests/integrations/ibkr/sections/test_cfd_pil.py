@@ -193,7 +193,7 @@ def _dividend_output_row(result, description_part: str) -> tuple[list[str], list
 
 
 def test_financial_instrument_information_supports_stock_and_cfd_headers(tmp_path: Path) -> None:
-    result = _run(tmp_path, _cfd_rows(), mode="listed_symbol")
+    result = _run(tmp_path, _cfd_rows(), mode="listing_exchange")
 
     assert result.summary.cfd_trade_rows == 1
     assert result.summary.cfd_open_position_rows == 1
@@ -205,7 +205,7 @@ def test_financial_instrument_information_supports_stock_and_cfd_headers(tmp_pat
 
 
 def test_cfd_trade_routes_to_appendix5_code508_without_eu_exemption(tmp_path: Path) -> None:
-    result = _run(tmp_path, _cfd_rows(), mode="listed_symbol")
+    result = _run(tmp_path, _cfd_rows(), mode="listing_exchange")
 
     assert result.summary.appendix_5.sale_price_eur == Decimal("19")
     assert result.summary.appendix_5.purchase_eur == Decimal("0")
@@ -224,7 +224,7 @@ def test_negative_cfd_realized_pl_maps_to_appendix5_acquisition_side(tmp_path: P
     rows[7][14] = "-7"
     rows[8][14] = "-7"
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.appendix_5.sale_price_eur == Decimal("0")
     assert result.summary.appendix_5.purchase_eur == Decimal("7")
@@ -254,7 +254,7 @@ def test_cfd_closedlot_realized_pl_uses_closing_trade_fx_date(tmp_path: Path) ->
     result = analyze_ibkr_activity_statement(
         input_csv=input_csv,
         tax_year=2025,
-        tax_exempt_mode="listed_symbol",
+        tax_exempt_mode="listing_exchange",
         output_dir=tmp_path / "out",
         fx_rate_provider=fx_provider,
     )
@@ -268,7 +268,7 @@ def test_cfd_financing_negative_is_netted_to_appendix5_by_default(tmp_path: Path
     rows = _cfd_rows()
     rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-24", "Long CFD Interest for 24-JAN-2025", "-2"])
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.cfd_financing_rows == 1
     assert result.summary.appendix_5.sale_price_eur == Decimal("19")
@@ -290,7 +290,7 @@ def test_modified_csv_annotates_cfd_financing_fee_rows(tmp_path: Path) -> None:
     rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-24", "Long CFD Interest for 24-JAN-2025", "-2"])
     rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2024-01-24", "Long CFD Interest for 24-JAN-2024", "-5"])
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     output_rows = _read_rows(result.output_csv_path)
     fees_header = next(row for row in output_rows if row[:2] == ["Fees", "Header"])
@@ -315,7 +315,7 @@ def test_cfd_financing_positive_is_netted_to_appendix5_by_default(tmp_path: Path
     rows = _cfd_rows()
     rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-24", "Short CFD Interest", "3"])
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.appendix_5.sale_price_eur == Decimal("22")
     assert result.summary.appendix_5.wins_eur == Decimal("22")
@@ -328,7 +328,7 @@ def test_no_net_cfd_financing_puts_positive_in_code606_and_skips_negative(tmp_pa
     rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-24", "Long CFD Interest for 24-JAN-2025", "-2"])
     rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-25", "CFD Financing", "3"])
 
-    result = _run(tmp_path, rows, mode="listed_symbol", net_cfd_financing=False)
+    result = _run(tmp_path, rows, mode="listing_exchange", net_cfd_financing=False)
 
     assert result.summary.appendix_5.sale_price_eur == Decimal("19")
     assert result.summary.appendix_5.purchase_eur == Decimal("0")
@@ -349,7 +349,7 @@ def test_symbol_negative_pil_matching_short_stock_closed_by_year_end_is_netted(t
     _add_short_stock_closed_range(rows)
     _add_negative_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_rows == 1
     assert result.summary.appendix_5.sale_price_eur == Decimal("19")
@@ -380,7 +380,7 @@ def test_synthetic_sample_symbol_negative_pil_uses_linked_accrual_date(tmp_path:
     result = analyze_ibkr_activity_statement(
         input_csv=input_csv,
         tax_year=2025,
-        tax_exempt_mode="listed_symbol",
+        tax_exempt_mode="listing_exchange",
         output_dir=tmp_path / "out",
         fx_rate_provider=lambda currency, on_date: Decimal("1"),  # noqa: ARG005
     )
@@ -400,7 +400,7 @@ def test_symbol_negative_pil_matching_short_stock_open_at_year_end_is_deferred(t
     _add_short_stock_open_range(rows)
     _add_negative_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_defer_rows == 1
     assert result.summary.appendix_5.purchase_eur == Decimal("0")
@@ -416,7 +416,7 @@ def test_symbol_negative_pil_without_matching_short_stock_range_requires_review(
     _add_eccc_listing(rows)
     _add_negative_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_review_rows == 1
     assert result.summary.appendix_5.purchase_eur == Decimal("0")
@@ -431,7 +431,7 @@ def test_symbol_negative_pil_mixed_closed_and_open_short_stock_ranges_requires_r
     _add_short_stock_open_range(rows)
     _add_negative_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_review_rows == 1
     assert result.summary.appendix_5.purchase_eur == Decimal("0")
@@ -445,7 +445,7 @@ def test_no_symbol_negative_pil_unique_cfd_accrual_uses_symbol_and_ex_date(tmp_p
     _add_dividend_accrual(rows, symbol="FXI", ex_date="2025-11-12")
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     decision = result.summary.negative_pil_decisions[0]
     assert decision.auto_status == "NET"
@@ -463,7 +463,7 @@ def test_previous_year_deferred_pil_reminder_shows_when_short_exposure_closes_wi
     rows = _cfd_rows()
     _add_short_cfd_closed_range(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_rows == 0
     assert result.summary.negative_pil_closed_exposure_ranges > 0
@@ -477,7 +477,7 @@ def test_previous_year_deferred_pil_reminder_does_not_show_for_current_pil_witho
     _add_short_cfd_open_range(rows)
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_rows == 1
     assert result.summary.negative_pil_closed_exposure_ranges == 0
@@ -491,7 +491,7 @@ def test_no_symbol_negative_pil_unique_cfd_accrual_closed_by_year_end_is_netted(
     _add_dividend_accrual(rows)
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_net_rows == 1
     assert result.summary.appendix_5.purchase_eur == Decimal("9")
@@ -505,7 +505,7 @@ def test_no_symbol_negative_pil_unique_cfd_accrual_open_at_year_end_is_deferred(
     _add_dividend_accrual(rows)
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_defer_rows == 1
     assert result.summary.appendix_5.purchase_eur == Decimal("0")
@@ -519,7 +519,7 @@ def test_no_symbol_negative_pil_unique_cfd_accrual_without_short_cfd_exposure_re
     _add_dividend_accrual(rows, ex_date="2025-10-15")
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_review_rows == 1
     assert result.summary.appendix_5.purchase_eur == Decimal("0")
@@ -534,7 +534,7 @@ def test_no_symbol_negative_pil_multiple_matching_accrual_events_requires_review
     _add_dividend_accrual(rows, symbol="KWEB", ex_date="2025-11-13")
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     decision = result.summary.negative_pil_decisions[0]
     assert result.summary.pil_negative_review_rows == 1
@@ -550,7 +550,7 @@ def test_no_symbol_negative_pil_duplicate_accrual_rows_are_deduped(tmp_path: Pat
     _add_dividend_accrual(rows)
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_net_rows == 1
     assert result.summary.negative_pil_decisions[0].auto_status == "NET"
@@ -562,7 +562,7 @@ def test_no_symbol_negative_pil_unsupported_accrual_asset_category_requires_revi
     _add_dividend_accrual(rows, asset_category="Warrants", symbol="WXYZ")
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     decision = result.summary.negative_pil_decisions[0]
     assert result.summary.pil_negative_review_rows == 1
@@ -577,7 +577,7 @@ def test_no_symbol_negative_pil_matching_short_cfd_closed_by_year_end_is_netted_
     _add_short_cfd_closed_range(rows)
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_net_rows == 1
     assert result.summary.appendix_5.purchase_eur == Decimal("9")
@@ -590,7 +590,7 @@ def test_no_symbol_negative_pil_matching_short_cfd_open_at_year_end_is_deferred(
     _add_short_cfd_open_range(rows)
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_defer_rows == 1
     assert result.summary.appendix_5.purchase_eur == Decimal("0")
@@ -602,7 +602,7 @@ def test_no_symbol_negative_pil_without_matching_short_cfd_range_requires_review
     rows = _cfd_rows()
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.pil_negative_review_rows == 1
     assert result.summary.appendix_5.purchase_eur == Decimal("0")
@@ -616,7 +616,7 @@ def test_defer_and_review_negative_pil_rows_are_visible_in_csv_and_main_report(t
     _add_negative_symbol_pil(rows)
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     output_rows = _read_rows(result.output_csv_path)
     header = next(row for row in output_rows if row[:2] == ["Dividends", "Header"])
@@ -641,7 +641,7 @@ def test_negative_pil_review_status_override_wins_over_auto_status(tmp_path: Pat
     _add_short_stock_open_range(rows)
     _add_negative_symbol_pil(rows, review_status="NET")
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.negative_pil_decisions[0].auto_status == "DEFER"
     assert result.summary.negative_pil_decisions[0].final_status == "NET"
@@ -652,7 +652,7 @@ def test_negative_pil_always_net_mode_forces_auto_status_net(tmp_path: Path) -> 
     rows = _cfd_rows()
     _add_negative_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol", negative_pil_mode="always-net")
+    result = _run(tmp_path, rows, mode="listing_exchange", negative_pil_mode="always-net")
 
     assert result.summary.negative_pil_decisions[0].auto_status == "NET"
     assert result.summary.appendix_5.purchase_eur == Decimal("9")
@@ -666,7 +666,7 @@ def test_negative_pil_ignore_mode_skips_payment_in_lieu(tmp_path: Path) -> None:
     rows = _cfd_rows()
     _add_negative_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol", negative_pil_mode="ignore")
+    result = _run(tmp_path, rows, mode="listing_exchange", negative_pil_mode="ignore")
 
     assert result.summary.appendix_5.sale_price_eur == Decimal("19")
     assert result.summary.appendix_5.purchase_eur == Decimal("0")
@@ -691,7 +691,7 @@ def test_negative_pil_ignore_mode_still_respects_review_status_net(tmp_path: Pat
     rows = _cfd_rows()
     _add_negative_symbol_pil(rows, review_status="NET")
 
-    result = _run(tmp_path, rows, mode="listed_symbol", negative_pil_mode="ignore")
+    result = _run(tmp_path, rows, mode="listing_exchange", negative_pil_mode="ignore")
 
     decision = result.summary.negative_pil_decisions[0]
     assert decision.auto_status == "IGNORE"
@@ -716,7 +716,7 @@ def test_negative_pil_ignore_note_row_refs_use_final_ignored_rows_only(tmp_path:
     _add_negative_symbol_pil(rows, review_status="NET")
     _add_negative_no_symbol_pil(rows)
 
-    result = _run(tmp_path, rows, mode="listed_symbol", negative_pil_mode="ignore")
+    result = _run(tmp_path, rows, mode="listing_exchange", negative_pil_mode="ignore")
 
     assert [decision.final_status for decision in result.summary.negative_pil_decisions] == ["NET", "IGNORE"]
     ignored_row = result.summary.negative_pil_decisions[1].row_number
@@ -730,7 +730,7 @@ def test_positive_payment_in_lieu_always_goes_to_appendix6_code606(tmp_path: Pat
     rows = _cfd_rows()
     rows.append(["Dividends", "Data", "USD", "2025-11-29", "ECCC(US2698097035) Payment in Lieu of Dividend (Ordinary Dividend)", "10"])
 
-    result = _run(tmp_path, rows, mode="listed_symbol", negative_pil_mode="ignore")
+    result = _run(tmp_path, rows, mode="listing_exchange", negative_pil_mode="ignore")
 
     assert result.summary.appendix_6_positive_pil_eur == Decimal("9")
     assert result.summary.appendix_6_code_606_eur == Decimal("9")
@@ -761,7 +761,7 @@ def test_normal_cash_dividend_is_not_reclassified_as_payment_in_lieu(tmp_path: P
     rows = _cfd_rows()
     rows.append(["Dividends", "Data", "USD", "2025-12-16", "BMW(DE0005190003) Cash Dividend USD 0.20 per Share (Ordinary Dividend)", "4"])
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.dividends_cash_rows == 1
     assert result.summary.pil_positive_rows == 0
@@ -780,7 +780,7 @@ def test_non_cfd_fees_are_not_treated_as_cfd_financing(tmp_path: Path) -> None:
     ]:
         rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-24", description, "-2"])
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.cfd_financing_rows == 0
     assert result.summary.appendix_5.sale_price_eur == Decimal("19")
@@ -792,7 +792,7 @@ def test_outside_tax_year_cfd_financing_and_pil_are_detected_but_not_included(tm
     rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2024-01-24", "Long CFD Interest for 24-JAN-2024", "-2"])
     rows.append(["Dividends", "Data", "USD", "2024-11-29", "ECCC(US2698097035) Payment in Lieu of Dividend (Ordinary Dividend)", "-10"])
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.cfd_financing_detected_rows == 1
     assert result.summary.cfd_financing_rows == 0

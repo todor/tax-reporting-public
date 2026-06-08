@@ -30,26 +30,26 @@ def test_open_world_basic_exchange_classifications() -> None:
 
 
 def test_closed_world_activation_from_cli_exchanges(tmp_path: Path) -> None:
-    open_result = _run(tmp_path / "open", _base_rows(), mode="listed_symbol")
+    open_result = _run(tmp_path / "open", _base_rows(), mode="listing_exchange")
     assert open_result.summary.exchange_classification_mode == "OPEN_WORLD MODE"
 
     closed_result = _run(
         tmp_path / "closed",
         _base_rows(),
-        mode="listed_symbol",
+        mode="listing_exchange",
         eu_regulated_exchanges=["ENEXT.FR"],
     )
     assert closed_result.summary.exchange_classification_mode == "CLOSED_WORLD MODE"
 
 
 def test_closed_world_activation_from_explicit_flag(tmp_path: Path) -> None:
-    open_result = _run(tmp_path / "open", _base_rows(), mode="listed_symbol")
+    open_result = _run(tmp_path / "open", _base_rows(), mode="listing_exchange")
     assert open_result.summary.exchange_classification_mode == "OPEN_WORLD MODE"
 
     closed_result = _run(
         tmp_path / "closed",
         _base_rows(),
-        mode="listed_symbol",
+        mode="listing_exchange",
         closed_world=True,
     )
     assert closed_result.summary.exchange_classification_mode == "CLOSED_WORLD MODE"
@@ -83,7 +83,7 @@ def test_open_world_unmapped_listing_requires_review(tmp_path: Path) -> None:
         execution_exchange="NEWCODE",
         review_status="",
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.review_required_rows == 1
     assert any("Unmapped listing exchange (open-world mode)" in warning for warning in result.summary.warnings)
 
@@ -97,7 +97,7 @@ def test_closed_world_unmapped_listing_is_auto_non_regulated(tmp_path: Path) -> 
     result = _run(
         tmp_path,
         rows,
-        mode="listed_symbol",
+        mode="listing_exchange",
         eu_regulated_exchanges=["ENEXT.FR"],
     )
     assert result.summary.review_required_rows == 0
@@ -114,7 +114,7 @@ def test_closed_world_flag_unmapped_listing_is_auto_non_regulated(tmp_path: Path
     result = _run(
         tmp_path,
         rows,
-        mode="listed_symbol",
+        mode="listing_exchange",
         closed_world=True,
     )
     assert result.summary.review_required_rows == 0
@@ -150,7 +150,7 @@ def test_closed_world_invalid_exchange_still_requires_review(tmp_path: Path) -> 
     result = _run(
         tmp_path,
         rows,
-        mode="listed_symbol",
+        mode="listing_exchange",
         eu_regulated_exchanges=["ENEXT.FR"],
     )
     assert result.summary.review_required_rows == 1
@@ -161,7 +161,7 @@ def test_cli_exchange_normalization_and_dedup(tmp_path: Path) -> None:
     result = _run(
         tmp_path,
         _base_rows(),
-        mode="listed_symbol",
+        mode="listing_exchange",
         eu_regulated_exchanges=[" tgate ", "TGATE, tgate "],
     )
     assert result.summary.exchange_classification_mode == "CLOSED_WORLD MODE"
@@ -193,7 +193,7 @@ def test_audit_uses_effective_classification_with_cli_override(tmp_path: Path) -
     result = _run(
         tmp_path,
         rows,
-        mode="listed_symbol",
+        mode="listing_exchange",
         eu_regulated_exchanges=["TGATE"],
     )
     assert "TGATE" in result.summary.encountered_eu_regulated_exchanges

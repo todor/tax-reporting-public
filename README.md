@@ -101,7 +101,7 @@ Example single analyzer run:
 uvx tax-reporting ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
-  --tax-exempt-mode listed_symbol
+  --tax-exempt-mode listing_exchange
 ```
 
 Example aggregate run:
@@ -336,7 +336,7 @@ Development workflow:
 uv run tax-reporting ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
-  --tax-exempt-mode listed_symbol
+  --tax-exempt-mode listing_exchange
 
 uv run pytest
 uv run ruff check .
@@ -539,21 +539,29 @@ Aggregate mode global options:
   - example:
     - `--include-pattern "*[[]tax-analyzer[]]*"`
 
-Group/analyzer override options:
+Overridable aggregate tax/reporting options:
 
-- `--p2p-secondary-market-mode`
-- `--afranga-secondary-market-mode`
-- `--estateguru-secondary-market-mode`
-- `--lendermarket-secondary-market-mode`
-- `--iuvo-secondary-market-mode`
-- `--robocash-secondary-market-mode`
-- `--bondora-go-grow-secondary-market-mode`
-- `--ibkr-tax-exempt-mode`
-- `--ibkr-eu-regulated-exchange` (repeatable and supports comma-separated values)
-- `--ibkr-closed-world`
-- `--ibkr-report-alias`
+- `--tax-exempt-mode {execution_exchange,listing_exchange}`: controls how securities analyzers determine tax-exempt treatment, by execution exchange or listing exchange (default where supported: `listing_exchange`)
+- `--eu-regulated-exchange VALUE`: additional EU-regulated exchange override where supported; repeatable and supports comma-separated values
+- `--closed-world`: enable conservative closed-world exchange/market classification where supported
+- `--skip-period-validation`: skip period validation where supported; development/testing only
+- `--no-net-cfd-financing`: disable automatic CFD financing netting where supported
+- `--negative-pil-mode {position-aware,always-net,ignore}`: controls negative Payment in Lieu treatment where supported
+- `--appendix8-dividend-list-mode {company,country}`: advanced Appendix 8 dividend listing mode where supported
+- `--p2p-secondary-market-mode {appendix_5,appendix_6}`: P2P secondary-market handling mode
 
-`--ibkr-tax-exempt-mode` defaults to `listed_symbol` in aggregate mode.
+Analyzer-specific overrides use the analyzer alias as a prefix:
+
+- pattern: `--<analyzer-alias>-<aggregate-option>`
+- example: `--tax-exempt-mode listing_exchange --ibkr-tax-exempt-mode execution_exchange`
+- example: `--negative-pil-mode position-aware --ibkr-negative-pil-mode ignore`
+- example: `--appendix8-dividend-list-mode company --ibkr-appendix8-dividend-list-mode country`
+- example: `--p2p-secondary-market-mode appendix_6 --afranga-p2p-secondary-market-mode appendix_5`
+- resolution order: analyzer-specific override > aggregate option > built-in default
+
+Analyzer-prefixed options in aggregate mode are overrides, not legacy aliases. They are available only for options explicitly marked as overridable by the target analyzer. `--ibkr-report-alias` is not available in aggregate mode because aggregate runs may contain multiple IBKR input files; use it only with the single `ibkr` analyzer command if needed.
+
+Use `--list-aggregate-overrides` to print the supported analyzer-specific override matrix.
 
 Opening-state input rule:
 
@@ -839,7 +847,7 @@ uv run tax-reporting binance_futures \
 uv run tax-reporting ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
-  --tax-exempt-mode listed_symbol \
+  --tax-exempt-mode listing_exchange \
   --report-alias account1
 ```
 
@@ -850,7 +858,7 @@ IBKR Activity Statement period requirements:
 - The IBKR account base currency must be EUR. The analyzer validates `Account Information -> Base Currency` before tax calculations start.
 - Wrong or missing periods fail by default because tax reporting and SPB-8 can be incorrect.
 - `--skip-period-validation` exists only for development/testing with partial reports. Do not use it for real tax reporting.
-- `--tax-exempt-mode` defaults to `listed_symbol`; the effective mode is printed in the Bulgarian TXT report because it affects tax treatment.
+- `--tax-exempt-mode` defaults to `listing_exchange`; the effective mode is printed in the Bulgarian TXT report because it affects tax treatment.
 
 IBKR Equity and Index Options handling:
 
@@ -910,7 +918,7 @@ IBKR appendix credit math note:
   - closed-world mode (activated by `--eu-regulated-exchange` or `--closed-world`): built-in EU regulated + CLI overrides become the effective regulated universe for this run
   - in closed-world mode, readable normalized venues are forced to non-regulated classification unless explicitly regulated (only invalid/garbled values remain review-worthy)
 - IBKR diagnostics output includes `Audit Data` with encountered venue categories and active classification mode.
-- In `listed_symbol` mode, execution exchange is documented once as a global informational note (no per-row informational noise).
+- In `listing_exchange` mode, execution exchange is documented once as a global informational note (no per-row informational noise).
 
 ### Coinbase report analyzer
 

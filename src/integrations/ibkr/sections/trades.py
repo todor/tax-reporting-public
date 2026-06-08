@@ -24,7 +24,7 @@ from ..constants import (
     REVIEW_STATUS_TAXABLE,
     REVIEW_STATUS_TAXABLE_FROM_HERE,
     TAX_MODE_EXECUTION_EXCHANGE,
-    TAX_MODE_LISTED_SYMBOL,
+    TAX_MODE_LISTING_EXCHANGE,
     ZERO,
     FxRateProvider,
 )
@@ -481,7 +481,7 @@ def _effective_tax_exemption_market_classification(
 ) -> str:
     if listing_exchange_class is None:
         return ""
-    if tax_exempt_mode == TAX_MODE_LISTED_SYMBOL:
+    if tax_exempt_mode == TAX_MODE_LISTING_EXCHANGE:
         return listing_exchange_class
     if listing_exchange_class in {EXCHANGE_CLASS_EU_REGULATED, EXCHANGE_CLASS_UNMAPPED}:
         return execution_exchange_class
@@ -829,11 +829,11 @@ def _process_closing_trade_row(
     in_tax_year = ctx.trade_date.year == tax_year
     if in_tax_year:
         # Mode-scoped audit source:
-        # - listed_symbol: listing exchange only
+        # - listing_exchange: listing exchange only
         # - execution_exchange: always listing; execution only when listing
         #   is EU_REGULATED or UNMAPPED (the branch where execution participates
         #   in final routing)
-        if tax_exempt_mode == TAX_MODE_LISTED_SYMBOL:
+        if tax_exempt_mode == TAX_MODE_LISTING_EXCHANGE:
             if listing_exchange_class is not None:
                 _record_exchange_observation(
                     summary,
@@ -947,7 +947,7 @@ def process_trades_section(
     summary: AnalysisSummary,
     fx_provider: FxRateProvider,
     tax_year: int,
-    tax_exempt_mode: Literal["listed_symbol", "execution_exchange"],
+    tax_exempt_mode: Literal["listing_exchange", "execution_exchange"],
     eu_regulated_exchange_overrides: set[str],
     closed_world_mode: bool,
     report_date_format: IbkrReportDateFormat,

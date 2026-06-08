@@ -182,7 +182,7 @@ Options:
 
 - `--input` (required)
 - `--tax-year` (required)
-- `--secondary-market-mode` (default `appendix_6`)
+- `--p2p-secondary-market-mode` (default `appendix_6`)
 - `--output-dir` (optional, default `output/p2p/afranga`)
 - `--display-currency {EUR,BGN}` (optional, TXT rendering only; calculations stay in EUR)
 - `--cache-dir` (optional BNB FX cache override for BGN display conversion)

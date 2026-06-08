@@ -15,32 +15,36 @@ from .constants import (
     NEGATIVE_PIL_MODE_POSITION_AWARE,
     NEGATIVE_PIL_MODES,
     TAX_MODE_EXECUTION_EXCHANGE,
-    TAX_MODE_LISTED_SYMBOL,
+    TAX_MODE_LISTING_EXCHANGE,
 )
 
-_TAX_EXEMPT_MODE_ALIASES = {
-    "execution": TAX_MODE_EXECUTION_EXCHANGE,
-    "execution_exchange": TAX_MODE_EXECUTION_EXCHANGE,
-    "listed": TAX_MODE_LISTED_SYMBOL,
-    "listed_symbol": TAX_MODE_LISTED_SYMBOL,
-}
+_TAX_EXEMPT_MODES = (TAX_MODE_EXECUTION_EXCHANGE, TAX_MODE_LISTING_EXCHANGE)
+_IBKR_SUPPORTED_AGGREGATE_OVERRIDES = frozenset(
+    {
+        "tax_exempt_mode",
+        "appendix8_dividend_list_mode",
+        "eu_regulated_exchange",
+        "closed_world",
+        "skip_period_validation",
+        "no_net_cfd_financing",
+        "negative_pil_mode",
+    }
+)
 
 
 def _normalize_tax_exempt_mode(value: str) -> str:
-    normalized = value.strip().lower()
-    resolved = _TAX_EXEMPT_MODE_ALIASES.get(normalized)
-    if resolved is None:
-        return value
-    return resolved
+    return value.strip().lower()
 
 
 def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
+    if mode == "aggregate":
+        return
     add_mode_argument(
         parser,
         mode=mode,
         analyzer_alias="ibkr",
         single_flag="tax-exempt-mode",
-        choices=sorted(_TAX_EXEMPT_MODE_ALIASES),
+        choices=sorted(_TAX_EXEMPT_MODES),
         help="Tax exempt classification mode",
     )
     add_mode_argument(
@@ -50,7 +54,7 @@ def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
         single_flag="appendix8-dividend-list-mode",
         choices=[APPENDIX8_LIST_MODE_COMPANY, APPENDIX8_LIST_MODE_COUNTRY],
         default=APPENDIX8_LIST_MODE_COMPANY,
-        help=argparse.SUPPRESS,
+        help="Appendix 8 dividend listing mode",
     )
     add_mode_argument(
         parser,
@@ -115,7 +119,8 @@ def _build_options(
                 args,
                 mode=mode,
                 single_attr="tax_exempt_mode",
-                aggregate_attr="ibkr_tax_exempt_mode",
+                group_options=group_options,
+                group_key="tax_exempt_mode",
                 default=DEFAULT_TAX_EXEMPT_MODE,
             )
         ),
@@ -123,14 +128,16 @@ def _build_options(
             args,
             mode=mode,
             single_attr="appendix8_dividend_list_mode",
-            aggregate_attr="ibkr_appendix8_dividend_list_mode",
+            group_options=group_options,
+            group_key="appendix8_dividend_list_mode",
             default=APPENDIX8_LIST_MODE_COMPANY,
         ),
         "eu_regulated_exchanges": option_value(
             args,
             mode=mode,
             single_attr="eu_regulated_exchange",
-            aggregate_attr="ibkr_eu_regulated_exchange",
+            group_options=group_options,
+            group_key="eu_regulated_exchange",
             default=[],
         ),
         "closed_world": bool(
@@ -138,7 +145,8 @@ def _build_options(
                 args,
                 mode=mode,
                 single_attr="closed_world",
-                aggregate_attr="ibkr_closed_world",
+                group_options=group_options,
+                group_key="closed_world",
                 default=False,
             )
         ),
@@ -146,7 +154,6 @@ def _build_options(
             args,
             mode=mode,
             single_attr="report_alias",
-            aggregate_attr="ibkr_report_alias",
             default=None,
         ),
         "skip_period_validation": bool(
@@ -154,7 +161,8 @@ def _build_options(
                 args,
                 mode=mode,
                 single_attr="skip_period_validation",
-                aggregate_attr="ibkr_skip_period_validation",
+                group_options=group_options,
+                group_key="skip_period_validation",
                 default=False,
             )
         ),
@@ -163,7 +171,8 @@ def _build_options(
                 args,
                 mode=mode,
                 single_attr="no_net_cfd_financing",
-                aggregate_attr="ibkr_no_net_cfd_financing",
+                group_options=group_options,
+                group_key="no_net_cfd_financing",
                 default=False,
             )
         ),
@@ -172,7 +181,8 @@ def _build_options(
                 args,
                 mode=mode,
                 single_attr="negative_pil_mode",
-                aggregate_attr="ibkr_negative_pil_mode",
+                group_options=group_options,
+                group_key="negative_pil_mode",
                 default=NEGATIVE_PIL_MODE_POSITION_AWARE,
             )
         ),
@@ -229,4 +239,5 @@ ANALYZER = AnalyzerDefinition(
     add_arguments=_add_arguments,
     build_options=_build_options,
     run=_run,
+    supported_aggregate_overrides=_IBKR_SUPPORTED_AGGREGATE_OVERRIDES,
 )

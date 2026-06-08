@@ -11,11 +11,13 @@ from .report_analyzer import analyze_bondora_go_grow_report
 
 
 def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
+    if mode == "aggregate":
+        return
     add_mode_argument(
         parser,
         mode=mode,
         analyzer_alias="bondora_go_grow",
-        single_flag="secondary-market-mode",
+        single_flag="p2p-secondary-market-mode",
         type=str,
         help="Bondora Go & Grow secondary-market mode override",
     )
@@ -29,8 +31,7 @@ def _build_options(
     secondary_market_mode = option_value(
         args,
         mode=mode,
-        single_attr="secondary_market_mode",
-        aggregate_attr="bondora_go_grow_secondary_market_mode",
+        single_attr="p2p_secondary_market_mode",
         group_options=group_options,
         group_key="p2p_secondary_market_mode",
         default="appendix_6",
@@ -82,4 +83,5 @@ ANALYZER = AnalyzerDefinition(
     add_arguments=_add_arguments,
     build_options=_build_options,
     run=_run,
+    supported_aggregate_overrides=frozenset({"p2p_secondary_market_mode"}),
 )

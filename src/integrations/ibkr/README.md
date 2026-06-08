@@ -40,7 +40,7 @@ Conventions:
 uv run tax-reporting ibkr \
   --input path/to/ibkr_activity_statement.csv \
   --tax-year 2025 \
-  --tax-exempt-mode listed_symbol
+  --tax-exempt-mode listing_exchange
 ```
 
 Optional multi-account alias:
@@ -49,7 +49,7 @@ Optional multi-account alias:
 uv run tax-reporting ibkr \
   --input path/to/ibkr_activity_statement_account2.csv \
   --tax-year 2025 \
-  --tax-exempt-mode listed_symbol \
+  --tax-exempt-mode listing_exchange \
   --report-alias account2
 ```
 
@@ -98,9 +98,11 @@ Important notes:
 
 ## CLI Options
 
+These options apply to the single `ibkr` command. In aggregate mode, the same overridable aggregate tax/reporting options are passed without the `ibkr` prefix, for example `--tax-exempt-mode listing_exchange` or `--negative-pil-mode position-aware`. To override one aggregate option only for IBKR in aggregate mode, prefix it with the analyzer alias, for example `--ibkr-tax-exempt-mode execution_exchange`; analyzer-specific override > aggregate option > built-in default.
+
 - `--input`: IBKR Activity Statement CSV (required)
 - `--tax-year`: target tax year, for example `2025` (required)
-- `--tax-exempt-mode`: `listed_symbol` or `execution_exchange` (default: `listed_symbol`)
+- `--tax-exempt-mode`: `listing_exchange` or `execution_exchange` (default: `listing_exchange`)
 - `--appendix8-dividend-list-mode`: `company` (default) or `country`
 - `--eu-regulated-exchange`: additional EU-regulated exchange code override; can be passed multiple times or comma-separated
 - `--closed-world`: force closed-world exchange classification even without `--eu-regulated-exchange`
@@ -112,6 +114,8 @@ Important notes:
 - `--cache-dir`: optional `bnb_fx` cache override
 - `--display-currency {EUR,BGN}`: optional TXT rendering currency (calculation currency remains EUR)
 - `--log-level`: logging level (default `INFO`)
+
+`--report-alias` is available only on the single `ibkr` command. It is intentionally not available in aggregate mode because aggregate runs may contain multiple IBKR input files.
 
 ## Scope
 
@@ -222,13 +226,13 @@ Scope/limits:
 
 ## Tax Modes (Trades)
 
-`--tax-exempt-mode listed_symbol`
+`--tax-exempt-mode listing_exchange`
 
 - EU-listed symbol -> Приложение 13
 - non-EU-listed symbol -> Приложение 5
 - execution exchange is informational only
 - no per-row informational warnings are emitted for execution exchange in this mode
-- a single global note is printed in diagnostics `Audit Data`: `In listed_symbol mode, execution exchange does not participate in classification and is informational only.`
+- a single global note is printed in diagnostics `Audit Data`: `In listing_exchange mode, execution exchange does not participate in classification and is informational only.`
 - in open-world classification mode, unmapped listing venues still trigger manual review
 - in closed-world classification mode, unmapped listing venues are treated as non-EU/non-regulated
 
@@ -884,9 +888,9 @@ The declaration text includes:
   - Неразпознати пазари, открити в отчета
   - Невалидни/нечетими стойности за пазар, открити в отчета
   - active classification mode + CLI exchange overrides used in the run
-  - in `listed_symbol` mode, diagnostics `Audit Data` contains a single global note that execution exchange is informational-only
+  - in `listing_exchange` mode, diagnostics `Audit Data` contains a single global note that execution exchange is informational-only
   - venue scope is limited to in-tax-year closing `Trades` rows (Forex, non-closing rows, and Open Positions are excluded)
-  - `listed_symbol` mode: only listing venues are included (execution venues are not used for routing)
+  - `listing_exchange` mode: only listing venues are included (execution venues are not used for routing)
   - `execution_exchange` mode: listing venues are always included; execution venues are included only for rows where listing is `EU_REGULATED` or `UNMAPPED`
   - execution-mode discovery exception: when listing is invalid/missing but execution is readable, execution is still surfaced in audit buckets for transparency (tax routing remains review-required)
 

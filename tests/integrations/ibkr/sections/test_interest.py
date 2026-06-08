@@ -42,7 +42,7 @@ def test_interest_scoped_headers_are_resolved_from_active_header(tmp_path: Path)
             ["Mark-to-Market Performance Summary", "Data", "Withholding on Interest Received", "-1.5"],
         ]
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.interest_taxable_rows == 2
     assert result.summary.appendix_6_code_603_eur == Decimal("11")
 
@@ -54,7 +54,7 @@ def test_interest_us_slash_date_uses_report_date_format(tmp_path: Path) -> None:
     )
     rows[8][5] = "9/13/2024"
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.interest_processed_rows == 1
     assert result.summary.report_date_format_label == "M/D/YYYY"
@@ -72,7 +72,7 @@ def test_invalid_interest_slash_date_reports_detected_format(tmp_path: Path) -> 
         IbkrAnalyzerError,
         match=r"row \d+: invalid Interest date format: '13/40/2025' with detected IBKR report date format M/D/YYYY",
     ):
-        _run(tmp_path, rows, mode="listed_symbol")
+        _run(tmp_path, rows, mode="listing_exchange")
 
 def test_interest_total_rows_are_skipped(tmp_path: Path) -> None:
     rows = _rows_with_interest(
@@ -83,7 +83,7 @@ def test_interest_total_rows_are_skipped(tmp_path: Path) -> None:
             ["Interest", "Data", "USD", "2025-03-01", "USD Credit Interest for Mar-2025", "10"],
         ]
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.interest_total_rows_skipped == 3
     assert result.summary.interest_processed_rows == 1
     assert result.summary.appendix_6_code_603_eur == Decimal("9")
@@ -97,7 +97,7 @@ def test_interest_type_extraction_and_classification(tmp_path: Path) -> None:
             ["Interest", "Data", "USD", "2025-05-01", "USD Borrow Fees for May-2025", "-4"],
         ]
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     out_rows = _read_rows(result.output_csv_path)
     header, data_rows = _interest_header_and_data(out_rows)
     idx = {c: i for i, c in enumerate(header[2:])}
@@ -128,7 +128,7 @@ def test_unknown_interest_type_marks_review_required(tmp_path: Path) -> None:
             ["Interest", "Data", "USD", "2025-05-01", "USD Special Interest Adjustment for May-2025", "7"],
         ]
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.interest_unknown_rows == 1
     assert result.summary.review_required_rows >= 1
     assert "Special Interest Adjustment" in ",".join(result.summary.interest_unknown_types)
@@ -161,7 +161,7 @@ def test_interest_review_status_human_override_is_applied(tmp_path: Path) -> Non
     result = analyze_ibkr_activity_statement(
         input_csv=input_csv,
         tax_year=2025,
-        tax_exempt_mode="listed_symbol",  # type: ignore[arg-type]
+        tax_exempt_mode="listing_exchange",  # type: ignore[arg-type]
         output_dir=tmp_path / "out",
         fx_rate_provider=lambda c, _d: Decimal("1") if c == "EUR" else Decimal("0.5"),
     )
@@ -188,7 +188,7 @@ def test_appendix_6_total_code_603_uses_credit_and_syep_only(tmp_path: Path) -> 
             ["Interest", "Data", "USD", "2025-03-05", "USD Special Interest Adjustment for Mar-2025", "1"],
         ]
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_6_code_603_eur == Decimal("14")
 
 def test_interest_fx_uses_row_date_and_unknown_is_not_converted(tmp_path: Path) -> None:
@@ -214,7 +214,7 @@ def test_interest_fx_uses_row_date_and_unknown_is_not_converted(tmp_path: Path) 
     result = analyze_ibkr_activity_statement(
         input_csv=input_csv,
         tax_year=2025,
-        tax_exempt_mode="listed_symbol",  # type: ignore[arg-type]
+        tax_exempt_mode="listing_exchange",  # type: ignore[arg-type]
         output_dir=tmp_path / "out",
         fx_rate_provider=fx_by_date,
     )
@@ -231,7 +231,7 @@ def test_interest_withholding_ignores_mark_to_market_summary_without_detail_rows
         [["Interest", "Data", "EUR", "2025-03-01", "EUR Credit Interest for Mar-2025", "10"]],
         mtm_withholding_total="-3.75",
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_9_withholding_paid_eur == Decimal("0")
     assert result.summary.appendix_9_withholding_source_found is False
     assert result.summary.review_required_rows == 1
@@ -252,7 +252,7 @@ def test_appendix_9_interest_withholding_detail_rows_match_mtm_without_warning(t
         ],
     )
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.appendix_9_withholding_paid_eur == Decimal("3")
     assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("3")
@@ -271,7 +271,7 @@ def test_appendix_9_interest_withholding_detail_rows_win_without_mtm_cross_check
         ],
     )
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.appendix_9_withholding_paid_eur == Decimal("3")
     assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("3")
@@ -293,7 +293,7 @@ def test_positive_appendix_9_interest_withholding_detail_row_reduces_foreign_tax
         ],
     )
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.appendix_9_withholding_paid_eur == Decimal("75")
     assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("75")
@@ -312,7 +312,7 @@ def test_positive_only_appendix_9_interest_withholding_creates_no_credit(tmp_pat
         ],
     )
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.appendix_9_withholding_paid_eur == Decimal("0")
     assert result.summary.appendix_9_country_results["IE"].aggregated_foreign_tax_paid_eur == Decimal("0")
@@ -327,7 +327,7 @@ def test_appendix_9_interest_withholding_requires_detail_rows(tmp_path: Path) ->
         mtm_withholding_total="-3.75",
     )
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.appendix_9_withholding_paid_eur == Decimal("0")
     assert result.summary.appendix_9_withholding_detail_source_found is False
@@ -346,7 +346,7 @@ def test_appendix_9_withholding_description_matches_interest_case_insensitive(tm
         ],
     )
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.appendix_9_withholding_paid_eur == Decimal("2")
     assert result.summary.appendix_9_withholding_detail_source_found is True
@@ -366,7 +366,7 @@ def test_appendix_9_section_contains_expected_values(tmp_path: Path) -> None:
             ["Withholding Tax", "Data", "EUR", "2025-03-02", "Withholding Tax on Interest for Mar-2025", "-4", ""],
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Приложение 9" in text
     assert "Част II" in text
@@ -395,7 +395,7 @@ def test_appendix_9_allowable_credit_uses_code_constant(tmp_path: Path, monkeypa
             ["Withholding Tax", "Data", "EUR", "2025-03-02", "Withholding Tax on Interest for Mar-2025", "-4", ""],
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Допустим размер на данъчния кредит: 4.00" in text
     assert "Размер на признатия данъчен кредит: 4.00" in text
@@ -415,7 +415,7 @@ def test_appendix_9_country_level_credit_is_not_rowwise(tmp_path: Path) -> None:
             ["Withholding Tax", "Data", "EUR", "2025-01-06", "Withholding Tax on Interest for Jan-2025", "-15", ""],
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert len(result.summary.appendix_9_country_results) == 1
     country = result.summary.appendix_9_country_results["IE"]
     assert country.aggregated_gross_eur == Decimal("200")
@@ -449,7 +449,7 @@ def test_appendix_9_country_level_uses_withholding_tax_source_of_paid_tax(tmp_pa
             ["Withholding Tax", "Data", "EUR", "2025-01-06", "Withholding Tax on Interest for Jan-2025", "-20", ""],
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     country = result.summary.appendix_9_country_results["IE"]
     assert country.recognized_credit_correct_eur == Decimal("20")
     assert country.recognized_credit_wrong_rowwise_eur == Decimal("0")
@@ -464,7 +464,7 @@ def test_interest_output_rendering_contains_appendix_6_and_review_warning(tmp_pa
         ],
         mtm_withholding_total="-0.2",
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "Приложение 6" in text
     assert "Част I" in text
@@ -481,7 +481,7 @@ def test_interest_data_before_header_fails(tmp_path: Path) -> None:
         ]
     )
     with pytest.raises(IbkrAnalyzerError, match="Interest row encountered before Interest Header"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 def test_interest_missing_required_column_fails(tmp_path: Path) -> None:
     rows = _base_rows()
@@ -492,7 +492,7 @@ def test_interest_missing_required_column_fails(tmp_path: Path) -> None:
         ]
     )
     with pytest.raises(IbkrAnalyzerError, match="Interest header at row"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 def test_appendix_6_includes_lieu_with_interest_contributors(tmp_path: Path) -> None:
     rows = _base_rows()
@@ -507,7 +507,7 @@ def test_appendix_6_includes_lieu_with_interest_contributors(tmp_path: Path) -> 
             ["Withholding Tax", "Header", "Currency", "Date", "Description", "Amount", "Code"],
         ]
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.appendix_6_credit_interest_eur == Decimal("10")
     assert result.summary.appendix_6_lieu_received_eur == Decimal("5")
     assert result.summary.appendix_6_code_603_eur == Decimal("15")

@@ -166,3 +166,7 @@ class AnalyzerDefinition:
     build_options: Callable[[argparse.Namespace, CliMode, dict[str, Any]], dict[str, Any]]
     run: Callable[[AnalyzerRunContext], TaxAnalysisResult]
     supports_opening_state: bool = False
+    # Aggregate analyzer overrides are opt-in tax/reporting settings. Global run
+    # controls such as input discovery, output paths, SPB-8 inputs, logging, and
+    # display currency should not be listed here.
+    supported_aggregate_overrides: frozenset[str] = frozenset()

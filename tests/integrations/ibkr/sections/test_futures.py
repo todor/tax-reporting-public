@@ -69,7 +69,7 @@ def _futures_rows(*, include_mtm: bool = True) -> list[list[str]]:
 
 
 def test_futures_mtm_rows_contribute_to_appendix5_without_trade_or_cash_double_count(tmp_path: Path) -> None:
-    result = _run(tmp_path, _futures_rows(), mode="listed_symbol")
+    result = _run(tmp_path, _futures_rows(), mode="listing_exchange")
 
     expected_loss = Decimal("433.0725670")
     assert result.summary.futures_trade_rows == 2
@@ -93,7 +93,7 @@ def test_modified_csv_annotates_futures_trades_and_mtm_source_rows(tmp_path: Pat
         if row[:2] in (["Mark-to-Market Performance Summary", "Header"], ["Mark-to-Market Performance Summary", "Data"]):
             row.append("")
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     output_rows = _read_rows(result.output_csv_path)
     trades_header = next(row for row in output_rows if row[:2] == ["Trades", "Header"])
@@ -132,14 +132,14 @@ def test_positive_futures_mtm_maps_to_appendix5_sale_side(tmp_path: Path) -> Non
     rows = _futures_rows()
     rows[-3][-5:] = ["20", "5", "-1", "0", "24"]
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.appendix_5.sale_price_eur == Decimal("24")
     assert result.summary.appendix_5.wins_eur == Decimal("24")
 
 
 def test_futures_are_excluded_from_spb8_and_main_report_explains_policy(tmp_path: Path) -> None:
-    result = _run(tmp_path, _futures_rows(), mode="listed_symbol")
+    result = _run(tmp_path, _futures_rows(), mode="listing_exchange")
 
     assert [row for row in result.summary.spb8_rows if row.type_code == "04"] == []
     assert any("IBKR фючърсите не се включват като ценни книжа в СПБ-8" in note for note in result.summary.spb8_notes)
@@ -153,7 +153,7 @@ def test_futures_are_excluded_from_spb8_and_main_report_explains_policy(tmp_path
 
 
 def test_futures_spb8_exclusion_note_appears_once_in_aggregate_report(tmp_path: Path) -> None:
-    result = _run(tmp_path, _futures_rows(), mode="listed_symbol")
+    result = _run(tmp_path, _futures_rows(), mode="listing_exchange")
     tax_result = build_ibkr_result(
         analyzer_alias="ibkr",
         input_path=result.input_csv_path,
@@ -186,7 +186,7 @@ def test_futures_spb8_exclusion_note_appears_once_in_aggregate_report(tmp_path: 
 
 def test_futures_trades_without_mtm_rows_fail_with_bulgarian_error(tmp_path: Path) -> None:
     with pytest.raises(UserFacingTaxError) as exc_info:
-        _run(tmp_path, _futures_rows(include_mtm=False), mode="listed_symbol")
+        _run(tmp_path, _futures_rows(include_mtm=False), mode="listing_exchange")
 
     diagnostic = classify_exception(exc_info.value, analyzer_alias="ibkr")
     assert diagnostic.code == "IBKR_FUTURES_MISSING_MTM_ROWS"
@@ -198,7 +198,7 @@ def test_futures_mtm_missing_required_column_names_column(tmp_path: Path) -> Non
     rows[-4] = [column for column in rows[-4] if column != "Mark-to-Market P/L Total"]
 
     with pytest.raises(UserFacingTaxError) as exc_info:
-        _run(tmp_path, rows, mode="listed_symbol")
+        _run(tmp_path, rows, mode="listing_exchange")
 
     diagnostic = classify_exception(exc_info.value, analyzer_alias="ibkr")
     assert diagnostic.code == "IBKR_FUTURES_MISSING_MTM_COLUMNS"
@@ -210,7 +210,7 @@ def test_futures_mtm_arithmetic_mismatch_warns(tmp_path: Path) -> None:
     rows = _futures_rows()
     rows[-1][-1] = "-100"
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     tax_result = build_ibkr_result(
         analyzer_alias="ibkr",
         input_path=result.input_csv_path,
@@ -232,7 +232,7 @@ def test_futures_mtm_other_is_included_via_total_and_reported(tmp_path: Path) ->
     rows[-1][-2] = "10"
     rows[-1][-1] = "-149.7581835"
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     tax_result = build_ibkr_result(
         analyzer_alias="ibkr",
         input_path=result.input_csv_path,

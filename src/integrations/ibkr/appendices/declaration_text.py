@@ -47,7 +47,7 @@ from ..constants import (
     NEGATIVE_PIL_STATUS_IGNORE,
     NEGATIVE_PIL_STATUS_REVIEW,
     TAX_MODE_EXECUTION_EXCHANGE,
-    TAX_MODE_LISTED_SYMBOL,
+    TAX_MODE_LISTING_EXCHANGE,
 )
 from ..models import AnalysisResult, AnalysisSummary, BucketTotals
 from ..shared import _fmt
@@ -891,7 +891,7 @@ def _append_futures_notes_section(lines: list[str], *, summary: AnalysisSummary)
 
 
 def _tax_exempt_mode_description(tax_exempt_mode: str) -> str:
-    if tax_exempt_mode == TAX_MODE_LISTED_SYMBOL:
+    if tax_exempt_mode == TAX_MODE_LISTING_EXCHANGE:
         return (
             "При този режим данъчното третиране се определя според пазара, "
             "на който е листнат инструментът, а борсата на изпълнение е само информативна."
@@ -1129,9 +1129,9 @@ def _append_proof_section(
 
     lines.append("Audit Data")
     lines.append(f"- market classification mode: {summary.exchange_classification_mode or '-'}")
-    if summary.tax_exempt_mode == TAX_MODE_LISTED_SYMBOL:
+    if summary.tax_exempt_mode == TAX_MODE_LISTING_EXCHANGE:
         lines.append(
-            "- In listed_symbol mode, execution exchange does not participate in classification and is informational only."
+            "- In listing_exchange mode, execution exchange does not participate in classification and is informational only."
         )
     lines.append(
         "- additional CLI EU-regulated markets: "

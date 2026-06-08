@@ -265,7 +265,7 @@ def _run(
     tmp_path: Path,
     rows: list[list[str]],
     *,
-    mode: str = "listed_symbol",
+    mode: str = "listing_exchange",
     appendix8_dividend_list_mode: str = "company",
     year: int = 2025,
     report_alias: str | None = None,

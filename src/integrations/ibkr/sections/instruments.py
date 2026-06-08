@@ -23,7 +23,7 @@ from ..constants import (
     OPTION_ASSET_CATEGORY,
     SUPPORTED_ASSET_CATEGORIES,
     TAX_MODE_EXECUTION_EXCHANGE,
-    TAX_MODE_LISTED_SYMBOL,
+    TAX_MODE_LISTING_EXCHANGE,
 )
 from ..models import AnalysisSummary, CsvStructureError, InstrumentListing, _ActiveHeader
 from ..shared import _build_active_headers, _index_for, _optional_index
@@ -244,12 +244,12 @@ def _resolve_tax_target(
             return APPENDIX_REVIEW, "Invalid listing exchange", True
         return APPENDIX_5, "Invalid listing exchange", True
 
-    if tax_exempt_mode == TAX_MODE_LISTED_SYMBOL:
+    if tax_exempt_mode == TAX_MODE_LISTING_EXCHANGE:
         if listing_exchange_class == EXCHANGE_CLASS_UNMAPPED and not closed_world_mode:
             return APPENDIX_5, "Unmapped listing exchange (open-world mode)", True
         if listing_exchange_class != EXCHANGE_CLASS_EU_REGULATED:
             return APPENDIX_5, "Non-EU-listed symbol", False
-        return APPENDIX_13, "EU-listed symbol (listed_symbol mode)", False
+        return APPENDIX_13, "EU-listed symbol (listing_exchange mode)", False
 
     # execution_exchange mode (two-stage decision):
     # 1) listing exchange decides immediate Appendix 5 for known non-exempt listings

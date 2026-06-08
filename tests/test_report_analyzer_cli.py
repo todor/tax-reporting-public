@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import report_analyzer
+import report_analyzer.cli as report_cli
 from integrations.crypto.shared.crypto_ir_models import IrAnalysisSummary
 from integrations.fund.shared.fund_ir_models import FundAnalysisSummary
 from integrations.ibkr.appendices.declaration_text import analysis_settings_main_report_notes
@@ -67,6 +68,7 @@ def _make_fake_definition(
     main_report_notes: list[MainReportNote] | None = None,
     raw_report_text: str = "ok\n",
     aggregate_mode_option_name: str | None = None,
+    supported_aggregate_overrides: frozenset[str] = frozenset(),
     supports_opening_state: bool = False,
 ) -> AnalyzerDefinition:
     def add_arguments(parser, mode: CliMode):  # noqa: ANN001
@@ -118,6 +120,7 @@ def _make_fake_definition(
         build_options=build_options,
         run=run,
         supports_opening_state=supports_opening_state,
+        supported_aggregate_overrides=supported_aggregate_overrides,
     )
 
 
@@ -934,6 +937,332 @@ def test_analyzer_specific_opening_state_flags_are_not_registered(
     assert "--kraken-opening-state-json" not in help_text
 
 
+def test_aggregate_help_shows_generic_options_and_override_convention() -> None:
+    parser = report_analyzer.build_parser()
+
+    help_text = parser.format_help()
+
+    assert "--tax-exempt-mode {execution_exchange,listing_exchange}" in help_text
+    assert "--eu-regulated-exchange EU_REGULATED_EXCHANGE" in help_text
+    assert "--closed-world" in help_text
+    assert "--skip-period-validation" in help_text
+    assert "--no-net-cfd-financing" in help_text
+    assert "--negative-pil-mode {always-net,ignore,position-aware}" in help_text
+    assert "--p2p-secondary-market-mode {appendix_5,appendix_6}" in help_text
+    assert "--list-aggregate-overrides" in help_text
+    assert "--afranga-secondary-market-mode" not in help_text
+    assert "--<analyzer-alias>-<option>" in help_text
+    assert "In analyzer-specific commands" in help_text
+    assert "unprefixed option" in help_text
+    assert "To see the supported analyzer-prefixed options" in help_text
+    assert "the analyzer-prefixed value wins" in help_text
+    assert "configured only once" in help_text
+
+
+def test_list_aggregate_overrides_prints_supported_matrix(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = report_analyzer.main(["--list-aggregate-overrides"])
+
+    stdout = capsys.readouterr().out
+
+    assert code == 0
+    assert "Supported aggregate analyzer overrides:" in stdout
+    assert "ibkr:" in stdout
+    assert "--ibkr-tax-exempt-mode" in stdout
+    assert "--ibkr-eu-regulated-exchange" in stdout
+    assert "--ibkr-closed-world" in stdout
+    assert "--ibkr-skip-period-validation" in stdout
+    assert "--ibkr-no-net-cfd-financing" in stdout
+    assert "--ibkr-negative-pil-mode" in stdout
+    assert "--ibkr-appendix8-dividend-list-mode" in stdout
+    assert "Tax-exempt mode" in stdout
+    assert "Appendix 8 dividend list mode" in stdout
+    assert "equivalent to" not in stdout
+    assert "interactive-brokers" not in stdout
+    assert "interactivebrokers" not in stdout
+    assert "afranga:" in stdout
+    assert "--afranga-p2p-secondary-market-mode" in stdout
+    assert "P2P secondary market mode" in stdout
+    assert "bondora_go_grow:" in stdout
+    assert "--bondora-go-grow-p2p-secondary-market-mode" in stdout
+    assert "--bondora-p2p-secondary-market-mode" in stdout
+    assert "--go-grow-p2p-secondary-market-mode" in stdout
+    assert "estateguru:" in stdout
+    assert "--estateguru-p2p-secondary-market-mode" in stdout
+    assert "iuvo:" in stdout
+    assert "--iuvo-p2p-secondary-market-mode" in stdout
+    assert "lendermarket:" in stdout
+    assert "--lendermarket-p2p-secondary-market-mode" in stdout
+    assert "robocash:" in stdout
+    assert "--robocash-p2p-secondary-market-mode" in stdout
+
+
+def test_listed_aggregate_overrides_match_validation_registry() -> None:
+    registry = report_analyzer.discover_analyzer_registry()
+    lines = report_cli._aggregate_override_lines(registry=registry)
+    listed_flags = {
+        line.strip().split()[0]
+        for line in lines
+        if line.strip().startswith("--")
+    }
+    expected_flags: set[str] = set()
+    for definition in registry.definitions():
+        aliases = (definition.alias,) if definition.alias == "ibkr" else (definition.alias, *definition.aliases)
+        for alias in aliases:
+            prefix = alias.replace("_", "-")
+            for option in report_cli._OVERRIDABLE_AGGREGATE_OPTIONS:
+                if option.group_key in definition.supported_aggregate_overrides:
+                    expected_flags.add(f"--{prefix}-{option.flag}")
+
+    assert listed_flags == expected_flags
+
+
+def test_concrete_ibkr_help_shows_unprefixed_options(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = report_analyzer.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["ibkr", "--help"])
+    help_text = capsys.readouterr().out
+
+    assert "--tax-exempt-mode" in help_text
+    assert "--eu-regulated-exchange" in help_text
+    assert "--closed-world" in help_text
+    assert "--skip-period-validation" in help_text
+    assert "--no-net-cfd-financing" in help_text
+    assert "--negative-pil-mode" in help_text
+    assert "--appendix8-dividend-list-mode" in help_text
+    assert "--ibkr-tax-exempt-mode" not in help_text
+
+
+def test_concrete_p2p_help_shows_unprefixed_p2p_option(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = report_analyzer.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["afranga", "--help"])
+    help_text = capsys.readouterr().out
+
+    assert "--p2p-secondary-market-mode" in help_text
+    assert "--afranga-p2p-secondary-market-mode" not in help_text
+
+
+@pytest.mark.parametrize("legacy_value", ["execution", "listed", "listed_symbol"])
+def test_aggregate_tax_exempt_mode_rejects_old_value_aliases(legacy_value: str) -> None:
+    parser = report_analyzer.build_parser()
+
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--tax-exempt-mode", legacy_value])
+
+
+def test_aggregate_analyzer_specific_override_wins(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+
+    def build_options(args, mode: CliMode, group_options):  # noqa: ANN001
+        _ = args
+        _ = mode
+        return dict(group_options)
+
+    fake = _make_fake_definition(
+        alias="t212",
+        group="broker",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        supported_aggregate_overrides=frozenset(
+            {"tax_exempt_mode", "negative_pil_mode", "appendix8_dividend_list_mode"}
+        ),
+    )
+    fake = AnalyzerDefinition(
+        alias=fake.alias,
+        group=fake.group,
+        aliases=("trading212",),
+        description=fake.description,
+        default_output_dir=fake.default_output_dir,
+        input_suffixes=fake.input_suffixes,
+        detection_token_sets=fake.detection_token_sets,
+        add_arguments=fake.add_arguments,
+        build_options=build_options,
+        run=fake.run,
+        supported_aggregate_overrides=fake.supported_aggregate_overrides,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+    (tmp_path / "t212_report.csv").write_text("x\n", encoding="utf-8")
+
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--no-spb8",
+            "--tax-exempt-mode",
+            "listing_exchange",
+            "--trading212-tax-exempt-mode",
+            "execution_exchange",
+            "--negative-pil-mode",
+            "position-aware",
+            "--t212-negative-pil-mode=ignore",
+            "--appendix8-dividend-list-mode",
+            "company",
+            "--t212-appendix8-dividend-list-mode",
+            "country",
+        ]
+    )
+
+    assert code == 0
+    assert run_capture.contexts[0].options["tax_exempt_mode"] == "execution_exchange"
+    assert run_capture.contexts[0].options["negative_pil_mode"] == "ignore"
+    assert run_capture.contexts[0].options["appendix8_dividend_list_mode"] == "country"
+
+
+def test_aggregate_repeatable_override_replaces_aggregate_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_capture = _RunCapture(contexts=[])
+
+    def build_options(args, mode: CliMode, group_options):  # noqa: ANN001
+        _ = args
+        _ = mode
+        return dict(group_options)
+
+    fake = _make_fake_definition(
+        alias="future",
+        group="broker",
+        tmp_path=tmp_path,
+        run_capture=run_capture,
+        supported_aggregate_overrides=frozenset({"eu_regulated_exchange"}),
+    )
+    fake = AnalyzerDefinition(
+        alias=fake.alias,
+        group=fake.group,
+        aliases=(),
+        description=fake.description,
+        default_output_dir=fake.default_output_dir,
+        input_suffixes=fake.input_suffixes,
+        detection_token_sets=fake.detection_token_sets,
+        add_arguments=fake.add_arguments,
+        build_options=build_options,
+        run=fake.run,
+        supported_aggregate_overrides=fake.supported_aggregate_overrides,
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+    (tmp_path / "future_report.csv").write_text("x\n", encoding="utf-8")
+
+    code = report_analyzer.main(
+        [
+            "--input-dir",
+            str(tmp_path),
+            "--tax-year",
+            "2025",
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--no-spb8",
+            "--eu-regulated-exchange",
+            "GENERIC",
+            "--future-eu-regulated-exchange",
+            "ONE",
+            "--future-eu-regulated-exchange=TWO,THREE",
+        ]
+    )
+
+    assert code == 0
+    assert run_capture.contexts[0].options["eu_regulated_exchange"] == ["ONE", "TWO,THREE"]
+
+
+def test_aggregate_override_unknown_analyzer_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake = _make_fake_definition(
+        alias="t212",
+        group="broker",
+        tmp_path=tmp_path,
+        run_capture=_RunCapture(contexts=[]),
+        supported_aggregate_overrides=frozenset({"tax_exempt_mode"}),
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+
+    code = report_analyzer.main(["--unknown-tax-exempt-mode", "listing_exchange"])
+    stdout = capsys.readouterr().out
+
+    assert code == 2
+    assert "Unsupported analyzer override: --unknown-tax-exempt-mode" in stdout
+    assert "Use --list-aggregate-overrides" in stdout
+
+
+def test_aggregate_override_unsupported_for_known_analyzer_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake = _make_fake_definition(alias="t212", group="broker", tmp_path=tmp_path, run_capture=_RunCapture(contexts=[]))
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+
+    code = report_analyzer.main(["--t212-tax-exempt-mode", "listing_exchange"])
+    stdout = capsys.readouterr().out
+
+    assert code == 2
+    assert "Unsupported analyzer override: --t212-tax-exempt-mode" in stdout
+    assert "The option tax-exempt-mode is not supported by analyzer t212." in stdout
+    assert "Use --list-aggregate-overrides" in stdout
+
+
+def test_aggregate_ibkr_report_alias_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake = _make_fake_definition(
+        alias="ibkr",
+        group="broker",
+        tmp_path=tmp_path,
+        run_capture=_RunCapture(contexts=[]),
+        supported_aggregate_overrides=frozenset({"tax_exempt_mode"}),
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+
+    code = report_analyzer.main(["--ibkr-report-alias", "acc1"])
+    stdout = capsys.readouterr().out
+
+    assert code == 2
+    assert "Unsupported analyzer override: --ibkr-report-alias" in stdout
+    assert "The option report-alias is not supported by analyzer ibkr." in stdout
+    assert "Use --list-aggregate-overrides" in stdout
+
+
+def test_aggregate_old_generated_p2p_override_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fake = _make_fake_definition(
+        alias="afranga",
+        group="p2p",
+        tmp_path=tmp_path,
+        run_capture=_RunCapture(contexts=[]),
+        supported_aggregate_overrides=frozenset({"p2p_secondary_market_mode"}),
+    )
+    monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: _make_registry(fake))
+
+    code = report_analyzer.main(["--afranga-secondary-market-mode", "appendix_5"])
+    stdout = capsys.readouterr().out
+
+    assert code == 2
+    assert "Unsupported analyzer override: --afranga-secondary-market-mode" in stdout
+    assert "The option secondary-market-mode is not supported by analyzer afranga." in stdout
+    assert "Use --list-aggregate-overrides" in stdout
+
+
 def test_single_analyzer_report_strips_duplicate_legacy_review_blocks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1675,7 +2004,7 @@ def test_aggregate_report_deduplicates_identical_main_report_notes() -> None:
 
 def test_aggregate_report_deduplicates_ibkr_tax_exempt_mode_setting() -> None:
     notes = analysis_settings_main_report_notes(
-        IbkrAnalysisSummary(tax_year=2025, tax_exempt_mode="listed_symbol")
+        IbkrAnalysisSummary(tax_year=2025, tax_exempt_mode="listing_exchange")
     )
     rendered = render_aggregated_report(
         tax_year=2025,
@@ -1696,8 +2025,8 @@ def test_aggregate_report_deduplicates_ibkr_tax_exempt_mode_setting() -> None:
     )
 
     assert "IBKR — класификация на пазари" in rendered
-    assert "Режим за данъчно освобождаване: listed_symbol." in rendered
-    assert "Класификация на IBKR сделките за данъчно освобождаване: listed_symbol." not in rendered
+    assert "Режим за данъчно освобождаване: listing_exchange." in rendered
+    assert "Класификация на IBKR сделките за данъчно освобождаване: listing_exchange." not in rendered
     assert "борсата на изпълнение е само информативна" in rendered
 
 
@@ -1716,14 +2045,14 @@ def test_aggregate_report_consolidates_ibkr_market_classification_notes() -> Non
             [
                 IbkrAnalysisSummary(
                     tax_year=2025,
-                    tax_exempt_mode="listed_symbol",
+                    tax_exempt_mode="listing_exchange",
                     exchange_classification_mode="OPEN_WORLD MODE",
                     encountered_eu_regulated_exchanges=set(),
                     encountered_non_eu_exchanges={"NASDAQ"},
                 ),
                 IbkrAnalysisSummary(
                     tax_year=2025,
-                    tax_exempt_mode="listed_symbol",
+                    tax_exempt_mode="listing_exchange",
                     exchange_classification_mode="OPEN_WORLD MODE",
                     encountered_eu_regulated_exchanges={"IBIS2"},
                     encountered_non_eu_exchanges={"NYSE"},
@@ -1751,7 +2080,7 @@ def test_ibkr_instrument_method_summaries_are_top_only_and_methodology_is_bottom
     notes = analysis_settings_main_report_notes(
         IbkrAnalysisSummary(
             tax_year=2025,
-            tax_exempt_mode="listed_symbol",
+            tax_exempt_mode="listing_exchange",
             cfd_trade_rows=1,
             cfd_financing_rows=1,
             futures_mtm_rows=1,
@@ -2101,7 +2430,22 @@ def test_group_param_and_analyzer_override_resolution(
         group="p2p",
         tmp_path=tmp_path,
         run_capture=run_capture,
-        aggregate_mode_option_name="afranga-secondary-market-mode",
+        supported_aggregate_overrides=frozenset({"p2p_secondary_market_mode"}),
+    )
+    fake = AnalyzerDefinition(
+        alias=fake.alias,
+        group=fake.group,
+        aliases=fake.aliases,
+        description=fake.description,
+        default_output_dir=fake.default_output_dir,
+        input_suffixes=fake.input_suffixes,
+        detection_token_sets=fake.detection_token_sets,
+        add_arguments=fake.add_arguments,
+        build_options=lambda args, mode, group_options: {
+            "mode": str(group_options.get("p2p_secondary_market_mode", "appendix_6"))
+        },
+        run=fake.run,
+        supported_aggregate_overrides=fake.supported_aggregate_overrides,
     )
     registry = _make_registry(fake)
     monkeypatch.setattr(report_analyzer, "discover_analyzer_registry", lambda: registry)
@@ -2119,7 +2463,7 @@ def test_group_param_and_analyzer_override_resolution(
             str(tmp_path / "out"),
             "--p2p-secondary-market-mode",
             "appendix_6",
-            "--afranga-secondary-market-mode",
+            "--afranga-p2p-secondary-market-mode",
             "appendix_5",
         ]
     )

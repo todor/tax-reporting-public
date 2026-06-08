@@ -95,14 +95,14 @@ Tax calculation summary
   - positive interest withholding rows: 0
 Tax treatment decisions
   - market classification mode: OPEN_WORLD MODE
-  - In listed_symbol mode, execution exchange does not participate in classification and is informational only.
+  - In listing_exchange mode, execution exchange does not participate in classification and is informational only.
   - additional CLI EU-regulated markets: -
   - EU-regulated markets found in report: BVME.ETF, IBIS, IBIS2, SBF
   - EU non-regulated markets found in report: -
   - non-EU markets found in report: NASDAQ, NYSE
   - unmapped markets found in report: -
   - invalid/unreadable market values found in report: -
-  - selected mode: listed_symbol
+  - selected mode: listing_exchange
   - Appendix 8 dividend list mode: company
 Validation / sanity checks
   - Sanity checks: PASS
@@ -223,14 +223,14 @@ Tax treatment decisions
   - Equity/index options MTM policy: ignored for tax calculation
   - Equity/index options SPB-8 policy: excluded_from_spb8
   - market classification mode: OPEN_WORLD MODE
-  - In listed_symbol mode, execution exchange does not participate in classification and is informational only.
+  - In listing_exchange mode, execution exchange does not participate in classification and is informational only.
   - additional CLI EU-regulated markets: -
   - EU-regulated markets found in report: BVME.ETF, IBIS, IBIS2, SBF
   - EU non-regulated markets found in report: -
   - non-EU markets found in report: NASDAQ, NYSE
   - unmapped markets found in report: -
   - invalid/unreadable market values found in report: -
-  - selected mode: listed_symbol
+  - selected mode: listing_exchange
   - Appendix 8 dividend list mode: company
 Validation / sanity checks
   - Sanity checks: PASS

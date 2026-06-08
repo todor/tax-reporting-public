@@ -20,7 +20,7 @@ def test_open_position_reconciliation_happy_path(tmp_path: Path) -> None:
         open_rows=[("4GLD", "7")],
         trade_rows=[("4GLDd", "10"), ("4GLDd", "-3")],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.review_required_rows == 0
     assert all(
         "OPEN_POSITION_TRADE_QTY_MISMATCH" not in warning
@@ -34,7 +34,7 @@ def test_open_position_reconciliation_alias_symbols_are_matched(tmp_path: Path) 
         open_rows=[("4GLD", "5")],
         trade_rows=[("4GLDd", "5")],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.review_required_rows == 0
     assert not any("OPEN_POSITION_TRADE_QTY_MISMATCH" in warning for warning in result.summary.warnings)
 
@@ -43,7 +43,7 @@ def test_open_position_reconciliation_quantity_mismatch_triggers_review(tmp_path
         open_rows=[("4GLD", "6")],
         trade_rows=[("4GLDd", "7")],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.review_required_rows >= 1
     assert any("OPEN_POSITION_TRADE_QTY_MISMATCH" in warning for warning in result.summary.warnings)
     text = result.declaration_txt_path.read_text(encoding="utf-8")
@@ -79,7 +79,7 @@ def test_open_position_reconciliation_uses_mtm_prior_quantity(tmp_path: Path) ->
             ],
         ]
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.review_required_rows == 0
     assert not any("OPEN_POSITION_TRADE_QTY_MISMATCH" in warning for warning in result.summary.warnings)
 
@@ -106,7 +106,7 @@ def test_open_position_reconciliation_nets_same_isin_transfers(tmp_path: Path) -
         ["Transfers", "Data", "Stocks", "AMZN", "In", "-16", ""],
     ]
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.review_required_rows == 0
     assert not any("OPEN_POSITION_TRADE_QTY_MISMATCH" in warning for warning in result.summary.warnings)
@@ -118,14 +118,14 @@ def test_open_position_reconciliation_unmatched_open_position_symbol_triggers_re
         trade_rows=[("4GLDd", "5")],
     )
     with pytest.raises(IbkrAnalyzerError, match="cannot be matched to Financial Instrument"):
-        _ = _run(tmp_path, rows, mode="listed_symbol")
+        _ = _run(tmp_path, rows, mode="listing_exchange")
 
 def test_open_position_reconciliation_unmatched_trade_symbol_triggers_review(tmp_path: Path) -> None:
     rows = _rows_for_open_position_check(
         open_rows=[("4GLD", "5")],
         trade_rows=[("UNKNOWN", "5")],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.review_required_rows >= 1
     assert any("TRADE_UNMATCHED_INSTRUMENT" in warning for warning in result.summary.warnings)
 
@@ -134,7 +134,7 @@ def test_open_position_reconciliation_accepts_comma_formatted_quantities(tmp_pat
         open_rows=[("4GLD", "1,001")],
         trade_rows=[("4GLDd", "1,001")],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.review_required_rows == 0
     assert not any("invalid order quantity" in warning for warning in result.summary.warnings)
 
@@ -143,7 +143,7 @@ def test_open_position_reconciliation_treats_empty_quantity_as_zero(tmp_path: Pa
         open_rows=[("4GLD", "")],
         trade_rows=[("4GLDd", "")],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.review_required_rows == 0
     assert not any("invalid order quantity" in warning for warning in result.summary.warnings)
 
@@ -158,7 +158,7 @@ def test_appendix8_part1_single_country_aggregation_and_declarative_note(tmp_pat
             ("BBB", "US2222222222"),
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.open_positions_summary_rows == 2
     assert result.summary.open_positions_part1_rows == 1
     row = result.summary.appendix_8_part1_rows[0]
@@ -195,7 +195,7 @@ def test_appendix8_part1_groups_same_country_by_currency(tmp_path: Path) -> None
             ("BBB", "US2222222222"),
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.open_positions_part1_rows == 2
 
     by_currency = {
@@ -228,7 +228,7 @@ def test_appendix8_part1_multiple_countries_and_country_extraction_from_isin(tmp
             ("CCC", "LU3333333333"),
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     by_country = {item.country_iso: item for item in result.summary.appendix_8_part1_rows}
     assert set(by_country) == {"US", "LU"}
     assert by_country["US"].country_bulgarian == "САЩ"
@@ -247,7 +247,7 @@ def test_open_positions_csv_enrichment_with_country_and_cost_basis_eur(tmp_path:
             ("CCC", "IE4444444444"),
         ],
     )
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     out_rows = _read_rows(result.output_csv_path)
     header, data_rows = _open_positions_header_and_data(out_rows)
     idx = {c: i for i, c in enumerate(header[2:])}
@@ -332,7 +332,7 @@ def test_appendix8_part1_parses_summary_layout_and_security_id_header(tmp_path: 
             "120",
         ],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.open_positions_part1_rows == 1
     row = result.summary.appendix_8_part1_rows[0]
     assert row.country_iso == "US"
@@ -409,7 +409,7 @@ def test_appendix8_part1_includes_treasury_bills_summary_rows(tmp_path: Path) ->
             "28000",
         ],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.open_positions_part1_rows == 1
     row = result.summary.appendix_8_part1_rows[0]
     assert row.country_iso == "US"
@@ -488,7 +488,7 @@ def test_appendix8_part1_treasury_bills_verbose_fii_symbol_still_matches(tmp_pat
             "28000",
         ],
     ]
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.open_positions_part1_rows == 1
     row = result.summary.appendix_8_part1_rows[0]
     assert row.country_iso == "US"
@@ -510,7 +510,7 @@ def test_appendix8_part1_open_positions_unsupported_asset_triggers_manual_review
         if len(row) >= 2 and row[0] == "Trades" and row[1] == "Data":
             row[2] = "Options"
 
-    result = _run(tmp_path, rows, mode="listed_symbol")
+    result = _run(tmp_path, rows, mode="listing_exchange")
     assert result.summary.review_required_rows >= 1
     assert any(
         "OPEN_POSITION_UNSUPPORTED_ASSET" in warning
