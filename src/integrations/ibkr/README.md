@@ -107,7 +107,7 @@ These options apply to the single `ibkr` command. In aggregate mode, the same ov
 - `--eu-regulated-exchange`: additional EU-regulated exchange code override; can be passed multiple times or comma-separated
 - `--closed-world`: force closed-world exchange classification even without `--eu-regulated-exchange`
 - `--report-alias`: optional alias added in output filenames
-- `--no-net-cfd-financing`: do not net CFD financing into Appendix 5; positive amounts go to Appendix 6 code 606 and negative amounts are skipped
+- `--cfd-financing-mode {position-aware,always-net,ignore}`: controls CFD financing / CFD interest handling (default: `position-aware`)
 - `--negative-pil-mode {position-aware,always-net,ignore}`: controls negative Payment in Lieu handling (default: `position-aware`)
 - `--positive-wht-mode {current-year-net,prior-year-correction}`: controls positive dividend Withholding Tax corrections (default: `current-year-net`)
 - `--csv-decimal-separator {auto,dot,comma}`: CSV decimal separator mode (default: `auto`)
@@ -441,13 +441,21 @@ CFD trades are treated as derivative financial instruments, not as real shares/E
 - `Financial Instrument Information` rows for CFDs may use a different header and do not contain a reliable `Security ID` / ISIN
 - the analyzer does not infer an underlying ISIN from the CFD symbol
 
-IBKR may report CFD financing in the `Fees` section, for example `Long CFD Interest`, `Short CFD Interest`, or `CFD Financing`.
+IBKR may report CFD financing in the `Fees` section, for example `Long CFD Interest for DD-MMM-YYYY`, `Short CFD Interest for DD-MMM-YYYY`, or other fee descriptions containing `CFD`.
 
-- By default, CFD financing / CFD interest is treated as part of CFD trading economics and is included in `Приложение 5`, code `508`.
-- A positive amount increases the sale/proceeds side.
-- A negative amount increases the acquisition/cost side by absolute value.
-- With `--no-net-cfd-financing`, netting is disabled: positive amounts are declared in `Приложение 6`, code `606`, and negative amounts are not included automatically.
-- Generic debit interest, margin interest, borrow fees, market data, subscription, ADR, snapshot, and wire fees are not treated as CFD financing unless the description explicitly contains CFD interest/financing wording.
+- IBKR reports these as account-level daily fee rows. The row identifies that CFD financing happened, but not the exact CFD instrument, position, contract, or lot.
+- For detected CFD fee rows, the tool uses the `Date` column from the Fees row as the financing/accrual date and for tax-year filtering.
+- If the description contains a date such as `for DD-MMM-YYYY`, the tool parses it as supporting diagnostic evidence only. It is not required for automatic handling.
+- The tool tries to assign each fee to likely contributing CFD positions by checking which CFD ranges look open on the Fees `Date` using trade open/close dates. This assignment is intentionally approximate.
+- The normal IBKR Activity Statement may not show the settlement/value dates that IBKR uses for financing. Because of settlement dates, overnight financing, weekends, holidays, or posting rules, a fee can appear for a date where no CFD position looks open under the simple trade-date approximation.
+- In that case, the tool still accepts the IBKR-reported fee. It does not reject the fee and does not require manual review only because the exact position could not be matched. This is an intentional practical approximation; the tool does not attempt to audit IBKR's CFD financing engine.
+- By default, `--cfd-financing-mode position-aware` uses assigned candidate CFD ranges when available. A fee is included in `Приложение 5`, code `508` when assigned ranges were closed by year-end, or when no trade-date-open candidate could be assigned but the Fees `Date` is inside the selected tax year.
+- If all matching CFD positions remained open at year-end, the row is `DEFER` and is not included in the current-year result.
+- If the fee overlaps both closed and still-open CFD ranges, the row is `REVIEW`; the tool does not split unallocated daily account-level fees.
+- A positive amount with final status `NET` increases the sale/proceeds side. A negative amount with final status `NET` increases the acquisition/cost side by absolute value.
+- `--cfd-financing-mode always-net` forces `Auto Status = NET` for detected CFD financing rows unless `Review Status` overrides it. This may net financing related to CFD positions still open at year-end.
+- `--cfd-financing-mode ignore` forces `Auto Status = IGNORE` and excludes detected CFD financing rows unless `Review Status` overrides it.
+- Generic debit interest, margin interest, borrow fees, market data, subscription, ADR, snapshot, and wire fees are not treated as CFD financing unless the Fees description contains `CFD`.
 - CFD financing is a separate adjustment and is not derived from CFD `Notional Value` / `Basis`.
 
 IBKR may report `Payment in Lieu of Dividend (Ordinary Dividend)` in the `Dividends` section.
@@ -468,12 +476,31 @@ CFD financing and PIL adjustments are treated according to their economic relati
 
 Some rows require user review before they can be applied automatically.
 
-- The tool may add review-related columns such as `Review Status`, `Auto Status`, and `Tax Status`.
-- `Auto Status` is the tool's suggestion.
-- `Review Status` is optional and overrides `Auto Status` when filled.
-- `Tax Status` explains the automatic decision and what should be reviewed.
+- The tool may add review-related columns such as `Review Status`, `Auto Status`, `Tax Status`, and a reason/explanation column such as `Tax Treatment Reason`.
+- `Auto Status` is the tool's automatic decision before any user override.
+- `Review Status` is user input/manual override. The tool preserves it and does not write automatic review markers there.
+- Empty `Review Status` means no user override was provided. It does not mean that no review is required.
+- `Tax Status` is the final/effective short status after applying any `Review Status` override, for example `NET`, `DEFER`, `IGNORE`, or `REVIEW`.
+- `Tax Treatment Reason` / explanation columns contain the human-readable reason for the automatic or overridden treatment.
 - Different review types may support different statuses.
 - Rows with unresolved `REVIEW` status are not applied automatically.
+
+### CFD financing manual review
+
+CFD financing rows use the same `Review Status` / `Auto Status` / `Tax Status` pattern as other manual-review flows.
+
+```text
+NET    -> include in current-year Appendix 5, code 508 netting
+DEFER  -> do not include this year; keep for a later year when the related CFD exposure is closed
+IGNORE -> exclude from declaration output / netting
+REVIEW -> do not include automatically; user must decide
+```
+
+In `position-aware` mode, the tool uses the Fees `Date` and tries to assign the fee to likely CFD position ranges using trade open/close dates. This is only an approximation; unmatched-by-trade-date assignment is diagnostic information and does not by itself require manual review. `Auto Status = NET` is used when every matching CFD range was closed by the end of the processed tax year, or when no matching range could be assigned but the Fees `Date` is inside the selected tax year. `Auto Status = DEFER` means the fee was not included because the matching CFD exposure remained open at year-end. Mixed closed/open exposure on the same fee date is not allocated proportionally; it is marked `REVIEW`.
+
+Rows requiring review are indicated by `Auto Status = REVIEW` and final `Tax Status = REVIEW`; the explanation is in `Tax Treatment Reason`. Fill `Review Status` only when overriding the automatic decision, then rerun the tool. Accepted override values are `NET`, `DEFER`, `IGNORE`, and `REVIEW`; a populated `Review Status` overrides the automatic decision and is preserved by the tool.
+
+If a CFD financing row was deferred in a previous tax year because the related CFD position was still open, and that CFD position closes in a later tax year, copy the original previous-year CFD financing rows into the CSV section of the later-year input without changing the original date, description, currency, or amount. Because the tool uses the Fees `Date` for tax-year filtering, set `Review Status = NET` when you deliberately decide that the carried-forward row should be included in the later year. The tool can only evaluate previously deferred CFD financing when those rows are present in the current input.
 
 ### Negative Payment in Lieu manual review
 

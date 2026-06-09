@@ -454,6 +454,195 @@ def _open_short_ranges(
     return security_ranges, cfd_ranges
 
 
+def _closed_cfd_ranges_all(
+    *,
+    rows: list[list[str]],
+    active_headers: dict[int, _ActiveHeader],
+    listings: dict[str, InstrumentListing],
+    report_date_format: IbkrReportDateFormat,
+) -> list[NegativePilExposureRange]:
+    ranges: list[NegativePilExposureRange] = []
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        if len(row) < 2 or row[0] != "Trades" or row[1] != "Data":
+            continue
+        active_header = active_headers.get(row_idx)
+        if active_header is None:
+            continue
+        idx = _trade_indexes(active_header)
+        data = _row_data(row, active_header)
+        discriminator = _normalize_data_discriminator(data[idx["discriminator"]].strip())  # type: ignore[index]
+        if discriminator != "trade":
+            continue
+        asset_category = data[idx["asset"]].strip()  # type: ignore[index]
+        if not _is_cfd_asset(asset_category):
+            continue
+        closing_date = _parse_trade_datetime(
+            data[idx["date_time"]],  # type: ignore[index]
+            row_number=row_number,
+        ).date()
+        symbol_raw = data[idx["symbol"]].strip()  # type: ignore[index]
+        identity = _range_identity(asset_category=asset_category, symbol_raw=symbol_raw, listings=listings)
+        if identity is None:
+            continue
+        symbol, isin = identity
+        for closed_idx in _attached_closedlot_indices(rows, active_headers, row_idx):
+            closed_row = rows[closed_idx]
+            closed_header = active_headers.get(closed_idx)
+            if closed_header is None:
+                continue
+            closed_data = _row_data(closed_row, closed_header)
+            closed_indexes = _trade_indexes(closed_header)
+            closed_discriminator = _normalize_data_discriminator(
+                closed_data[closed_indexes["discriminator"]].strip()  # type: ignore[index]
+            )
+            if closed_discriminator != "closedlot":
+                continue
+            closed_asset = closed_data[closed_indexes["asset"]].strip()  # type: ignore[index]
+            if closed_asset != asset_category:
+                continue
+            closed_symbol = closed_data[closed_indexes["symbol"]].strip()  # type: ignore[index]
+            closed_identity = _range_identity(
+                asset_category=closed_asset,
+                symbol_raw=closed_symbol,
+                listings=listings,
+            )
+            if closed_identity is not None and closed_identity != identity:
+                continue
+            quantity_idx = closed_indexes["quantity"]
+            if quantity_idx is None:
+                continue
+            quantity = _parse_decimal(
+                closed_data[quantity_idx],
+                row_number=closed_idx + 1,
+                field_name="ClosedLot Quantity",
+            )
+            if quantity == ZERO:
+                continue
+            opened = _parse_closedlot_date(
+                closed_data[closed_indexes["date_time"]],  # type: ignore[index]
+                row_number=closed_idx + 1,
+                slash_format=report_date_format,
+            )
+            ranges.append(
+                NegativePilExposureRange(
+                    kind="cfd",
+                    symbol=symbol,
+                    isin=isin,
+                    start=opened,
+                    end=closing_date,
+                    source_rows=(row_number, closed_idx + 1),
+                    source="attached ClosedLot",
+                )
+            )
+    return ranges
+
+
+def _active_cfd_start_by_key(
+    *,
+    tax_year: int,
+    prior_quantities: dict[tuple[str, str, str], Decimal],
+    trade_events: dict[tuple[str, str, str], list[tuple[date, Decimal]]],
+) -> dict[tuple[str, str, str], date | None]:
+    starts: dict[tuple[str, str, str], date | None] = {}
+    for key in set(prior_quantities) | set(trade_events):
+        asset_category, _symbol, _isin = key
+        if not _is_cfd_asset(asset_category):
+            continue
+        quantity = prior_quantities.get(key, ZERO)
+        start = date(tax_year, 1, 1) if quantity != ZERO else None
+        for event_date, delta in sorted(trade_events.get(key, []), key=lambda item: item[0]):
+            before = quantity
+            quantity += delta
+            if before == ZERO and quantity != ZERO:
+                start = event_date
+            elif before != ZERO and quantity == ZERO:
+                start = None
+            elif (before < ZERO < quantity) or (before > ZERO > quantity):
+                start = event_date
+        starts[key] = start
+    return starts
+
+
+def _open_cfd_ranges_all(
+    *,
+    rows: list[list[str]],
+    active_headers: dict[int, _ActiveHeader],
+    listings: dict[str, InstrumentListing],
+    tax_year: int,
+) -> list[NegativePilExposureRange]:
+    ranges: list[NegativePilExposureRange] = []
+    starts = _active_cfd_start_by_key(
+        tax_year=tax_year,
+        prior_quantities=_prior_short_quantities(rows=rows, active_headers=active_headers, listings=listings),
+        trade_events=_trade_quantity_events(rows=rows, active_headers=active_headers, listings=listings),
+    )
+    for row_idx, row in enumerate(rows):
+        row_number = row_idx + 1
+        if len(row) < 2 or row[0] != "Open Positions" or row[1] != "Data":
+            continue
+        active_header = active_headers.get(row_idx)
+        if active_header is None:
+            continue
+        try:
+            idx = _open_positions_indexes(active_header)
+        except CsvStructureError:
+            continue
+        data = _row_data(row, active_header)
+        discriminator = data[idx["discriminator"]].strip().lower()
+        if discriminator != "summary":
+            continue
+        asset_category = data[idx["asset"]].strip()
+        if not _is_cfd_asset(asset_category):
+            continue
+        quantity = _parse_reconciliation_quantity(data[idx["quantity"]])
+        if quantity is None or quantity == ZERO:
+            continue
+        symbol_raw = data[idx["symbol"]].strip()
+        identity = _range_identity(asset_category=asset_category, symbol_raw=symbol_raw, listings=listings)
+        if identity is None:
+            continue
+        symbol, isin = identity
+        key = (asset_category, symbol, isin)
+        start = starts.get(key) or date(tax_year, 1, 1)
+        ranges.append(
+            NegativePilExposureRange(
+                kind="cfd",
+                symbol=symbol,
+                isin=isin,
+                start=start,
+                end=None,
+                source_rows=(row_number,),
+                source="Open Positions summary",
+            )
+        )
+    return ranges
+
+
+def build_cfd_financing_exposure_ranges(
+    *,
+    rows: list[list[str]],
+    active_headers: dict[int, _ActiveHeader],
+    listings: dict[str, InstrumentListing],
+    tax_year: int,
+    report_date_format: IbkrReportDateFormat,
+) -> list[NegativePilExposureRange]:
+    return [
+        *_closed_cfd_ranges_all(
+            rows=rows,
+            active_headers=active_headers,
+            listings=listings,
+            report_date_format=report_date_format,
+        ),
+        *_open_cfd_ranges_all(
+            rows=rows,
+            active_headers=active_headers,
+            listings=listings,
+            tax_year=tax_year,
+        ),
+    ]
+
+
 def _dividend_accrual_matches(
     *,
     rows: list[list[str]],

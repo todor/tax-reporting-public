@@ -271,7 +271,7 @@ def _run(
     report_alias: str | None = None,
     eu_regulated_exchanges: list[str] | None = None,
     closed_world: bool = False,
-    net_cfd_financing: bool = True,
+    cfd_financing_mode: str = "position-aware",
     negative_pil_mode: str = "position-aware",
     positive_wht_mode: str = "current-year-net",
 ):
@@ -286,7 +286,7 @@ def _run(
         output_dir=tmp_path / "out",
         eu_regulated_exchanges=eu_regulated_exchanges,
         closed_world=closed_world,
-        net_cfd_financing=net_cfd_financing,
+        cfd_financing_mode=cfd_financing_mode,
         negative_pil_mode=negative_pil_mode,
         positive_wht_mode=positive_wht_mode,
         fx_rate_provider=_fx_provider,

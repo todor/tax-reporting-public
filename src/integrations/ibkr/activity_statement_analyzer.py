@@ -32,6 +32,8 @@ from .constants import (
     APPENDIX8_LIST_MODE_COMPANY,
     APPENDIX8_LIST_MODE_COUNTRY,
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
+    CFD_FINANCING_MODE_POSITION_AWARE,
+    CFD_FINANCING_MODES,
     CFD_ASSET_CATEGORY,
     DEFAULT_OUTPUT_DIR,
     DIVIDEND_TAX_RATE,
@@ -71,7 +73,7 @@ from .sections.interest import (
     InterestSectionResult,
     process_interest_section,
 )
-from .sections.negative_pil import build_negative_pil_exposure_index
+from .sections.negative_pil import build_cfd_financing_exposure_ranges, build_negative_pil_exposure_index
 from .sections.open_positions import (
     OpenPositionsSectionResult,
     process_open_positions_section,
@@ -148,6 +150,7 @@ def _validate_analysis_request(
     tax_exempt_mode: str,
     appendix8_dividend_list_mode: str,
     negative_pil_mode: str,
+    cfd_financing_mode: str,
     positive_wht_mode: str,
     csv_decimal_separator: str,
 ) -> None:
@@ -165,6 +168,8 @@ def _validate_analysis_request(
         )
     if negative_pil_mode not in NEGATIVE_PIL_MODES:
         raise IbkrAnalyzerError(f"unsupported negative PIL mode: {negative_pil_mode}")
+    if cfd_financing_mode not in CFD_FINANCING_MODES:
+        raise IbkrAnalyzerError(f"unsupported CFD financing mode: {cfd_financing_mode}")
     if positive_wht_mode not in POSITIVE_WHT_MODES:
         raise IbkrAnalyzerError(f"unsupported positive WHT mode: {positive_wht_mode}")
     if csv_decimal_separator not in CSV_DECIMAL_SEPARATOR_MODES:
@@ -237,7 +242,7 @@ def _process_sections(
     eu_regulated_exchange_overrides: set[str],
     closed_world_mode: bool,
     report_date_format: IbkrReportDateFormat,
-    net_cfd_financing: bool,
+    cfd_financing_mode: str,
     negative_pil_mode: str,
     positive_wht_mode: str,
 ) -> _ProcessedSections:
@@ -270,6 +275,16 @@ def _process_sections(
         fx_provider=fx_provider,
         tax_year=tax_year,
     )
+    cfd_financing_exposure_ranges = build_cfd_financing_exposure_ranges(
+        rows=rows,
+        active_headers=active_headers,
+        listings=listings,
+        tax_year=tax_year,
+        report_date_format=report_date_format,
+    )
+    summary.cfd_financing_closed_exposure_ranges = sum(
+        1 for candidate in cfd_financing_exposure_ranges if candidate.end is not None
+    )
     fees = process_fees_section(
         rows=rows,
         active_headers=active_headers,
@@ -277,7 +292,8 @@ def _process_sections(
         fx_provider=fx_provider,
         tax_year=tax_year,
         report_date_format=report_date_format,
-        net_cfd_financing=net_cfd_financing,
+        cfd_financing_mode=cfd_financing_mode,
+        cfd_financing_exposure_ranges=cfd_financing_exposure_ranges,
     )
     interest = process_interest_section(
         rows=rows,
@@ -693,7 +709,7 @@ def analyze_ibkr_activity_statement(
     display_currency: str = "EUR",
     eu_regulated_exchanges: list[str] | None = None,
     closed_world: bool = False,
-    net_cfd_financing: bool = True,
+    cfd_financing_mode: str = CFD_FINANCING_MODE_POSITION_AWARE,
     negative_pil_mode: str = NEGATIVE_PIL_MODE_POSITION_AWARE,
     positive_wht_mode: str = POSITIVE_WHT_MODE_CURRENT_YEAR_NET,
     csv_decimal_separator: CsvDecimalSeparatorMode = "auto",
@@ -704,6 +720,7 @@ def analyze_ibkr_activity_statement(
         tax_exempt_mode=tax_exempt_mode,
         appendix8_dividend_list_mode=appendix8_dividend_list_mode,
         negative_pil_mode=negative_pil_mode,
+        cfd_financing_mode=cfd_financing_mode,
         positive_wht_mode=positive_wht_mode,
         csv_decimal_separator=csv_decimal_separator,
     )
@@ -730,7 +747,8 @@ def analyze_ibkr_activity_statement(
             tax_exempt_mode=tax_exempt_mode,
             dividend_tax_rate=DIVIDEND_TAX_RATE,
             appendix8_dividend_list_mode=appendix8_dividend_list_mode,
-            net_cfd_financing=net_cfd_financing,
+            net_cfd_financing=cfd_financing_mode != "ignore",
+            cfd_financing_mode=cfd_financing_mode,
             negative_pil_mode=negative_pil_mode,
             positive_wht_mode=positive_wht_mode,
         )
@@ -770,7 +788,7 @@ def analyze_ibkr_activity_statement(
             eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
             closed_world_mode=closed_world_mode,
             report_date_format=report_date_format,
-            net_cfd_financing=net_cfd_financing,
+            cfd_financing_mode=cfd_financing_mode,
             negative_pil_mode=negative_pil_mode,
             positive_wht_mode=positive_wht_mode,
         )

@@ -44,6 +44,8 @@ from ..constants import (
     APPENDIX8_COUNTRY_MODE_PAYER_LABEL,
     APPENDIX8_LIST_MODE_COUNTRY,
     APPENDIX_9_ALLOWABLE_CREDIT_RATE,
+    CFD_FINANCING_MODE_ALWAYS_NET,
+    CFD_FINANCING_MODE_IGNORE,
     DECIMAL_EIGHT,
     DECIMAL_TWO,
     NEGATIVE_PIL_MODE_POSITION_AWARE,
@@ -673,23 +675,71 @@ def cfd_pil_policy_notes(summary: AnalysisSummary) -> list[str]:
             "свързаните CFD financing/PIL корекции — защото няма реално "
             "придобиване/продажба на базовия актив."
         )
+        notes.append(
+            "Проверете дали в предходни години има CFD такси за финансиране, които са били "
+            "отложени, защото свързаните CFD позиции не са били затворени към края на "
+            "годината. Ако свързаните позиции са затворени през текущата година, тези редове "
+            "може да следва да бъдат пренесени в CSV секцията на входния файл за текущата "
+            "година. Копирайте оригиналните редове от предходната година без промени. "
+            "В противен случай инструментът няма как да знае за отложените CFD такси и те "
+            "може да не бъдат отчетени."
+        )
     if summary.cfd_financing_rows > 0:
-        if summary.net_cfd_financing:
+        notes.append(f"Режим за CFD financing / CFD interest: {summary.cfd_financing_mode}.")
+        notes.append(
+            "IBKR CFD financing редовете обикновено са общи дневни такси без конкретен "
+            "инструмент/позиция. Инструментът използва колоната Date от Fees реда като "
+            "дата на финансиране и данъчна дата. Дата в описанието, например "
+            "Long/Short CFD Interest for DD-MMM-YYYY, се използва само като допълнителна "
+            "диагностична информация. "
+            "Съпоставянето към CFD позиции по trade open/close дати е практическо "
+            "приближение; ако няма намерена позиция по тази приблизителна проверка, "
+            "редът пак се приема като IBKR-отчетена CFD financing такса."
+        )
+        if summary.cfd_financing_net_rows > 0:
             notes.append(
-                "CFD financing / CFD interest корекциите са третирани като част от "
-                "CFD trading economics и са включени в Приложение 5, Таблица 2, код 508."
+                "CFD financing / CFD interest редовете с окончателно решение NET са включени "
+                "в Приложение 5, Таблица 2, код 508. Положителните стойности увеличават "
+                "продажната страна, а отрицателните стойности увеличават разходната страна."
             )
+        if summary.cfd_financing_defer_rows > 0:
+            rows = _cfd_financing_row_refs(summary, statuses={NEGATIVE_PIL_STATUS_DEFER})
+            affected_text = f" Засегнати редове: {rows}." if rows else ""
             notes.append(
-                "Положителните CFD financing стойности увеличават продажната страна, "
-                "а отрицателните стойности увеличават разходната страна."
+                "Има CFD financing редове, които са отложени, защото активните CFD позиции "
+                "на датата на таксата не са били затворени до края на данъчната година. "
+                "Тези редове не са включени в текущия данъчен резултат."
+                f"{affected_text}"
             )
-        else:
+        if summary.cfd_financing_review_rows > 0:
+            rows = _cfd_financing_row_refs(summary, statuses={NEGATIVE_PIL_STATUS_REVIEW})
+            affected_text = f" Засегнати редове: {rows}." if rows else ""
             notes.append(
-                "Нетиране на CFD financing / CFD interest е изключено чрез "
-                "--no-net-cfd-financing."
+                "Има CFD такси за финансиране, които изискват ръчен преглед. Отворете "
+                "модифицирания CSV файл и филтрирайте редовете с Auto Status = REVIEW. "
+                "Прегледайте колоната Tax Treatment Reason, за да видите защо инструментът не е "
+                "приложил автоматично данъчно третиране. Ако искате да промените "
+                "автоматичното решение, попълнете Review Status според документирания "
+                f"manual review workflow и стартирайте инструмента отново.{affected_text}"
             )
-            notes.append("Положителните CFD financing стойности са декларирани в Приложение 6, код 606.")
-            notes.append("Отрицателните CFD financing стойности не са включени в декларацията.")
+        if summary.cfd_financing_ignore_rows > 0:
+            rows = _cfd_financing_row_refs(summary, statuses={NEGATIVE_PIL_STATUS_IGNORE})
+            affected_text = f" Засегнати редове: {rows}." if rows else ""
+            notes.append(
+                "Има CFD financing редове, маркирани за игнориране чрез автоматичния режим "
+                f"или Review Status. Тези редове не са включени в декларацията.{affected_text}"
+            )
+        if summary.cfd_financing_mode == CFD_FINANCING_MODE_ALWAYS_NET:
+            notes.append(
+                "Внимание: избран е режим always-net за CFD financing. Това е изрична "
+                "потребителска политика и може да включи финансиране, свързано с CFD позиции, "
+                "които са останали отворени към края на годината."
+            )
+        elif summary.cfd_financing_mode == CFD_FINANCING_MODE_IGNORE:
+            notes.append(
+                "Избран е режим ignore за CFD financing. Откритите CFD financing редове са "
+                "изключени от CFD резултата, освен ако Review Status не задава друго решение."
+            )
     if summary.pil_negative_rows > 0:
         notes.append(f"Режим за отрицателен Payment in Lieu of Dividend (PIL): {summary.negative_pil_mode}.")
         if summary.pil_negative_net_rows > 0:
@@ -721,6 +771,15 @@ def cfd_pil_policy_notes(summary: AnalysisSummary) -> list[str]:
             "дивидентоподобен доход и са включени в Приложение 8 заедно с чуждестранните дивиденти."
         )
     return notes
+
+
+def _cfd_financing_row_refs(summary: AnalysisSummary, *, statuses: set[str]) -> str:
+    rows = [
+        decision.row_number
+        for decision in summary.cfd_financing_decisions
+        if decision.final_status in statuses or decision.auto_status in statuses
+    ]
+    return _compact_row_numbers(rows)
 
 
 def _compact_row_numbers(row_numbers: list[int]) -> str:
@@ -776,7 +835,7 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
     ):
         return []
     included_pil_rows = summary.pil_appendix8_rows + summary.pil_negative_net_rows
-    appendix5_cfd_financing_adjustment_rows = summary.cfd_financing_rows if summary.net_cfd_financing else 0
+    appendix5_cfd_financing_adjustment_rows = summary.cfd_financing_net_rows
     appendix5_negative_pil_adjustment_rows = summary.pil_negative_net_rows
     appendix5_non_trade_adjustment_rows = (
         appendix5_cfd_financing_adjustment_rows + appendix5_negative_pil_adjustment_rows
@@ -787,7 +846,7 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
         "- CFD SPB-8 policy: excluded_from_spb8",
         (
             "- CFD financing policy: "
-            f"{'netted_to_appendix_5' if summary.net_cfd_financing else 'conservative_no_netting'}"
+            f"{summary.cfd_financing_mode}"
         ),
         (
             "- PIL policy: "
@@ -806,11 +865,27 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
             f"{appendix5_negative_pil_adjustment_rows}"
         ),
         f"- CFD financing rows detected in statement: {summary.cfd_financing_detected_rows}",
-        f"- CFD financing rows included in tax year: {summary.cfd_financing_rows}",
-        f"- CFD financing rows outside tax year ignored: {summary.cfd_financing_outside_tax_year_rows}",
+        f"- CFD financing rows processed: {summary.cfd_financing_rows}",
+        f"- CFD financing rows outside tax year in input: {summary.cfd_financing_outside_tax_year_rows}",
+        (
+            "- CFD financing rows matched to trade-date-open CFD positions: "
+            f"{summary.cfd_financing_matched_rows}"
+        ),
+        (
+            "- CFD financing rows accepted but unmatched by trade-date approximation: "
+            f"{summary.cfd_financing_unmatched_by_trade_date_rows}"
+        ),
+        f"- CFD financing NET rows: {summary.cfd_financing_net_rows}",
+        f"- CFD financing DEFER rows: {summary.cfd_financing_defer_rows}",
+        f"- CFD financing IGNORE rows: {summary.cfd_financing_ignore_rows}",
+        f"- CFD financing REVIEW rows: {summary.cfd_financing_review_rows}",
         f"- CFD financing positive EUR total: {_fmt(summary.cfd_financing_positive_eur)}",
         f"- CFD financing negative EUR total: {_fmt(summary.cfd_financing_negative_eur)}",
         f"- CFD financing negative skipped EUR total: {_fmt(summary.cfd_financing_negative_skipped_eur)}",
+        f"- CFD financing netted EUR total: {_fmt(summary.cfd_financing_netted_eur)}",
+        f"- CFD financing deferred EUR total: {_fmt(summary.cfd_financing_deferred_eur)}",
+        f"- CFD financing review EUR total: {_fmt(summary.cfd_financing_review_eur)}",
+        f"- CFD financing closed exposure ranges: {summary.cfd_financing_closed_exposure_ranges}",
         f"- PIL rows detected in statement: {summary.pil_detected_rows}",
         f"- PIL rows included in tax year: {included_pil_rows}",
         f"- PIL rows included in Appendix 8 dividend flow: {summary.pil_appendix8_rows}",
@@ -845,6 +920,22 @@ def cfd_pil_policy_audit_lines(summary: AnalysisSummary) -> list[str]:
                 f"accrual_pay_date={decision.accrual_pay_date.isoformat() if decision.accrual_pay_date else '-'} "
                 f"accrual_amount={_fmt(decision.accrual_amount) if decision.accrual_amount is not None else '-'} "
                 f"matching_date_source={decision.matching_date_source or '-'} "
+                f"candidate_ranges={ranges} "
+                f"auto_status={decision.auto_status or '-'} review_status={decision.review_status or '-'} "
+                f"final_status={decision.final_status or '-'} tax_status={decision.tax_status}"
+            )
+    if summary.cfd_financing_decisions:
+        lines.append("- CFD financing decisions:")
+        for decision in summary.cfd_financing_decisions:
+            ranges = "; ".join(decision.candidate_ranges) if decision.candidate_ranges else "-"
+            lines.append(
+                "  - "
+                f"cfd_financing_decision row={decision.row_number} date={decision.date.isoformat()} "
+                f"currency={decision.currency} amount={_fmt(decision.amount)} "
+                f"amount_eur={_fmt(decision.amount_eur)} "
+                f"description={decision.description!r} assignment_status={decision.assignment_status or '-'} "
+                f"embedded_fee_date={decision.embedded_fee_date or '-'} "
+                f"embedded_fee_date_status={decision.embedded_fee_date_status or '-'} "
                 f"candidate_ranges={ranges} "
                 f"auto_status={decision.auto_status or '-'} review_status={decision.review_status or '-'} "
                 f"final_status={decision.final_status or '-'} tax_status={decision.tax_status}"

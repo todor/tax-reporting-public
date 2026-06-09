@@ -212,11 +212,20 @@ Tax calculation summary
   - Appendix 5 CFD financing adjustment rows not counted as trades: 9
   - Appendix 5 negative PIL adjustment rows not counted as trades: 1
   - CFD financing rows detected in statement: 9
-  - CFD financing rows included in tax year: 9
-  - CFD financing rows outside tax year ignored: 0
+  - CFD financing rows processed: 9
+  - CFD financing rows outside tax year in input: 0
+  - CFD financing rows matched to trade-date-open CFD positions: 6
+  - CFD financing rows accepted but unmatched by trade-date approximation: 3
+  - CFD financing NET rows: 9
+  - CFD financing DEFER rows: 0
+  - CFD financing IGNORE rows: 0
+  - CFD financing REVIEW rows: 0
   - CFD financing positive EUR total: 0
   - CFD financing negative EUR total: 12.684275
   - CFD financing negative skipped EUR total: 0
+  - CFD financing netted EUR total: 12.684275
+  - CFD financing deferred EUR total: 0
+  - CFD financing review EUR total: 0
   - PIL rows detected in statement: 1
   - PIL rows included in tax year: 1
   - PIL rows included in Appendix 8 dividend flow: 0
@@ -230,6 +239,15 @@ Tax calculation summary
   - Negative PIL netted EUR total: 28.454143
   - Negative PIL deferred EUR total: 0
   - Negative PIL review EUR total: 0
+    - cfd_financing_decision row=828 date=2025-10-24 currency=USD amount=-1.89 amount_eur=-1.627628 description='Long CFD Interest for 24-OCT-2025' assignment_status=matched_by_trade_date_approximation embedded_fee_date=2025-10-24 embedded_fee_date_status=MATCHES_FEES_DATE candidate_ranges=cfd TLTN/- [2025-10-23, 2025-10-24] source_lines=804,805 source=attached ClosedLot auto_status=NET review_status=- final_status=NET tax_status=Included in CFD taxable result: all CFD positions active on the financing date were closed by year-end.
+    - cfd_financing_decision row=829 date=2025-10-29 currency=USD amount=-0.92 amount_eur=-0.790647 description='Long CFD Interest for 29-OCT-2025' assignment_status=matched_by_trade_date_approximation embedded_fee_date=2025-10-29 embedded_fee_date_status=MATCHES_FEES_DATE candidate_ranges=cfd FXI/- [2025-10-29, 2025-10-30] source_lines=790,791 source=attached ClosedLot; cfd FXI/- [2025-10-29, 2025-10-30] source_lines=792,793 source=attached ClosedLot; cfd KWEB/- [2025-10-28, 2025-10-31] source_lines=798,799 source=attached ClosedLot auto_status=NET review_status=- final_status=NET tax_status=Included in CFD taxable result: all CFD positions active on the financing date were closed by year-end.
+    - cfd_financing_decision row=830 date=2025-10-30 currency=USD amount=-1.83 amount_eur=-1.584416 description='Long CFD Interest for 30-OCT-2025' assignment_status=matched_by_trade_date_approximation embedded_fee_date=2025-10-30 embedded_fee_date_status=MATCHES_FEES_DATE candidate_ranges=cfd FXI/- [2025-10-29, 2025-10-30] source_lines=790,791 source=attached ClosedLot; cfd FXI/- [2025-10-29, 2025-10-30] source_lines=792,793 source=attached ClosedLot; cfd KWEB/- [2025-10-28, 2025-10-31] source_lines=798,799 source=attached ClosedLot auto_status=NET review_status=- final_status=NET tax_status=Included in CFD taxable result: all CFD positions active on the financing date were closed by year-end.
+    - cfd_financing_decision row=831 date=2025-10-31 currency=USD amount=-0.9 amount_eur=-0.778949 description='Long CFD Interest for 31-OCT-2025' assignment_status=matched_by_trade_date_approximation embedded_fee_date=2025-10-31 embedded_fee_date_status=MATCHES_FEES_DATE candidate_ranges=cfd KWEB/- [2025-10-28, 2025-10-31] source_lines=798,799 source=attached ClosedLot auto_status=NET review_status=- final_status=NET tax_status=Included in CFD taxable result: all CFD positions active on the financing date were closed by year-end.
+    - cfd_financing_decision row=832 date=2025-11-07 currency=USD amount=-1.86 amount_eur=-1.608859 description='Long CFD Interest for 07-NOV-2025' assignment_status=matched_by_trade_date_approximation embedded_fee_date=2025-11-07 embedded_fee_date_status=MATCHES_FEES_DATE candidate_ranges=cfd TLTN/- [2025-11-06, 2025-11-08] source_lines=809,810 source=attached ClosedLot auto_status=NET review_status=- final_status=NET tax_status=Included in CFD taxable result: all CFD positions active on the financing date were closed by year-end.
+    - cfd_financing_decision row=833 date=2025-11-08 currency=USD amount=-1.82 amount_eur=-1.57426 description='Long CFD Interest for 08-NOV-2025' assignment_status=matched_by_trade_date_approximation embedded_fee_date=2025-11-08 embedded_fee_date_status=MATCHES_FEES_DATE candidate_ranges=cfd TLTN/- [2025-11-06, 2025-11-08] source_lines=809,810 source=attached ClosedLot auto_status=NET review_status=- final_status=NET tax_status=Included in CFD taxable result: all CFD positions active on the financing date were closed by year-end.
+    - cfd_financing_decision row=834 date=2025-11-09 currency=USD amount=-1.82 amount_eur=-1.57426 description='Long CFD Interest for 09-NOV-2025' assignment_status=unmatched_by_trade_date_approximation embedded_fee_date=2025-11-09 embedded_fee_date_status=MATCHES_FEES_DATE candidate_ranges=- auto_status=NET review_status=- final_status=NET tax_status=Included in CFD taxable result: IBKR-reported CFD financing fee accepted but not matched to a trade-date-open CFD position by the approximate assignment check. This can happen because IBKR may use settlement/value-date, overnight, weekend, holiday, or posting-date logic not visible in standard Trades rows.
+    - cfd_financing_decision row=835 date=2025-11-10 currency=USD amount=-1.82 amount_eur=-1.572901 description='Long CFD Interest for 10-NOV-2025' assignment_status=unmatched_by_trade_date_approximation embedded_fee_date=2025-11-10 embedded_fee_date_status=MATCHES_FEES_DATE candidate_ranges=- auto_status=NET review_status=- final_status=NET tax_status=Included in CFD taxable result: IBKR-reported CFD financing fee accepted but not matched to a trade-date-open CFD position by the approximate assignment check. This can happen because IBKR may use settlement/value-date, overnight, weekend, holiday, or posting-date logic not visible in standard Trades rows.
+    - cfd_financing_decision row=836 date=2025-11-11 currency=USD amount=-1.82 amount_eur=-1.572352 description='Long CFD Interest for 11-NOV-2025' assignment_status=unmatched_by_trade_date_approximation embedded_fee_date=2025-11-11 embedded_fee_date_status=MATCHES_FEES_DATE candidate_ranges=- auto_status=NET review_status=- final_status=NET tax_status=Included in CFD taxable result: IBKR-reported CFD financing fee accepted but not matched to a trade-date-open CFD position by the approximate assignment check. This can happen because IBKR may use settlement/value-date, overnight, weekend, holiday, or posting-date logic not visible in standard Trades rows.
   - Futures Trades rows count: 6
   - Futures MTM rows count: 3
   - Futures MTM total EUR: -433.072567
@@ -275,12 +293,14 @@ Tax treatment decisions
   - CFD trades policy: Appendix 5 / Table 2 / code 508
   - CFD holdings policy: excluded_from_appendix_8
   - CFD SPB-8 policy: excluded_from_spb8
-  - CFD financing policy: netted_to_appendix_5
+  - CFD financing policy: position-aware
   - PIL policy: position-aware
   - Positive/dividend-like PIL policy: appendix_8_dividend_like_income
+  - CFD financing closed exposure ranges: 5
   - Negative PIL closed short exposure ranges: 17
   - Negative PIL decisions:
     - negative_pil_decision row=850 date=2025-11-29 currency=USD amount=-32.91 amount_eur=-28.454143 parsed_symbol=ECCC parsed_isin=US2698097035 likely_source=likely short security / stock-borrow dividend compensation debit accrual_link_status=unique accrual_asset_category=Stocks accrual_asset_classification=security accrual_symbol=ECCC accrual_ex_date=2025-11-12 accrual_pay_date=2025-11-29 accrual_amount=-32.91 matching_date_source=linked_dividend_accrual_ex_date candidate_ranges=short-security ECCC/US2698097035 [2025-11-11, 2025-11-12] source_lines=699,700 source=attached ClosedLot; short-security ECCC/US2698097035 [2025-11-11, 2025-11-12] source_lines=699,701 source=attached ClosedLot; short-security ECCC/US2698097035 [2025-11-11, 2025-11-12] source_lines=702,703 source=attached ClosedLot; short-security ECCC/US2698097035 [2025-11-11, 2025-11-12] source_lines=705,706 source=attached ClosedLot auto_status=NET review_status=- final_status=NET tax_status=Matching short-security exposure was found for symbol=ECCC ISIN=US2698097035 on linked dividend accrual Ex Date 2025-11-12 (Pay Date 2025-11-29) and all matching ranges were closed by year-end.
+  - CFD financing decisions:
   - Futures policy: Mark-to-Market Performance Summary / cash-settled MTM
   - Futures Appendix 5 mapping: positive MTM to sale value; negative MTM to acquisition value
   - Futures Trades rows policy: not used for taxable Futures P/L to avoid double counting

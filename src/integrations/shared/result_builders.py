@@ -919,6 +919,28 @@ def build_ibkr_result(
                 },
             )
         )
+    cfd_financing_review = [
+        decision.to_diagnostics_dict()
+        for decision in summary.cfd_financing_decisions
+        if decision.final_status == "REVIEW"
+    ]
+    if cfd_financing_review:
+        legacy_diagnostics.append(
+            AnalysisDiagnostic(
+                severity="MANUAL_REVIEW",
+                analyzer_alias=analyzer_alias,
+                code="IBKR_CFD_FINANCING_REVIEW_REQUIRED",
+                message=(
+                    "IBKR CFD financing rows require manual review; check the modified CSV "
+                    "Review Status, Auto Status, and Tax Status columns."
+                ),
+                params={
+                    "count": len(cfd_financing_review),
+                    "rows": cfd_financing_review,
+                    "readme_section": "Manual review workflow",
+                },
+            )
+        )
     diagnostics = normalize_diagnostics(legacy_diagnostics)
 
     appendices: list[AppendixRecord] = []

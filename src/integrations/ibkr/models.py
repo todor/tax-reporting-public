@@ -111,6 +111,42 @@ class NegativePilDecision:
 
 
 @dataclass(slots=True)
+class CfdFinancingDecision:
+    row_number: int
+    date: date
+    currency: str
+    amount: Decimal
+    amount_eur: Decimal
+    description: str
+    candidate_ranges: list[str]
+    assignment_status: str
+    embedded_fee_date: str
+    embedded_fee_date_status: str
+    auto_status: str
+    review_status: str
+    final_status: str
+    tax_status: str
+
+    def to_diagnostics_dict(self) -> dict[str, object]:
+        return {
+            "row": self.row_number,
+            "date": self.date.isoformat(),
+            "currency": self.currency,
+            "amount": str(self.amount),
+            "amount_eur": str(self.amount_eur),
+            "description": self.description,
+            "candidate_exposure_ranges": self.candidate_ranges,
+            "assignment_status": self.assignment_status,
+            "embedded_fee_date": self.embedded_fee_date or "-",
+            "embedded_fee_date_status": self.embedded_fee_date_status or "-",
+            "auto_status": self.auto_status,
+            "review_status": self.review_status or "-",
+            "final_status": self.final_status,
+            "tax_status": self.tax_status,
+        }
+
+
+@dataclass(slots=True)
 class Appendix8CountryTotals:
     country_iso: str
     country_english: str
@@ -332,6 +368,7 @@ class AnalysisSummary:
     corporate_actions_recognized_rows: int = 0
     corporate_actions_unsupported_rows: int = 0
     net_cfd_financing: bool = True
+    cfd_financing_mode: str = "position-aware"
     negative_pil_mode: str = "position-aware"
     cfd_trade_rows: int = 0
     cfd_open_position_rows: int = 0
@@ -341,6 +378,18 @@ class AnalysisSummary:
     cfd_financing_positive_eur: Decimal = ZERO
     cfd_financing_negative_eur: Decimal = ZERO
     cfd_financing_negative_skipped_eur: Decimal = ZERO
+    cfd_financing_net_rows: int = 0
+    cfd_financing_defer_rows: int = 0
+    cfd_financing_ignore_rows: int = 0
+    cfd_financing_review_rows: int = 0
+    cfd_financing_matched_rows: int = 0
+    cfd_financing_unmatched_by_trade_date_rows: int = 0
+    cfd_financing_netted_eur: Decimal = ZERO
+    cfd_financing_deferred_eur: Decimal = ZERO
+    cfd_financing_ignored_eur: Decimal = ZERO
+    cfd_financing_review_eur: Decimal = ZERO
+    cfd_financing_closed_exposure_ranges: int = 0
+    cfd_financing_decisions: list[CfdFinancingDecision] = field(default_factory=list)
     futures_trade_rows: int = 0
     futures_mtm_rows: int = 0
     futures_mtm_total_eur: Decimal = ZERO

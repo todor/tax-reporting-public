@@ -5,6 +5,8 @@ from decimal import Decimal
 from pathlib import Path
 
 from integrations.ibkr.activity_statement_analyzer import analyze_ibkr_activity_statement
+from integrations.shared.rendering.common import TECHNICAL_DETAILS_SEPARATOR
+import pytest
 import report_analyzer
 
 from tests.integrations.ibkr import support as h
@@ -105,6 +107,43 @@ def _add_short_cfd_open_range(rows: list[list[str]]) -> None:
     )
     index = next(idx for idx, row in enumerate(rows) if row[:2] == ["Open Positions", "Data"])
     rows.insert(index, ["Open Positions", "Data", "CFDs", "FXI", "EUR", "-10", "0", "Summary"])
+
+
+def _without_open_cfd_position(rows: list[list[str]]) -> list[list[str]]:
+    return [row for row in rows if not (row[:2] == ["Open Positions", "Data"] and row[2] == "CFDs")]
+
+
+def _with_fees_review_status_header(rows: list[list[str]]) -> None:
+    header = next(row for row in rows if row[:2] == ["Fees", "Header"])
+    if "Review Status" not in header:
+        header.append("Review Status")
+
+
+def _add_cfd_financing_fee(
+    rows: list[list[str]],
+    *,
+    fee_date: str = "2025-01-24",
+    description: str | None = None,
+    amount: str = "-2",
+    review_status: str = "",
+) -> None:
+    if description is None:
+        parsed_date = date.fromisoformat(fee_date)
+        description = f"Long CFD Interest for {parsed_date.strftime('%d-%b-%Y').upper()}"
+    row = ["Fees", "Data", "Other Fees", "EUR", fee_date, description, amount]
+    if review_status:
+        _with_fees_review_status_header(rows)
+        header = next(item for item in rows if item[:2] == ["Fees", "Header"])
+        row.extend([""] * (len(header) - len(row)))
+        row[2 + header[2:].index("Review Status")] = review_status
+    rows.insert(-1, row)
+
+
+def _fees_output_row(result, description_part: str) -> tuple[list[str], list[str]]:
+    output_rows = _read_rows(result.output_csv_path)
+    header = next(row for row in output_rows if row[:2] == ["Fees", "Header"])
+    row = next(row for row in output_rows if row[:2] == ["Fees", "Data"] and description_part in ",".join(row))
+    return header, row
 
 
 def _add_negative_symbol_pil(rows: list[list[str]], *, review_status: str = "") -> None:
@@ -264,31 +303,39 @@ def test_cfd_closedlot_realized_pl_uses_closing_trade_fx_date(tmp_path: Path) ->
     assert result.summary.appendix_5.wins_eur == Decimal("8.0")
 
 
-def test_cfd_financing_negative_is_netted_to_appendix5_by_default(tmp_path: Path) -> None:
-    rows = _cfd_rows()
-    rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-24", "Long CFD Interest for 24-JAN-2025", "-2"])
+def test_cfd_financing_closed_by_year_end_is_netted_in_position_aware_mode(tmp_path: Path) -> None:
+    rows = _without_open_cfd_position(_cfd_rows())
+    _add_cfd_financing_fee(rows, fee_date="2025-01-15")
 
     result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.cfd_financing_rows == 1
+    assert result.summary.cfd_financing_net_rows == 1
     assert result.summary.appendix_5.sale_price_eur == Decimal("19")
     assert result.summary.appendix_5.purchase_eur == Decimal("2")
     assert result.summary.appendix_5.wins_eur == Decimal("19")
     assert result.summary.appendix_5.losses_eur == Decimal("2")
     assert result.summary.appendix_5.rows == 1
     assert result.summary.appendix_6_code_606_eur == Decimal("0")
+    assert result.summary.cfd_financing_decisions[0].auto_status == "NET"
+    header, row = _fees_output_row(result, "Long CFD Interest")
+    idx = {c: i for i, c in enumerate(header[2:])}
+    assert row[2 + idx["Review Status"]] == ""
+    assert row[2 + idx["Auto Status"]] == "NET"
+    assert row[2 + idx["Tax Status"]] == "NET"
+    assert "all CFD positions active on the financing date were closed by year-end" in row[2 + idx["Tax Treatment Reason"]]
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert "CFD financing / CFD interest корекциите са третирани като част от CFD trading economics" in text
-    assert "Положителните CFD financing стойности увеличават продажната страна" in text
-    assert "CFD financing policy: netted_to_appendix_5" in text
+    assert "Режим за CFD financing / CFD interest: position-aware." in text
+    assert "окончателно решение NET" in text
+    assert "CFD financing policy: position-aware" in text
     assert "Appendix 5 non-trade adjustment rows not counted as trades: 1" in text
     assert "Appendix 5 CFD financing adjustment rows not counted as trades: 1" in text
 
 
 def test_modified_csv_annotates_cfd_financing_fee_rows(tmp_path: Path) -> None:
-    rows = _cfd_rows()
-    rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-24", "Long CFD Interest for 24-JAN-2025", "-2"])
-    rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2024-01-24", "Long CFD Interest for 24-JAN-2024", "-5"])
+    rows = _without_open_cfd_position(_cfd_rows())
+    _add_cfd_financing_fee(rows, fee_date="2025-01-15")
+    _add_cfd_financing_fee(rows, fee_date="2024-01-24", amount="-5")
 
     result = _run(tmp_path, rows, mode="listing_exchange")
 
@@ -302,18 +349,24 @@ def test_modified_csv_annotates_cfd_financing_fee_rows(tmp_path: Path) -> None:
 
     assert current_year[2 + idx["Amount (EUR)"]] == "-2.00000000"
     assert current_year[2 + idx["Appendix Target"]] == "APPENDIX_5"
-    assert current_year[2 + idx["Tax Treatment Reason"]] == "CFD financing netted to Appendix 5"
+    assert "all CFD positions active on the financing date were closed by year-end" in current_year[2 + idx["Tax Treatment Reason"]]
     assert current_year[2 + idx["Tax Year Scope"]] == "IN_TAX_YEAR"
-    assert previous_year[2 + idx["Amount (EUR)"]] == ""
+    assert current_year[2 + idx["Review Status"]] == ""
+    assert current_year[2 + idx["Auto Status"]] == "NET"
+    assert current_year[2 + idx["Tax Status"]] == "NET"
+    assert previous_year[2 + idx["Amount (EUR)"]] == "-5.00000000"
     assert previous_year[2 + idx["Appendix Target"]] == "IGNORED"
-    assert previous_year[2 + idx["Tax Treatment Reason"]] == "CFD financing outside tax year"
+    assert previous_year[2 + idx["Auto Status"]] == "IGNORE"
+    assert previous_year[2 + idx["Review Status"]] == ""
+    assert previous_year[2 + idx["Tax Status"]] == "IGNORE"
+    assert "Fees Date is outside the selected tax year" in previous_year[2 + idx["Tax Treatment Reason"]]
     assert previous_year[2 + idx["Tax Year Scope"]] == "OUTSIDE_TAX_YEAR"
     assert result.summary.appendix_5.purchase_eur == Decimal("2")
 
 
-def test_cfd_financing_positive_is_netted_to_appendix5_by_default(tmp_path: Path) -> None:
-    rows = _cfd_rows()
-    rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-24", "Short CFD Interest", "3"])
+def test_cfd_financing_positive_is_netted_when_closed_by_year_end(tmp_path: Path) -> None:
+    rows = _without_open_cfd_position(_cfd_rows())
+    _add_cfd_financing_fee(rows, fee_date="2025-01-15", description="Short CFD Interest for 15-JAN-2025", amount="3")
 
     result = _run(tmp_path, rows, mode="listing_exchange")
 
@@ -323,24 +376,246 @@ def test_cfd_financing_positive_is_netted_to_appendix5_by_default(tmp_path: Path
     assert result.summary.appendix_6_code_606_eur == Decimal("0")
 
 
-def test_no_net_cfd_financing_puts_positive_in_code606_and_skips_negative(tmp_path: Path) -> None:
+def test_cfd_financing_ignore_mode_excludes_positive_and_negative(tmp_path: Path) -> None:
     rows = _cfd_rows()
-    rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-24", "Long CFD Interest for 24-JAN-2025", "-2"])
-    rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2025-01-25", "CFD Financing", "3"])
+    _add_cfd_financing_fee(rows, amount="-2")
+    _add_cfd_financing_fee(rows, fee_date="2025-01-25", description="CFD Financing for 25-JAN-2025", amount="3")
 
-    result = _run(tmp_path, rows, mode="listing_exchange", net_cfd_financing=False)
+    result = _run(tmp_path, rows, mode="listing_exchange", cfd_financing_mode="ignore")
 
     assert result.summary.appendix_5.sale_price_eur == Decimal("19")
     assert result.summary.appendix_5.purchase_eur == Decimal("0")
     assert result.summary.appendix_5.wins_eur == Decimal("19")
     assert result.summary.appendix_5.losses_eur == Decimal("0")
-    assert result.summary.appendix_6_code_606_eur == Decimal("3")
+    assert result.summary.appendix_6_code_606_eur == Decimal("0")
+    assert result.summary.cfd_financing_ignore_rows == 2
     assert result.summary.cfd_financing_negative_skipped_eur == Decimal("2")
+    header, row = _fees_output_row(result, "CFD Financing")
+    idx = {c: i for i, c in enumerate(header[2:])}
+    assert row[2 + idx["Auto Status"]] == "IGNORE"
+    assert row[2 + idx["Review Status"]] == ""
+    assert row[2 + idx["Tax Status"]] == "IGNORE"
+    assert row[2 + idx["Tax Treatment Reason"]] == "Excluded from CFD taxable result because CFD financing mode is ignore."
     text = result.declaration_txt_path.read_text(encoding="utf-8")
-    assert "Нетиране на CFD financing / CFD interest е изключено чрез --no-net-cfd-financing." in text
-    assert "Положителните CFD financing стойности са декларирани в Приложение 6, код 606." in text
-    assert "Отрицателните CFD financing стойности не са включени в декларацията." in text
-    assert "CFD financing policy: conservative_no_netting" in text
+    assert "Режим за CFD financing / CFD interest: ignore." in text
+    assert "Избран е режим ignore за CFD financing" in text
+    assert "CFD financing policy: ignore" in text
+
+
+def test_cfd_financing_open_at_year_end_is_deferred(tmp_path: Path) -> None:
+    rows = _cfd_rows()
+    _add_cfd_financing_fee(rows, fee_date="2025-01-24")
+
+    result = _run(tmp_path, rows, mode="listing_exchange")
+
+    assert result.summary.cfd_financing_defer_rows == 1
+    assert result.summary.appendix_5.purchase_eur == Decimal("0")
+    assert result.summary.cfd_financing_decisions[0].auto_status == "DEFER"
+    header, row = _fees_output_row(result, "Long CFD Interest")
+    idx = {c: i for i, c in enumerate(header[2:])}
+    assert row[2 + idx["Review Status"]] == ""
+    assert row[2 + idx["Auto Status"]] == "DEFER"
+    assert row[2 + idx["Tax Status"]] == "DEFER"
+    assert "remained open at year-end" in row[2 + idx["Tax Treatment Reason"]]
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "не са били затворени до края на данъчната година" in text
+    assert "Копирайте оригиналните редове от предходната година без промени" in text
+
+
+def test_cfd_financing_without_trade_date_match_is_accepted_and_netted(tmp_path: Path) -> None:
+    rows = _without_open_cfd_position(_cfd_rows())
+    _add_cfd_financing_fee(rows, fee_date="2025-01-24")
+
+    result = _run(tmp_path, rows, mode="listing_exchange")
+
+    assert result.summary.cfd_financing_net_rows == 1
+    assert result.summary.cfd_financing_review_rows == 0
+    assert result.summary.cfd_financing_unmatched_by_trade_date_rows == 1
+    assert result.summary.appendix_5.purchase_eur == Decimal("2")
+    decision = result.summary.cfd_financing_decisions[0]
+    assert decision.auto_status == "NET"
+    assert decision.assignment_status == "unmatched_by_trade_date_approximation"
+    assert "accepted but not matched to a trade-date-open CFD position" in decision.tax_status
+    header, row = _fees_output_row(result, "Long CFD Interest")
+    idx = {c: i for i, c in enumerate(header[2:])}
+    assert row[2 + idx["Review Status"]] == ""
+    assert row[2 + idx["Auto Status"]] == "NET"
+    assert row[2 + idx["Tax Status"]] == "NET"
+    assert "accepted but not matched to a trade-date-open CFD position" in row[2 + idx["Tax Treatment Reason"]]
+    main_text = result.declaration_txt_path.read_text(encoding="utf-8").split(TECHNICAL_DETAILS_SEPARATOR, 1)[0]
+    assert "CFD financing реда, които изискват ръчен преглед" not in main_text
+    assert "Проверете дали в предходни години има CFD такси за финансиране" in main_text
+
+
+def test_prior_year_deferred_cfd_financing_reminder_is_shown_for_cfd_activity(tmp_path: Path) -> None:
+    rows = _without_open_cfd_position(_cfd_rows())
+
+    result = _run(tmp_path, rows, mode="listing_exchange")
+
+    assert result.summary.cfd_trade_rows > 0
+    assert result.summary.cfd_financing_defer_rows == 0
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Проверете дали в предходни години има CFD такси за финансиране" in text
+
+
+def test_cfd_financing_fees_date_drives_assignment_and_tax_year(tmp_path: Path) -> None:
+    rows = _without_open_cfd_position(_cfd_rows())
+    _add_cfd_financing_fee(
+        rows,
+        fee_date="2025-01-30",
+        description="Long CFD Interest for 15-JAN-2025",
+    )
+
+    result = _run(tmp_path, rows, mode="listing_exchange")
+
+    decision = result.summary.cfd_financing_decisions[0]
+    assert decision.date == date(2025, 1, 30)
+    assert decision.embedded_fee_date == "2025-01-15"
+    assert decision.embedded_fee_date_status == "DIFFERS_FROM_FEES_DATE"
+    assert decision.assignment_status == "unmatched_by_trade_date_approximation"
+    assert decision.auto_status == "NET"
+    assert result.summary.cfd_financing_net_rows == 1
+
+
+def test_cfd_financing_settlement_drift_without_trade_date_match_is_accepted(tmp_path: Path) -> None:
+    rows = _without_open_cfd_position(_cfd_rows())
+    _add_cfd_financing_fee(
+        rows,
+        fee_date="2025-01-22",
+        description="Long CFD Interest for 22-JAN-2025",
+    )
+
+    result = _run(tmp_path, rows, mode="listing_exchange")
+
+    decision = result.summary.cfd_financing_decisions[0]
+    assert decision.auto_status == "NET"
+    assert decision.assignment_status == "unmatched_by_trade_date_approximation"
+    assert result.summary.cfd_financing_net_rows == 1
+    assert result.summary.cfd_financing_review_rows == 0
+    assert result.summary.appendix_5.purchase_eur == Decimal("2")
+
+
+def test_cfd_fee_containing_cfd_without_embedded_date_is_accepted(tmp_path: Path) -> None:
+    rows = _without_open_cfd_position(_cfd_rows())
+    _add_cfd_financing_fee(rows, fee_date="2025-01-24", description="Daily CFD financing charge")
+
+    result = _run(tmp_path, rows, mode="listing_exchange")
+
+    decision = result.summary.cfd_financing_decisions[0]
+    assert decision.auto_status == "NET"
+    assert decision.assignment_status == "unmatched_by_trade_date_approximation"
+    assert decision.embedded_fee_date == ""
+    assert decision.embedded_fee_date_status.startswith("NOT_FOUND")
+    assert result.summary.cfd_financing_net_rows == 1
+    assert result.summary.cfd_financing_review_rows == 0
+    header, row = _fees_output_row(result, "Daily CFD")
+    idx = {c: i for i, c in enumerate(header[2:])}
+    assert row[2 + idx["Tax Status"]] == "NET"
+    assert row[2 + idx["Appendix Target"]] == "APPENDIX_5"
+
+
+def test_all_fees_rows_containing_cfd_are_cfd_financing_candidates(tmp_path: Path) -> None:
+    rows = _without_open_cfd_position(_cfd_rows())
+    _add_cfd_financing_fee(rows, fee_date="2025-01-24", description="Monthly CFD carrying fee")
+
+    result = _run(tmp_path, rows, mode="listing_exchange")
+
+    assert result.summary.cfd_financing_detected_rows == 1
+    assert result.summary.cfd_financing_rows == 1
+    assert result.summary.cfd_financing_net_rows == 1
+
+
+def test_cfd_financing_malformed_amount_fails_fast(tmp_path: Path) -> None:
+    rows = _without_open_cfd_position(_cfd_rows())
+    _add_cfd_financing_fee(rows, fee_date="2025-01-24", amount="not-a-number")
+
+    with pytest.raises(Exception, match="Amount"):
+        _run(tmp_path, rows, mode="listing_exchange")
+
+
+def test_cfd_financing_missing_currency_fails_fast(tmp_path: Path) -> None:
+    rows = _without_open_cfd_position(_cfd_rows())
+    _add_cfd_financing_fee(rows, fee_date="2025-01-24")
+    fee_row = next(row for row in rows if row[:2] == ["Fees", "Data"])
+    fee_row[3] = ""
+
+    with pytest.raises(Exception):
+        _run(tmp_path, rows, mode="listing_exchange")
+
+
+def test_cfd_financing_mixed_closed_and_open_ranges_requires_review(tmp_path: Path) -> None:
+    rows = _cfd_rows()
+    _add_cfd_financing_fee(rows, fee_date="2025-01-15")
+
+    result = _run(tmp_path, rows, mode="listing_exchange")
+
+    assert result.summary.cfd_financing_review_rows == 1
+    assert result.summary.appendix_5.purchase_eur == Decimal("0")
+    decision = result.summary.cfd_financing_decisions[0]
+    assert decision.auto_status == "REVIEW"
+    assert "overlaps both closed and open CFD positions" in decision.tax_status
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    main_text = text.split(TECHNICAL_DETAILS_SEPARATOR, 1)[0]
+    assert "Auto Status = REVIEW" in main_text
+    assert "Review Status" in main_text
+    assert "review_status=-" not in main_text
+
+
+def test_cfd_financing_position_closing_after_tax_year_is_deferred(tmp_path: Path) -> None:
+    rows = _without_open_cfd_position(_cfd_rows())
+    _insert_before_section(
+        rows,
+        "Open Positions",
+        [
+            ["Trades", "Data", "Trade", "CFDs", "EUR", "FXI", "2025-10-01, 09:30:00", "THEUSCFD", "10", "0", "0", "0", "0", "0", "0", "0", "O"],
+            ["Trades", "Data", "Trade", "CFDs", "EUR", "FXI", "2026-01-15, 09:30:00", "THEUSCFD", "-10", "0", "0", "0", "0", "0", "0", "0", "C"],
+            ["Trades", "Data", "ClosedLot", "CFDs", "EUR", "FXI", "2025-10-01", "", "10", "0", "", "", "", "0", "0", "", "ST"],
+        ],
+    )
+    _add_cfd_financing_fee(rows, fee_date="2025-10-24")
+
+    result = _run(tmp_path, rows, mode="listing_exchange")
+
+    assert result.summary.cfd_financing_defer_rows == 1
+    assert result.summary.cfd_financing_decisions[0].auto_status == "DEFER"
+    assert result.summary.appendix_5.purchase_eur == Decimal("0")
+
+
+def test_cfd_financing_always_net_mode_includes_rows_and_warns(tmp_path: Path) -> None:
+    rows = _cfd_rows()
+    _add_cfd_financing_fee(rows, amount="-2")
+
+    result = _run(tmp_path, rows, mode="listing_exchange", cfd_financing_mode="always-net")
+
+    assert result.summary.cfd_financing_net_rows == 1
+    assert result.summary.appendix_5.purchase_eur == Decimal("2")
+    header, row = _fees_output_row(result, "Long CFD Interest")
+    idx = {c: i for i, c in enumerate(header[2:])}
+    assert row[2 + idx["Auto Status"]] == "NET"
+    assert row[2 + idx["Review Status"]] == ""
+    assert row[2 + idx["Tax Status"]] == "NET"
+    assert row[2 + idx["Tax Treatment Reason"]] == "Included in CFD taxable result because CFD financing mode is always-net."
+    text = result.declaration_txt_path.read_text(encoding="utf-8")
+    assert "Внимание: избран е режим always-net за CFD financing" in text
+
+
+def test_cfd_financing_review_status_override_wins_and_is_preserved(tmp_path: Path) -> None:
+    rows = _cfd_rows()
+    _add_cfd_financing_fee(rows, fee_date="2025-01-24", review_status="NET")
+
+    result = _run(tmp_path, rows, mode="listing_exchange")
+
+    decision = result.summary.cfd_financing_decisions[0]
+    assert decision.auto_status == "DEFER"
+    assert decision.review_status == "NET"
+    assert decision.final_status == "NET"
+    assert result.summary.appendix_5.purchase_eur == Decimal("2")
+    header, row = _fees_output_row(result, "Long CFD Interest")
+    idx = {c: i for i, c in enumerate(header[2:])}
+    assert row[2 + idx["Review Status"]] == "NET"
+    assert row[2 + idx["Auto Status"]] == "DEFER"
+    assert row[2 + idx["Tax Status"]] == "NET"
+    assert "User override applied from Review Status" in row[2 + idx["Tax Treatment Reason"]]
 
 
 def test_symbol_negative_pil_matching_short_stock_closed_by_year_end_is_netted(tmp_path: Path) -> None:
@@ -790,22 +1065,24 @@ def test_non_cfd_fees_are_not_treated_as_cfd_financing(tmp_path: Path) -> None:
 
 
 def test_outside_tax_year_cfd_financing_and_pil_are_detected_but_not_included(tmp_path: Path) -> None:
-    rows = _cfd_rows()
-    rows.insert(-1, ["Fees", "Data", "Other Fees", "EUR", "2024-01-24", "Long CFD Interest for 24-JAN-2024", "-2"])
+    rows = _without_open_cfd_position(_cfd_rows())
+    _add_cfd_financing_fee(rows, fee_date="2024-01-24")
     rows.append(["Dividends", "Data", "USD", "2024-11-29", "ECCC(US2698097035) Payment in Lieu of Dividend (Ordinary Dividend)", "-10"])
 
     result = _run(tmp_path, rows, mode="listing_exchange")
 
     assert result.summary.cfd_financing_detected_rows == 1
-    assert result.summary.cfd_financing_rows == 0
+    assert result.summary.cfd_financing_rows == 1
     assert result.summary.cfd_financing_outside_tax_year_rows == 1
+    assert result.summary.cfd_financing_ignore_rows == 1
+    assert result.summary.cfd_financing_review_rows == 0
     assert result.summary.pil_detected_rows == 1
     assert result.summary.pil_negative_rows == 0
     assert result.summary.pil_outside_tax_year_rows == 1
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "CFD financing rows detected in statement: 1" in text
-    assert "CFD financing rows included in tax year: 0" in text
-    assert "CFD financing rows outside tax year ignored: 1" in text
+    assert "CFD financing rows processed: 1" in text
+    assert "CFD financing rows outside tax year in input: 1" in text
     assert "PIL rows detected in statement: 1" in text
     assert "PIL rows included in tax year: 0" in text
     assert "PIL rows outside tax year ignored: 1" in text
@@ -822,7 +1099,8 @@ def test_cli_flags_for_cfd_financing_and_pil_are_supported(tmp_path: Path) -> No
             str(input_csv),
             "--tax-year",
             "2025",
-            "--no-net-cfd-financing",
+            "--cfd-financing-mode",
+            "ignore",
             "--negative-pil-mode",
             "ignore",
         ]
@@ -831,5 +1109,5 @@ def test_cli_flags_for_cfd_financing_and_pil_are_supported(tmp_path: Path) -> No
     from integrations.ibkr.analyzer_definition import ANALYZER
 
     options = ANALYZER.build_options(args, "single", {})
-    assert options["net_cfd_financing"] is False
+    assert options["cfd_financing_mode"] == "ignore"
     assert options["negative_pil_mode"] == "ignore"

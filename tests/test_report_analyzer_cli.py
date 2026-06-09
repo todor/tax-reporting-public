@@ -960,7 +960,7 @@ def test_aggregate_help_shows_generic_options_and_override_convention() -> None:
     assert "--tax-exempt-mode {execution_exchange,listing_exchange}" in help_text
     assert "--eu-regulated-exchange EU_REGULATED_EXCHANGE" in help_text
     assert "--closed-world" in help_text
-    assert "--no-net-cfd-financing" in help_text
+    assert "--cfd-financing-mode {always-net,ignore,position-aware}" in help_text
     assert "--negative-pil-mode {always-net,ignore,position-aware}" in help_text
     assert "--positive-wht-mode {current-year-net,prior-year-correction}" in help_text
     assert "--p2p-secondary-market-mode {appendix_5,appendix_6}" in help_text
@@ -990,7 +990,7 @@ def test_list_aggregate_overrides_prints_supported_matrix(
     assert "--ibkr-eu-regulated-exchange" in stdout
     assert "--ibkr-closed-world" in stdout
     assert "--ibkr-skip-period-validation" not in stdout
-    assert "--ibkr-no-net-cfd-financing" in stdout
+    assert "--ibkr-cfd-financing-mode" in stdout
     assert "--ibkr-negative-pil-mode" in stdout
     assert "--ibkr-positive-wht-mode" in stdout
     assert "--ibkr-appendix8-dividend-list-mode" in stdout
@@ -1060,7 +1060,7 @@ def test_concrete_ibkr_help_shows_unprefixed_options(
     assert "--eu-regulated-exchange" in help_text
     assert "--closed-world" in help_text
     assert "--skip-period-validation" not in help_text
-    assert "--no-net-cfd-financing" in help_text
+    assert "--cfd-financing-mode" in help_text
     assert "--negative-pil-mode" in help_text
     assert "--positive-wht-mode" in help_text
     assert "--appendix8-dividend-list-mode" in help_text
@@ -1693,6 +1693,38 @@ def test_ibkr_option_unhandled_rows_are_specific_and_include_examples() -> None:
     assert "row 10, section=Trades, symbol=SPY 20DEC24 585 P" in main
     assert "[WARNING] [ibkr] IBKR_OPTIONS_UNHANDLED_ROWS" in technical
     assert "expiry-style option row without attached ClosedLot" in technical
+
+
+def test_ibkr_cfd_financing_review_examples_show_status_and_reason() -> None:
+    diagnostics = [
+        AnalysisDiagnostic(
+            severity="MANUAL_REVIEW",
+            analyzer_alias="ibkr",
+            code="IBKR_CFD_FINANCING_REVIEW_REQUIRED",
+            message="IBKR CFD financing rows require manual review.",
+            params={
+                "count": 1,
+                "rows": [
+                    {
+                        "row": 834,
+                        "date": "2025-11-09",
+                        "review_status": "-",
+                        "final_status": "REVIEW",
+                        "tax_status": (
+                            "Manual review: CFD financing overlaps both closed and open CFD "
+                            "positions; IBKR does not provide instrument-level allocation."
+                        ),
+                    }
+                ],
+            },
+        )
+    ]
+
+    main = "\n".join(render_action_items(diagnostics))
+
+    assert "review_status=-" not in main
+    assert "row 834, date=2025-11-09, tax_status=REVIEW" in main
+    assert "reason=Таксата съвпада едновременно със затворени и отворени CFD позиции." in main
 
 
 def test_ibkr_positive_withholding_reversal_is_informational() -> None:

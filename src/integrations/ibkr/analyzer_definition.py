@@ -11,6 +11,8 @@ from .activity_statement_analyzer import analyze_ibkr_activity_statement
 from .constants import (
     APPENDIX8_LIST_MODE_COMPANY,
     APPENDIX8_LIST_MODE_COUNTRY,
+    CFD_FINANCING_MODE_POSITION_AWARE,
+    CFD_FINANCING_MODES,
     DEFAULT_TAX_EXEMPT_MODE,
     DEFAULT_OUTPUT_DIR,
     NEGATIVE_PIL_MODE_POSITION_AWARE,
@@ -28,7 +30,7 @@ _IBKR_SUPPORTED_AGGREGATE_OVERRIDES = frozenset(
         "appendix8_dividend_list_mode",
         "eu_regulated_exchange",
         "closed_world",
-        "no_net_cfd_financing",
+        "cfd_financing_mode",
         "negative_pil_mode",
         "positive_wht_mode",
         "csv_decimal_separator",
@@ -89,9 +91,10 @@ def _add_arguments(parser: argparse.ArgumentParser, mode: CliMode) -> None:
         parser,
         mode=mode,
         analyzer_alias="ibkr",
-        single_flag="no-net-cfd-financing",
-        action="store_true",
-        help="Do not net IBKR CFD financing into Appendix 5; positive amounts go to Appendix 6 code 606",
+        single_flag="cfd-financing-mode",
+        choices=sorted(CFD_FINANCING_MODES),
+        default=CFD_FINANCING_MODE_POSITION_AWARE,
+        help="IBKR CFD financing / CFD interest handling mode",
     )
     add_mode_argument(
         parser,
@@ -170,14 +173,14 @@ def _build_options(
             single_attr="report_alias",
             default=None,
         ),
-        "net_cfd_financing": not bool(
+        "cfd_financing_mode": str(
             option_value(
                 args,
                 mode=mode,
-                single_attr="no_net_cfd_financing",
+                single_attr="cfd_financing_mode",
                 group_options=group_options,
-                group_key="no_net_cfd_financing",
-                default=False,
+                group_key="cfd_financing_mode",
+                default=CFD_FINANCING_MODE_POSITION_AWARE,
             )
         ),
         "negative_pil_mode": str(
@@ -236,7 +239,7 @@ def _run(context: AnalyzerRunContext):
         display_currency=str(context.options.get("display_currency", "EUR")),
         eu_regulated_exchanges=context.options.get("eu_regulated_exchanges"),
         closed_world=bool(context.options.get("closed_world")),
-        net_cfd_financing=bool(context.options.get("net_cfd_financing", True)),
+        cfd_financing_mode=str(context.options.get("cfd_financing_mode", CFD_FINANCING_MODE_POSITION_AWARE)),
         negative_pil_mode=str(context.options.get("negative_pil_mode", NEGATIVE_PIL_MODE_POSITION_AWARE)),
         positive_wht_mode=str(context.options.get("positive_wht_mode", POSITIVE_WHT_MODE_CURRENT_YEAR_NET)),
         csv_decimal_separator=str(context.options.get("csv_decimal_separator", "auto")),

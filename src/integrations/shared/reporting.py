@@ -80,6 +80,7 @@ _GROUPABLE_CODES = {
     "IBKR_OPEN_POSITION_RECONCILIATION_MISMATCH",
     "IBKR_MANUAL_REVIEW_ROWS",
     "IBKR_NEGATIVE_PIL_REVIEW_OR_DEFER",
+    "IBKR_CFD_FINANCING_REVIEW_REQUIRED",
     "IBKR_OPTIONS_EXERCISE_ASSIGNMENT_NO_CLOSEDLOT",
     "IBKR_OPTIONS_UNHANDLED_ROWS",
     "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL",
@@ -1208,6 +1209,23 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
             lines.extend(f"- {example}" for example in examples)
         return lines
 
+    if diagnostic.code == "IBKR_CFD_FINANCING_REVIEW_REQUIRED":
+        count = _diagnostic_count(diagnostic)
+        lines = [
+            f"{_display_analyzer_name(analyzer)}: има {count} CFD financing реда, които изискват ръчен преглед.",
+            "Причина: IBKR отчита CFD financing като общи дневни такси без конкретен инструмент/позиция, а инструментът не може безопасно да определи автоматичното третиране.",
+            "Какво да направите:",
+            "- Отворете generated/modified CSV файла и филтрирайте редовете с Auto Status = REVIEW.",
+            "- Прегледайте Tax Treatment Reason, за да видите защо автоматично решение не е приложено.",
+            "- Ако искате да промените автоматичното решение, попълнете Review Status според manual review workflow и стартирайте инструмента отново.",
+            '- Вижте README секцията "Manual review workflow".',
+        ]
+        examples = _diagnostic_examples_bg(diagnostic.params, include_raw=False)
+        if examples:
+            lines.append("Примери:")
+            lines.extend(f"- {example}" for example in examples)
+        return lines
+
     if diagnostic.code == "IBKR_OPEN_POSITION_RECONCILIATION_MISMATCH":
         count = _diagnostic_count(diagnostic)
         lines = [
@@ -1517,13 +1535,35 @@ def _diagnostic_row_example(item: dict[str, Any]) -> str:
         parts.append(f"date={item['date']}")
     if item.get("type"):
         parts.append(f"type={item['type']}")
-    if item.get("review_status"):
-        parts.append(f"review_status={item['review_status']}")
+    tax_status = item.get("final_status") or item.get("tax_status") or item.get("auto_status")
+    if tax_status and tax_status != "-":
+        parts.append(f"tax_status={tax_status}")
+    review_status = item.get("review_status")
+    if review_status and review_status != "-":
+        parts.append(f"review_status={review_status}")
     if item.get("reason"):
         parts.append(f"reason={item['reason']}")
+    elif item.get("tax_status"):
+        reason = _short_tax_status_reason(str(item["tax_status"]))
+        if reason:
+            parts.append(f"reason={reason}")
     if not parts:
         return ", ".join(f"{key}={value}" for key, value in item.items() if value not in ("", None))
     return ", ".join(parts)
+
+
+def _short_tax_status_reason(text: str) -> str:
+    if "no active CFD position range was found" in text:
+        return "Таксата не е съпоставена с CFD позиция по приблизителната trade-date проверка."
+    if "overlaps both closed and open CFD positions" in text:
+        return "Таксата съвпада едновременно със затворени и отворени CFD позиции."
+    if "No matching short-security exposure" in text:
+        return "Не е намерена съответстваща short-security експозиция."
+    if "no matching short-CFD exposure" in text:
+        return "Не е намерена съответстваща short-CFD експозиция."
+    if "ambiguous" in text.lower():
+        return "Автоматичното разпределение е нееднозначно."
+    return ""
 
 
 def _is_listing_exchange_review(diagnostic: AnalysisDiagnostic) -> bool:
@@ -1555,6 +1595,7 @@ def _ibkr_code_summary_bg(diagnostic: AnalysisDiagnostic) -> str:
         "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL": f"има {count} положителни Withholding Tax реда за лихви.",
         "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW": f"има {count} случая с положителен Withholding Tax за дивиденти.",
         "IBKR_NEGATIVE_PIL_REVIEW_OR_DEFER": f"има {count} отрицателни Payment in Lieu реда за преглед/отлагане.",
+        "IBKR_CFD_FINANCING_REVIEW_REQUIRED": f"има {count} CFD financing реда за ръчен преглед.",
         "IBKR_FUTURES_MTM_ARITHMETIC_MISMATCH": f"има {count} Futures MTM реда с аритметично разминаване.",
         "IBKR_FUTURES_MTM_OTHER_INCLUDED": f"има {count} Futures MTM реда с ненулева стойност в колоната Other.",
         "IBKR_UNKNOWN_INTEREST_ROWS": f"има {count} реда с непознат вид лихва.",
