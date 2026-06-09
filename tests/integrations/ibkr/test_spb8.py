@@ -157,7 +157,7 @@ def test_ibkr_spb8_extracts_isin_from_open_positions_and_trades() -> None:
 
     security_row = extracted.rows[0]
     assert extracted.warnings == [
-        "СПБ-8: количествата за ценни книжа са изчислени от Open Positions, Trades и Transfers; корпоративни събития не са обработени автоматично."
+        "СПБ-8: количествата за ценни книжа са изчислени от Open Positions, Trades и Transfers."
     ]
     assert security_row.type_code == "04"
     assert security_row.isin == "IE00BK5BQT80"

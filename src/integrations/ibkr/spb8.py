@@ -50,7 +50,7 @@ def extract_ibkr_spb8_rows(
     warnings.extend(securities_warnings)
     if securities_rows:
         warnings.append(
-            "СПБ-8: количествата за ценни книжа са изчислени от Open Positions, Trades и Transfers; корпоративни събития не са обработени автоматично."
+            "СПБ-8: количествата за ценни книжа са изчислени от Open Positions, Trades и Transfers."
         )
     return IbkrSPB8Extraction(rows=spb8_rows, warnings=warnings)
 

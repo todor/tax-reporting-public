@@ -45,6 +45,16 @@ class _RunCapture:
     contexts: list[AnalyzerRunContext]
 
 
+def _ibkr_corporate_actions_diagnostic(*, count: int = 1) -> AnalysisDiagnostic:
+    return AnalysisDiagnostic(
+        severity="MANUAL_REVIEW",
+        analyzer_alias="ibkr",
+        code="IBKR_CORPORATE_ACTIONS_REVIEW_REQUIRED",
+        message="IBKR Corporate Actions require manual review.",
+        params={"count": count, "supported_scope": "unsupported_or_partially_supported"},
+    )
+
+
 def _make_registry(*definitions: AnalyzerDefinition) -> AnalyzerRegistry:
     by_alias = {definition.alias: definition for definition in definitions}
     alias_lookup: dict[str, str] = {}
@@ -833,7 +843,7 @@ def test_single_analyzer_mode_runs_selected_analyzer(
     assert diagnostics_path.exists()
     declaration = output_path.read_text(encoding="utf-8")
     diagnostics = diagnostics_path.read_text(encoding="utf-8")
-    assert "!!! СТАТУС: УСПЕШЕН !!!" in declaration
+    assert "✅ Статус: УСПЕШЕН" in declaration
     assert "Данъчна година: 2025" in declaration
     assert "Бележки и допускания" not in declaration
     assert "Изчисления и визуализация" in declaration
@@ -1392,7 +1402,7 @@ def test_single_analyzer_report_strips_duplicate_legacy_review_blocks(
 
     assert code == 0
     report = (tmp_path / "out" / "lendermarket_declaration.txt").read_text(encoding="utf-8")
-    assert report.startswith("!!! СТАТУС: ИЗИСКВА РЪЧЕН ПРЕГЛЕД !!!\nДанъчна година: 2025")
+    assert report.startswith("🔎 Статус: ИЗИСКВА РЪЧЕН ПРЕГЛЕД\nДанъчна година: 2025")
     assert "Бележки по обработката" not in report
     assert "old duplicate" not in report
     assert report.count("отчетната година в PDF (2023)") == 1
@@ -1905,6 +1915,75 @@ def test_aggregate_spb8_rows_and_notes_render_under_one_heading() -> None:
     assert "Policy details" not in rendered
     assert "Tax treatment decisions" in rendered
     assert "- CFD financing policy: netted_to_appendix_5" in rendered
+
+
+def test_aggregate_report_renders_ibkr_corporate_actions_as_global_manual_review() -> None:
+    diagnostic = _ibkr_corporate_actions_diagnostic(count=2)
+    rendered = render_main_report(
+        status="NEEDS_REVIEW",
+        tax_year=2025,
+        raw_declaration_text=render_aggregated_report(
+            tax_year=2025,
+            detected_inputs={},
+            ignored_inputs=[],
+            analyzer_results=[
+                TaxAnalysisResult(
+                    analyzer_alias="ibkr",
+                    input_path=Path("/tmp/ibkr.csv"),
+                    tax_year=2025,
+                    output_paths={},
+                    appendices=[],
+                    diagnostics=[diagnostic],
+                    spb8_corporate_actions_present=True,
+                )
+            ],
+            analyzer_errors={},
+            spb8_notes=[
+                "Откритите IBKR Corporate Actions може да влияят на коректността на СПБ-8 количествата, "
+                "защото могат да променят ISIN-и, количества или позиции. "
+                "Вижте съответното предупреждение в секцията „Изискват ръчен преглед“."
+            ],
+        ),
+        diagnostics=[diagnostic],
+        diagnostics_path=Path("/tmp/report.diagnostics.txt"),
+    )
+
+    assert "Изискват ръчен преглед" in rendered
+    assert rendered.count("IBKR: открити са Corporate Actions в Activity Statement CSV") == 1
+    assert "Засегнати редове: 2." in rendered
+    assert "корпоративните събития може да влияят както на СПБ-8 количествата" in rendered
+    assert "Прегледайте секцията Corporate Actions в IBKR отчета ръчно." in rendered
+    assert "СПБ-8\n- Откритите IBKR Corporate Actions" in rendered
+    assert "Попълнете липсващите стойности в генерирания SPB-8 input файл:" not in rendered
+    assert diagnostic.params["supported_scope"] == "unsupported_or_partially_supported"
+
+
+def test_aggregate_report_does_not_emit_corporate_actions_warning_for_crypto() -> None:
+    rendered = render_main_report(
+        status="OK",
+        tax_year=2025,
+        raw_declaration_text=render_aggregated_report(
+            tax_year=2025,
+            detected_inputs={},
+            ignored_inputs=[],
+            analyzer_results=[
+                TaxAnalysisResult(
+                    analyzer_alias="kraken",
+                    input_path=Path("/tmp/kraken.csv"),
+                    tax_year=2025,
+                    output_paths={},
+                    appendices=[],
+                    diagnostics=[],
+                )
+            ],
+            analyzer_errors={},
+        ),
+        diagnostics=[],
+        diagnostics_path=Path("/tmp/report.diagnostics.txt"),
+    )
+
+    assert "Corporate Actions" not in rendered
+    assert "корпоративните събития" not in rendered
 
 
 def test_aggregate_report_renders_generic_main_report_notes_near_top() -> None:
@@ -3166,7 +3245,7 @@ def test_aggregate_mode_continues_on_partial_failure(
     assert "Diagnostics:" in stdout
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
     diagnostics = (out_dir / "aggregated_tax_report_2025.diagnostics.txt").read_text(encoding="utf-8")
-    assert "!!! СТАТУС: ГРЕШКА !!!" in report
+    assert "❌ Статус: ГРЕШКА" in report
     assert "възникна проблем при обработката с анализатора kraken" in report
     assert "boom" not in report
     assert "Per-analyzer status\ncoinbase\n- OK" in diagnostics
@@ -3301,7 +3380,7 @@ def test_manual_review_rows_are_excluded_from_totals(
     assert code == 0
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
     diagnostics = (out_dir / "aggregated_tax_report_2025.diagnostics.txt").read_text(encoding="utf-8")
-    assert "!!! СТАТУС: ИЗИСКВА РЪЧЕН ПРЕГЛЕД !!!" in report
+    assert "🔎 Статус: ИЗИСКВА РЪЧЕН ПРЕГЛЕД" in report
     assert "  Продажна цена: 5.00 EUR" in report
     assert "Kraken: има ред, изключен от декларационните суми" in report
     assert report.count("има ред, изключен от декларационните суми") == 1
@@ -4101,7 +4180,7 @@ def test_spb8_input_type04_override_falls_back_to_analyzer_and_resolves_corporat
             tax_year=context.tax_year,
             output_paths={"declaration_txt": out},
             appendices=[],
-            diagnostics=[],
+            diagnostics=[_ibkr_corporate_actions_diagnostic()],
             spb8_rows=[
                 SPB8Row(
                     account_name="ibkr analyzer",
@@ -4158,8 +4237,11 @@ def test_spb8_input_type04_override_falls_back_to_analyzer_and_resolves_corporat
     assert "ISIN: IE00BK5BQT80" in report
     assert "Размер в началото на отчетната година: 12" in report
     assert "Размер в края на отчетната година: 15" in report
-    assert "Открити са корпоративни събития" in report
+    assert "IBKR: открити са Corporate Actions в Activity Statement CSV" in report
+    assert "корпоративните събития може да влияят както на СПБ-8 количествата" in report
+    assert "Откритите IBKR Corporate Actions може да влияят на коректността на СПБ-8 количествата" in report
     assert "Попълнете липсващите начални количества" not in report
+    assert report.count("IBKR: открити са Corporate Actions в Activity Statement CSV") == 1
     assert (out_dir / "spb8-input-file.csv").read_text(encoding="utf-8").splitlines() == [
         "account name,platform,type,country,ISIN,currency,start amount,end amount",
         "ibkr manual,ibkr,04,Ирландия,IE00BK5BQT80,-,12,15",
@@ -4194,7 +4276,7 @@ def test_spb8_corporate_actions_with_missing_start_quantity_warns_for_manual_com
             tax_year=context.tax_year,
             output_paths={"declaration_txt": out},
             appendices=[],
-            diagnostics=[],
+            diagnostics=[_ibkr_corporate_actions_diagnostic()],
             spb8_rows=[
                 SPB8Row("ibkr analyzer", "ibkr", "04", "Ирландия", "", None, Decimal("15"), isin="IE00BK5BQT80")
             ],
@@ -4235,9 +4317,11 @@ def test_spb8_corporate_actions_with_missing_start_quantity_warns_for_manual_com
     assert "STATUS: MANUAL CHECK REQUIRED" in stdout
     report = (out_dir / "aggregated_tax_report_2025.txt").read_text(encoding="utf-8")
     assert "Тип на вземането" not in report
-    assert "Попълнете липсващите начални количества" in report
+    assert "Попълнете липсващите начални количества" not in report
+    assert "IBKR: открити са Corporate Actions в Activity Statement CSV" in report
     assert "ISIN IE00BK5BQT80" in report
     assert report.count("СПБ-8: липсват начални/крайни стойности") == 1
+    assert report.count("Попълнете липсващите стойности в генерирания SPB-8 input файл:") == 1
     assert "Попълнете липсващите стойности в генерирания SPB-8 input файл:" in report
     assert str(out_dir / "spb8-input-file.csv") in report
     assert "Стартирайте отново с --spb8-input-file <path>" in report

@@ -68,12 +68,12 @@ def _visible_generated_artifacts(
 
 def _status_banner(global_status: AnalyzerStatus) -> str:
     if global_status == "OK":
-        return "!!! СТАТУС: OK !!!"
+        return "✅ Статус: УСПЕШЕН"
     if global_status == "NEEDS_REVIEW":
-        return "!!! НЕОБХОДИМА РЪЧНА ПРОВЕРКА !!!"
+        return "🔎 Статус: ИЗИСКВА РЪЧЕН ПРЕГЛЕД"
     if global_status == "WARNING":
-        return "!!! СТАТУС: WARNING !!!"
-    return "!!! СТАТУС: ERROR !!!"
+        return "⚠️ Статус: ПРЕДУПРЕЖДЕНИЯ"
+    return "❌ Статус: ГРЕШКА"
 
 
 def _to_decimal(record: AppendixRecord, key: str) -> Decimal:

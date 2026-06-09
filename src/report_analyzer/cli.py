@@ -710,30 +710,15 @@ def _merged_spb8_rows_for_result(result: TaxAnalysisResult, external_rows: list[
 
 
 def _corporate_actions_notes(result: TaxAnalysisResult, rows: list[SPB8Row]) -> list[str]:
+    _ = rows
     if not result.spb8_corporate_actions_present:
         return []
-    has_missing_start_quantity = any(
-        row.type_code == "04" and not row.is_bulgaria and row.end_nav is not None and row.start_nav is None
-        for row in rows
-    )
-    if has_missing_start_quantity:
-        return [
-            "\n".join(
-                [
-                    "⚠️ Открити са корпоративни събития (Corporate Actions) в IBKR Activity Statement CSV.",
-                    "Корпоративните събития все още не се обработват автоматично от анализатора.",
-                    "Началните количества за СПБ-8 може да не могат да бъдат изчислени надеждно.",
-                    "Попълнете липсващите начални количества в SPB-8 input файла за съответните ISIN-и.",
-                    'Прегледайте секцията "Corporate Actions" ръчно, защото тя може да има влияние и върху данъците.',
-                ]
-            )
-        ]
     return [
         "\n".join(
             [
-                "⚠️ Открити са корпоративни събития (Corporate Actions) в IBKR Activity Statement CSV.",
-                "Корпоративните събития все още не се обработват автоматично от анализатора.",
-                'Прегледайте секцията "Corporate Actions" ръчно, защото тя може да има влияние и върху данъците.',
+                "Откритите IBKR Corporate Actions може да влияят на коректността на СПБ-8 количествата, "
+                "защото могат да променят ISIN-и, количества или позиции. "
+                "Вижте съответното предупреждение в секцията „Изискват ръчен преглед“.",
             ]
         )
     ]

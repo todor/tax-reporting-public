@@ -555,6 +555,10 @@ def _has_corporate_actions(rows: list[list[str]]) -> bool:
     return CORPORATE_ACTIONS_SECTION in _section_names(rows)
 
 
+def _corporate_actions_row_count(rows: list[list[str]]) -> int:
+    return sum(1 for row in rows if len(row) >= 2 and row[0].strip() == CORPORATE_ACTIONS_SECTION and row[1].strip() == "Data")
+
+
 def _unsupported_section_warning(rows: list[list[str]]) -> str:
     unsupported = sorted(_section_names(rows) - SUPPORTED_IBKR_SECTIONS - {CORPORATE_ACTIONS_SECTION})
     if not unsupported:
@@ -729,7 +733,8 @@ def analyze_ibkr_activity_statement(
         unsupported_section_warning = _unsupported_section_warning(rows)
         if unsupported_section_warning:
             summary.warnings.append(unsupported_section_warning)
-        summary.spb8_corporate_actions_present = _has_corporate_actions(rows)
+        summary.corporate_actions_rows = _corporate_actions_row_count(rows)
+        summary.spb8_corporate_actions_present = summary.corporate_actions_rows > 0 or _has_corporate_actions(rows)
         summary.exchange_classification_mode = _exchange_classification_mode_label(
             eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
             force_closed_world=closed_world_mode,

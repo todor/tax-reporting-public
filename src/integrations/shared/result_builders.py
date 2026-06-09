@@ -794,6 +794,19 @@ def build_ibkr_result(
         AnalysisDiagnostic(severity="MANUAL_REVIEW", message=reason, analyzer_alias=analyzer_alias)
         for reason in _build_manual_check_reasons(summary)
     )
+    if summary.spb8_corporate_actions_present:
+        legacy_diagnostics.append(
+            AnalysisDiagnostic(
+                severity="MANUAL_REVIEW",
+                analyzer_alias=analyzer_alias,
+                code="IBKR_CORPORATE_ACTIONS_REVIEW_REQUIRED",
+                message="IBKR Corporate Actions require manual review.",
+                params={
+                    "count": summary.corporate_actions_rows,
+                    "supported_scope": "unsupported_or_partially_supported",
+                },
+            )
+        )
     if summary.withholding_non_positive_net_buckets > 0:
         legacy_diagnostics.append(
             AnalysisDiagnostic(

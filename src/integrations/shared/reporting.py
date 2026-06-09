@@ -14,10 +14,10 @@ from .csv_numbers import CsvDecimalSeparatorError
 
 
 STATUS_BANNER_BG: dict[AnalyzerStatus, str] = {
-    "OK": "!!! СТАТУС: УСПЕШЕН !!!",
-    "WARNING": "!!! СТАТУС: ПРЕДУПРЕЖДЕНИЯ !!!",
-    "NEEDS_REVIEW": "!!! СТАТУС: ИЗИСКВА РЪЧЕН ПРЕГЛЕД !!!",
-    "ERROR": "!!! СТАТУС: ГРЕШКА !!!",
+    "OK": "✅ Статус: УСПЕШЕН",
+    "WARNING": "⚠️ Статус: ПРЕДУПРЕЖДЕНИЯ",
+    "NEEDS_REVIEW": "🔎 Статус: ИЗИСКВА РЪЧЕН ПРЕГЛЕД",
+    "ERROR": "❌ Статус: ГРЕШКА",
 }
 
 STDOUT_STATUS: dict[AnalyzerStatus, str] = {
@@ -83,6 +83,7 @@ _GROUPABLE_CODES = {
     "IBKR_OPTIONS_UNHANDLED_ROWS",
     "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL",
     "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW",
+    "IBKR_CORPORATE_ACTIONS_REVIEW_REQUIRED",
     "IBKR_FUTURES_MTM_ARITHMETIC_MISMATCH",
     "IBKR_FUTURES_MTM_OTHER_INCLUDED",
     "IBKR_SPB8_REVIEW_REQUIRED",
@@ -138,8 +139,12 @@ def split_technical_details(text: str) -> tuple[str, list[str]]:
     return declaration.rstrip(), technical_lines
 
 
+def _is_human_status_banner(line: str) -> bool:
+    return line.startswith("!!!") or line in STATUS_BANNER_BG.values()
+
+
 def _strip_legacy_top_sections(lines: list[str]) -> list[str]:
-    if lines and lines[0].startswith("!!!"):
+    if lines and _is_human_status_banner(lines[0]):
         lines = lines[1:]
         while lines and lines[0] != "":
             lines = lines[1:]
@@ -1218,6 +1223,24 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
         ]
         if non_positive_buckets:
             lines.append(f"Засегнати Appendix 8 групи: {non_positive_buckets}.")
+        return lines
+
+    if diagnostic.code == "IBKR_CORPORATE_ACTIONS_REVIEW_REQUIRED":
+        count = diagnostic.params.get("count")
+        lines = [
+            "IBKR: открити са Corporate Actions в Activity Statement CSV, които не се обработват "
+            "автоматично или не се поддържат напълно.",
+        ]
+        if count:
+            lines.append(f"Засегнати редове: {count}.")
+        lines.extend(
+            [
+                "Причина: корпоративните събития може да влияят както на СПБ-8 количествата, така и на данъчното третиране.",
+                "Какво да направите:",
+                "- Прегледайте секцията Corporate Actions в IBKR отчета ръчно.",
+                "- Ако събитието променя ISIN/количество/цена на придобиване или води до доход/данък, потвърдете данъчното третиране преди подаване.",
+            ]
+        )
         return lines
 
     if diagnostic.code == "IBKR_APPENDIX9_POSITIVE_WHT_REVERSAL":
