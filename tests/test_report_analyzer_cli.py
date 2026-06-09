@@ -3645,6 +3645,7 @@ def test_aggregate_mode_generates_spb8_template_from_detected_inputs(
     assert "Използвана интерпретация за този отчет: крипто платформите са включени" in report
     assert "Какво трябва да направите" in report
     assert report.count("СПБ-8: липсват начални/крайни стойности") == 1
+    assert "Отчетът съдържа corporate actions или други събития по инструменти" not in report
     assert "kraken / Ирландия / EUR / тип 03" in report
     assert "Тип на вземането" not in report
     assert "Забележки за СПБ-8" not in report
@@ -4321,6 +4322,9 @@ def test_spb8_corporate_actions_with_missing_start_quantity_warns_for_manual_com
     assert "IBKR: открити са Corporate Actions в Activity Statement CSV" in report
     assert "ISIN IE00BK5BQT80" in report
     assert report.count("СПБ-8: липсват начални/крайни стойности") == 1
+    assert "Причина:" in report
+    assert "Отчетът съдържа corporate actions или други събития по инструменти" in report
+    assert "дори когато конкретният ISIN изглежда изчислим от наличните позиции, сделки и трансфери" in report
     assert report.count("Попълнете липсващите стойности в генерирания SPB-8 input файл:") == 1
     assert "Попълнете липсващите стойности в генерирания SPB-8 input файл:" in report
     assert str(out_dir / "spb8-input-file.csv") in report

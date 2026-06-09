@@ -916,6 +916,17 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
     if diagnostic.code == "SPB8_MISSING_VALUES":
         missing_values = list(params.get("missing_values", []))
         lines = ["СПБ-8: липсват начални/крайни стойности за някои платформи."]
+        if params.get("missing_value_reason") == "corporate_actions_safety":
+            lines.extend(
+                [
+                    "Причина:",
+                    "Отчетът съдържа corporate actions или други събития по инструменти, които изискват "
+                    "консервативна обработка за СПБ-8. Такива събития могат да променят ISIN-и, "
+                    "количества или позиции, затова инструментът не попълва автоматично някои "
+                    "начални/крайни количества, дори когато конкретният ISIN изглежда изчислим от "
+                    "наличните позиции, сделки и трансфери.",
+                ]
+            )
         if missing_values:
             lines.append("Липсващи стойности:")
             for item in missing_values:

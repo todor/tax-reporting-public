@@ -757,8 +757,15 @@ def _spb8_row_has_zero_rendered_end_value(row: SPB8Row) -> bool:
     return end_value == Decimal("0")
 
 
-def _spb8_missing_diagnostics(rows: list[SPB8Row], *, analyzer_alias: str) -> list[AnalysisDiagnostic]:
+def _spb8_missing_diagnostics(
+    rows: list[SPB8Row],
+    *,
+    analyzer_alias: str,
+    corporate_actions_safety_platforms: set[str] | None = None,
+) -> list[AnalysisDiagnostic]:
+    safety_platforms = {platform.strip().casefold() for platform in corporate_actions_safety_platforms or set()}
     missing_by_row: dict[tuple[str, ...], dict[str, object]] = {}
+    missing_platforms: set[str] = set()
     for row in rows:
         if row.is_bulgaria:
             continue
@@ -771,6 +778,8 @@ def _spb8_missing_diagnostics(rows: list[SPB8Row], *, analyzer_alias: str) -> li
             missing_fields.append("end_amount")
         if not missing_fields:
             continue
+        platform_key = row.platform.strip().casefold()
+        missing_platforms.add(platform_key)
         if row.type_code == "04":
             key = (row.platform, row.type_code, row.isin.strip().upper())
             item = missing_by_row.setdefault(
@@ -817,13 +826,18 @@ def _spb8_missing_diagnostics(rows: list[SPB8Row], *, analyzer_alias: str) -> li
     )
     if not missing_values:
         return []
+    params: dict[str, object] = {"missing_values": missing_values}
+    safety_missing_platforms = sorted(platform for platform in missing_platforms if platform in safety_platforms)
+    if safety_missing_platforms:
+        params["missing_value_reason"] = "corporate_actions_safety"
+        params["corporate_actions_safety_platforms"] = safety_missing_platforms
     return [
         AnalysisDiagnostic(
             severity="MANUAL_REVIEW",
             message="SPB-8 required values are missing.",
             analyzer_alias=analyzer_alias,
             code="SPB8_MISSING_VALUES",
-            params={"missing_values": missing_values},
+            params=params,
             technical_message_en=None,
         )
     ]
@@ -1367,7 +1381,14 @@ def _run_single_mode(args: argparse.Namespace) -> int:
             option_notes=option_notes,
         )
         spb8_needs_review = bool(missing_spb8_value_notes(rows))
-        extra_diagnostics.extend(_spb8_missing_diagnostics(rows, analyzer_alias=result.analyzer_alias))
+        safety_platforms = {result.analyzer_alias} if result.spb8_corporate_actions_present else set()
+        extra_diagnostics.extend(
+            _spb8_missing_diagnostics(
+                rows,
+                analyzer_alias=result.analyzer_alias,
+                corporate_actions_safety_platforms=safety_platforms,
+            )
+        )
         _append_spb8_to_declaration(result, rows=rows, notes=notes)
     else:
         spb8_needs_review = False
@@ -1665,8 +1686,13 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
                         option_notes=option_notes,
                     )
                     result_spb8_needs_review = bool(missing_spb8_value_notes(rows))
+                    safety_platforms = {result.analyzer_alias} if result.spb8_corporate_actions_present else set()
                     result_extra_diagnostics.extend(
-                        _spb8_missing_diagnostics(rows, analyzer_alias=result.analyzer_alias)
+                        _spb8_missing_diagnostics(
+                            rows,
+                            analyzer_alias=result.analyzer_alias,
+                            corporate_actions_safety_platforms=safety_platforms,
+                        )
                     )
                     resolved_spb8_notes.extend(notes)
                     _append_spb8_to_declaration(result, rows=rows, notes=notes)
@@ -1739,7 +1765,16 @@ def _run_aggregate_mode(args: argparse.Namespace) -> int:
             exclude_crypto=bool(args.spb8_exclude_crypto),
         )
         spb8_missing_notes = missing_spb8_value_notes(spb8_rows)
-        analyzer_error_diagnostics.extend(_spb8_missing_diagnostics(spb8_rows, analyzer_alias="spb8"))
+        corporate_actions_safety_platforms = {
+            result.analyzer_alias for result in analyzer_results if result.spb8_corporate_actions_present
+        }
+        analyzer_error_diagnostics.extend(
+            _spb8_missing_diagnostics(
+                spb8_rows,
+                analyzer_alias="spb8",
+                corporate_actions_safety_platforms=corporate_actions_safety_platforms,
+            )
+        )
         if spb8_input_file is None:
             analyzer_error_diagnostics = _with_generated_spb8_input_file(
                 analyzer_error_diagnostics,
