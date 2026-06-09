@@ -813,7 +813,7 @@ def build_ibkr_result(
     if summary.withholding_non_positive_net_buckets > 0:
         legacy_diagnostics.append(
             AnalysisDiagnostic(
-                severity="WARNING",
+                severity="INFO",
                 analyzer_alias=analyzer_alias,
                 code="IBKR_DIVIDEND_WHT_REVERSAL_REVIEW",
                 message=(

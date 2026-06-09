@@ -1230,8 +1230,9 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
     if diagnostic.code == "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW":
         non_positive_buckets = diagnostic.params.get("non_positive_net_buckets")
         lines = [
-            "IBKR: има Appendix 8 групи с нулев или отрицателен нетен чуждестранен данък след "
-            "положителни WHT корекции. За тях инструментът не признава данъчен кредит.",
+            "IBKR: след положителни WHT корекции има Appendix 8 групи с нулев или отрицателен "
+            "нетен чуждестранен данък.",
+            "За тези групи инструментът не признава данъчен кредит.",
         ]
         if non_positive_buckets:
             lines.append(f"Засегнати Appendix 8 групи: {non_positive_buckets}.")
@@ -1697,6 +1698,21 @@ def render_action_items(diagnostics: list[AnalysisDiagnostic]) -> list[str]:
     return lines
 
 
+def render_information_items(diagnostics: list[AnalysisDiagnostic]) -> list[str]:
+    informational = [diagnostic for diagnostic in normalize_diagnostics(diagnostics) if diagnostic.severity == "INFO"]
+    if not informational:
+        return []
+    lines = ["Информация"]
+    for diagnostic in informational:
+        rendered = user_message_lines_bg(diagnostic)
+        if not rendered:
+            continue
+        lines.append(f"- {rendered[0]}")
+        for line in rendered[1:]:
+            lines.append(f"  {line}")
+    return lines
+
+
 def _notes_subsection(title: str, notes: list[str]) -> list[str]:
     cleaned = [note.strip() for note in notes if note.strip()]
     if not cleaned:
@@ -1796,6 +1812,9 @@ def render_main_report(
             *render_action_items(diagnostics),
         ]
     )
+    information_items = render_information_items(diagnostics)
+    if information_items:
+        lines.extend(["", *information_items])
     if body:
         lines.extend(["", body])
     if assumptions:

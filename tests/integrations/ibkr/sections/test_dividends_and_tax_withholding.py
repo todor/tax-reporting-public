@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from integrations.shared.result_builders import build_ibkr_result
 from tests.integrations.ibkr import support as h
 
 DIVIDEND_TAX_RATE = h.DIVIDEND_TAX_RATE
@@ -579,8 +580,19 @@ def test_positive_dividend_withholding_larger_than_negative_withholding_creates_
     assert result.summary.appendix_8_by_company[("US", "Alpha Corp")].withholding_tax_paid_eur == Decimal("-1")
     assert company_row.foreign_tax_paid_eur == Decimal("0")
     assert company_row.method_code == "3"
+    assert company_row.recognized_credit_eur == Decimal("0")
     assert result.summary.withholding_non_positive_net_buckets == 1
     assert not any("Нетният чуждестранен данък" in warning for warning in result.summary.warnings)
+    tax_result = build_ibkr_result(
+        analyzer_alias="ibkr",
+        input_path=tmp_path / "input.csv",
+        tax_year=2025,
+        output_paths={"declaration_txt": result.declaration_txt_path},
+        summary=result.summary,
+    )
+    diagnostic = next(d for d in tax_result.diagnostics if d.code == "IBKR_DIVIDEND_WHT_REVERSAL_REVIEW")
+    assert diagnostic.severity == "INFO"
+    assert tax_result.status == "OK"
     text = result.declaration_txt_path.read_text(encoding="utf-8")
     assert "IBKR — положителен Withholding Tax" in text
     assert "Открити положителни IBKR Withholding Tax редове за дивиденти: 1." in text
