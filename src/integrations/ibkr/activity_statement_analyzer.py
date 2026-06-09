@@ -59,6 +59,7 @@ from .models import (
     _CountryCreditComponent,
 )
 from .sections.dividends import DividendsSectionResult, process_dividends_section
+from .sections.corporate_actions import CorporateActionsSectionResult, process_corporate_actions_section
 from .sections.fees import FeesSectionResult, process_fees_section
 from .sections.futures import FuturesMtmSectionResult, process_futures_mtm_section
 from .sections.instruments import (
@@ -131,6 +132,7 @@ CORPORATE_ACTIONS_SECTION = "Corporate Actions"
 
 @dataclass(slots=True)
 class _ProcessedSections:
+    corporate_actions: CorporateActionsSectionResult
     trades: TradesSectionResult
     futures_mtm: FuturesMtmSectionResult
     fees: FeesSectionResult
@@ -239,6 +241,16 @@ def _process_sections(
     negative_pil_mode: str,
     positive_wht_mode: str,
 ) -> _ProcessedSections:
+    corporate_actions = process_corporate_actions_section(
+        rows=rows,
+        active_headers=active_headers,
+    )
+    summary.corporate_actions_rows = corporate_actions.total_data_rows
+    summary.corporate_actions_ignored_rows = corporate_actions.ignored_rows
+    summary.corporate_actions_recognized_rows = corporate_actions.recognized_rows
+    summary.corporate_actions_unsupported_rows = corporate_actions.unsupported_rows
+    summary.spb8_corporate_actions_present = corporate_actions.unsupported_rows > 0
+
     trades = process_trades_section(
         rows=rows,
         active_headers=active_headers,
@@ -317,6 +329,7 @@ def _process_sections(
         tax_year=tax_year,
     )
     return _ProcessedSections(
+        corporate_actions=corporate_actions,
         trades=trades,
         futures_mtm=futures_mtm,
         fees=fees,
@@ -551,14 +564,6 @@ def _section_names(rows: list[list[str]]) -> set[str]:
     return {row[0].strip() for row in rows if row and row[0].strip()}
 
 
-def _has_corporate_actions(rows: list[list[str]]) -> bool:
-    return CORPORATE_ACTIONS_SECTION in _section_names(rows)
-
-
-def _corporate_actions_row_count(rows: list[list[str]]) -> int:
-    return sum(1 for row in rows if len(row) >= 2 and row[0].strip() == CORPORATE_ACTIONS_SECTION and row[1].strip() == "Data")
-
-
 def _unsupported_section_warning(rows: list[list[str]]) -> str:
     unsupported = sorted(_section_names(rows) - SUPPORTED_IBKR_SECTIONS - {CORPORATE_ACTIONS_SECTION})
     if not unsupported:
@@ -733,8 +738,6 @@ def analyze_ibkr_activity_statement(
         unsupported_section_warning = _unsupported_section_warning(rows)
         if unsupported_section_warning:
             summary.warnings.append(unsupported_section_warning)
-        summary.corporate_actions_rows = _corporate_actions_row_count(rows)
-        summary.spb8_corporate_actions_present = summary.corporate_actions_rows > 0 or _has_corporate_actions(rows)
         summary.exchange_classification_mode = _exchange_classification_mode_label(
             eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
             force_closed_world=closed_world_mode,
@@ -756,14 +759,6 @@ def analyze_ibkr_activity_statement(
             eu_regulated_exchange_overrides=eu_regulated_exchange_overrides,
             closed_world_mode=closed_world_mode,
         )
-        reconciliation_warnings = run_open_position_reconciliation(
-            rows=rows,
-            active_headers=active_headers,
-            listings=listings,
-        )
-        summary.review_required_rows += len(reconciliation_warnings)
-        summary.warnings.extend(reconciliation_warnings)
-
         processed = _process_sections(
             rows=rows,
             active_headers=active_headers,
@@ -779,6 +774,14 @@ def analyze_ibkr_activity_statement(
             negative_pil_mode=negative_pil_mode,
             positive_wht_mode=positive_wht_mode,
         )
+        reconciliation_warnings = run_open_position_reconciliation(
+            rows=rows,
+            active_headers=active_headers,
+            listings=listings,
+            corporate_action_qty_by_key=processed.corporate_actions.recognized_quantity_delta_by_key,
+        )
+        summary.review_required_rows += len(reconciliation_warnings)
+        summary.warnings.extend(reconciliation_warnings)
         appendix9_components = processed.interest.components_by_country
 
         _finalize_interest_withholding_totals(
@@ -798,6 +801,7 @@ def analyze_ibkr_activity_statement(
             listings=listings,
             account_name=_extract_statement_account(rows, fallback=normalized_alias or input_path.stem),
             corporate_actions_present=summary.spb8_corporate_actions_present,
+            corporate_action_delta_by_isin=processed.corporate_actions.recognized_quantity_delta_by_isin,
         )
         summary.spb8_rows = spb8.rows
         summary.spb8_notes = spb8.warnings
@@ -842,6 +846,9 @@ def analyze_ibkr_activity_statement(
             open_positions_row_extras=processed.open_positions.row_extras,
             open_positions_row_base_len=processed.open_positions.row_base_len,
             open_positions_row_added_columns=processed.open_positions.row_added_columns,
+            corporate_actions_row_extras=processed.corporate_actions.row_extras,
+            corporate_actions_row_base_len=processed.corporate_actions.row_base_len,
+            corporate_actions_row_added_columns=processed.corporate_actions.row_added_columns,
             fees_row_extras=processed.fees.row_extras,
             fees_row_base_len=processed.fees.row_base_len,
             fees_row_added_columns=processed.fees.row_added_columns,
@@ -860,6 +867,8 @@ def analyze_ibkr_activity_statement(
             withholding_row_added_columns=processed.withholding.row_added_columns,
             open_positions_row_base_len=processed.open_positions.row_base_len,
             open_positions_row_added_columns=processed.open_positions.row_added_columns,
+            corporate_actions_row_base_len=processed.corporate_actions.row_base_len,
+            corporate_actions_row_added_columns=processed.corporate_actions.row_added_columns,
             fees_row_base_len=processed.fees.row_base_len,
             fees_row_added_columns=processed.fees.row_added_columns,
             futures_mtm_row_base_len=processed.futures_mtm.row_base_len,

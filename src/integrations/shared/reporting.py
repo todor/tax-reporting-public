@@ -57,6 +57,7 @@ _IBKR_OPEN_POSITION_MISMATCH_RE = re.compile(
     r"^OPEN_POSITION_TRADE_QTY_MISMATCH:\s+asset=(?P<asset>\S+)\s+symbol=(?P<symbol>\S+)\s+"
     r"prior_qty=(?P<prior_qty>\S+)\s+trade_delta_qty=(?P<trade_delta_qty>\S+)\s+"
     r"(?:transfer_delta_qty=(?P<transfer_delta_qty>\S+)\s+)?"
+    r"(?:corporate_action_delta_qty=(?P<corporate_action_delta_qty>\S+)\s+)?"
     r"expected_open_qty=(?P<expected_open_qty>\S+)\s+actual_open_qty=(?P<actual_open_qty>\S+)\s+"
     r"diff=(?P<diff>\S+)$"
 )
@@ -1239,16 +1240,16 @@ def user_message_lines_bg(diagnostic: AnalysisDiagnostic) -> list[str]:
     if diagnostic.code == "IBKR_CORPORATE_ACTIONS_REVIEW_REQUIRED":
         count = diagnostic.params.get("count")
         lines = [
-            "IBKR: открити са Corporate Actions в Activity Statement CSV, които не се обработват "
-            "автоматично или не се поддържат напълно.",
+            "IBKR: открити са Corporate Actions в Activity Statement CSV с неподдържан модел или "
+            "неподдържан данъчен ефект.",
         ]
         if count:
-            lines.append(f"Засегнати редове: {count}.")
+            lines.append(f"Неподдържани Corporate Actions редове: {count}.")
         lines.extend(
             [
-                "Причина: корпоративните събития може да влияят както на СПБ-8 количествата, така и на данъчното третиране.",
+                "Причина: някои корпоративни събития може да влияят на ISIN-и, количества, позиции, цена на придобиване, доход, печалба/загуба или удържан данък.",
                 "Какво да направите:",
-                "- Прегледайте секцията Corporate Actions в IBKR отчета ръчно.",
+                "- Прегледайте неподдържаните редове в секцията Corporate Actions в IBKR отчета ръчно.",
                 "- Ако събитието променя ISIN/количество/цена на придобиване или води до доход/данък, потвърдете данъчното третиране преди подаване.",
             ]
         )

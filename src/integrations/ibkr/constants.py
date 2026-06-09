@@ -526,6 +526,12 @@ ADDED_OPEN_POSITIONS_COLUMNS = [
     "Cost Basis (EUR)",
 ]
 
+ADDED_CORPORATE_ACTIONS_COLUMNS = [
+    "Tax Status",
+    "Tax Action",
+    "Tax Reason",
+]
+
 ADDED_FEES_COLUMNS = [
     "Amount (EUR)",
     "Appendix Target",

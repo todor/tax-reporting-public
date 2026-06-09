@@ -145,13 +145,13 @@ Outputs:
 IBKR SPB-8 data is automatic where safe. The SPB-8 input CSV can be used to override or complete missing IBKR security quantities.
 
 - Securities are derived from Open Positions and Financial Instrument Information.
-- Beginning security quantities use Trades and supported Transfers for instruments still present in Open Positions.
+- Beginning security quantities use Trades, supported Transfers, and recognized Corporate Actions for instruments still present in Open Positions.
 - Supported transfer asset categories are `Stocks` and `Treasury Bills`.
 - Transfers do not affect tax PnL or Appendix 5 because tax reporting uses IBKR Closed Lots.
 - Unsupported transfer rows produce warnings and are skipped for SPB-8.
-- Corporate actions such as stock splits, reverse splits, spin-offs, acquisitions, and mergers are detected but not handled yet.
-- If Corporate Actions are present, type `04` start quantities are left empty unless supplied through `--spb8-input-file`.
-- Review Corporate Actions manually because they may affect both SPB-8 and taxes.
+- Supported `Merged(Acquisition) WITH` Corporate Actions are treated as non-taxable corporate actions: the removed/received quantities are applied to the parsed ISINs for Open Positions reconciliation and SPB-8 reconstruction, and the merger rows do not create Appendix 5/6/8 taxable income from `Proceeds`, `Value`, or `Realized P/L`.
+- Unsupported Corporate Actions or instrument-event patterns still require manual review because they may affect ISINs, quantities, positions, acquisition cost, income, gain/loss, withholding tax, or other tax treatment.
+- If unsupported Corporate Actions make reconstruction unsafe, type `04` start/end quantities may be left empty unless supplied through `--spb8-input-file`.
 - Unknown IBKR Activity Statement sections produce one consolidated Bulgarian warning for manual review.
 - Cash is derived from Cash Report, not Net Asset Value.
 - Cash uses `Starting Cash` as beginning balance and `Ending Cash` as ending balance.
@@ -821,6 +821,7 @@ The analyzer preserves row order and extends only these sections:
 - `Dividends`
 - `Withholding Tax`
 - `Open Positions`
+- `Corporate Actions`
 
 ### Added Trades Columns
 
@@ -872,6 +873,14 @@ The analyzer preserves row order and extends only these sections:
 - `Cost Basis (EUR)`
 
 They are filled for summary rows when symbol/ISIN/currency data is available.
+
+### Added Corporate Actions Columns
+
+- `Tax Status`
+- `Tax Action`
+- `Tax Reason`
+
+Recognized `Merged(Acquisition) WITH` rows are marked `RECOGNIZED` and handled as non-taxable corporate actions under the current project assumption. Header/total/basis/empty-description rows are marked `IGNORE`. Other real Corporate Actions rows are marked `NOT_SUPPORTED` and require manual review.
 
 Re-run safety:
 

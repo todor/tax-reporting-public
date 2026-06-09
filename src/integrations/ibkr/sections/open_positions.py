@@ -153,6 +153,7 @@ def _run_open_position_trade_quantity_reconciliation(
     rows: list[list[str]],
     active_headers: dict[int, _ActiveHeader],
     listings: dict[str, InstrumentListing],
+    corporate_action_qty_by_key: dict[tuple[str, str], Decimal] | None = None,
 ) -> list[str]:
     warnings: list[str] = []
     open_qty_by_key: dict[tuple[str, str], Decimal] = {}
@@ -381,12 +382,17 @@ def _run_open_position_trade_quantity_reconciliation(
         )
 
     for asset_category, identifier in sorted(
-        set(open_qty_by_key) | set(trade_qty_by_key) | set(mtm_prior_qty_by_key) | set(transfer_qty_by_key)
+        set(open_qty_by_key)
+        | set(trade_qty_by_key)
+        | set(mtm_prior_qty_by_key)
+        | set(transfer_qty_by_key)
+        | set(corporate_action_qty_by_key or {})
     ):
         prior_qty = mtm_prior_qty_by_key.get((asset_category, identifier), ZERO)
         trade_delta_qty = trade_qty_by_key.get((asset_category, identifier), ZERO)
         transfer_delta_qty = transfer_qty_by_key.get((asset_category, identifier), ZERO)
-        expected_open_qty = prior_qty + trade_delta_qty + transfer_delta_qty
+        corporate_action_delta_qty = (corporate_action_qty_by_key or {}).get((asset_category, identifier), ZERO)
+        expected_open_qty = prior_qty + trade_delta_qty + transfer_delta_qty + corporate_action_delta_qty
         actual_open_qty = open_qty_by_key.get((asset_category, identifier), ZERO)
         diff = expected_open_qty - actual_open_qty
         if abs(diff) <= QTY_RECONCILIATION_EPSILON:
@@ -395,6 +401,7 @@ def _run_open_position_trade_quantity_reconciliation(
             f"{REVIEW_REASON_OPEN_POSITION_TRADE_QTY_MISMATCH}: "
             f"asset={asset_category} symbol={identifier} prior_qty={_fmt(prior_qty)} "
             f"trade_delta_qty={_fmt(trade_delta_qty)} transfer_delta_qty={_fmt(transfer_delta_qty)} "
+            f"corporate_action_delta_qty={_fmt(corporate_action_delta_qty)} "
             f"expected_open_qty={_fmt(expected_open_qty)} "
             f"actual_open_qty={_fmt(actual_open_qty)} diff={_fmt(diff)}"
         )
@@ -411,11 +418,13 @@ def run_open_position_reconciliation(
     rows: list[list[str]],
     active_headers: dict[int, _ActiveHeader],
     listings: dict[str, InstrumentListing],
+    corporate_action_qty_by_key: dict[tuple[str, str], Decimal] | None = None,
 ) -> list[str]:
     return _run_open_position_trade_quantity_reconciliation(
         rows=rows,
         active_headers=active_headers,
         listings=listings,
+        corporate_action_qty_by_key=corporate_action_qty_by_key,
     )
 
 

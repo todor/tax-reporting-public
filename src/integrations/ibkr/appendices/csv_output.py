@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ..constants import (
+    ADDED_CORPORATE_ACTIONS_COLUMNS,
     ADDED_DIVIDENDS_COLUMNS,
     ADDED_FEES_COLUMNS,
     ADDED_FUTURES_MTM_COLUMNS,
@@ -46,6 +47,9 @@ def build_output_rows(
     open_positions_row_extras: dict[int, dict[str, str]],
     open_positions_row_base_len: dict[int, int],
     open_positions_row_added_columns: dict[int, list[str]],
+    corporate_actions_row_extras: dict[int, dict[str, str]],
+    corporate_actions_row_base_len: dict[int, int],
+    corporate_actions_row_added_columns: dict[int, list[str]],
     fees_row_extras: dict[int, dict[str, str]],
     fees_row_base_len: dict[int, int],
     fees_row_added_columns: dict[int, list[str]],
@@ -158,6 +162,35 @@ def build_output_rows(
             output_rows.append(padded + extras)
             continue
 
+        if row[0] == "Corporate Actions" and row[1] == "Header":
+            added_cols = corporate_actions_row_added_columns.get(
+                idx,
+                [col for col in ADDED_CORPORATE_ACTIONS_COLUMNS if col not in row[2:]],
+            )
+            output_rows.append(_compact_header_row(row) + added_cols)
+            continue
+
+        if row[0] == "Corporate Actions":
+            base_len = corporate_actions_row_base_len.get(idx)
+            if base_len is None:
+                raise CsvStructureError(
+                    f"row {idx + 1}: Corporate Actions row encountered before Corporate Actions Header"
+                )
+            active_header = active_headers.get(idx)
+            padded = _compact_padded_data_row(row, base_len=base_len, active_header=active_header)
+            added_cols = corporate_actions_row_added_columns.get(
+                idx,
+                [
+                    col
+                    for col in ADDED_CORPORATE_ACTIONS_COLUMNS
+                    if col not in (active_header.headers if active_header is not None else [])
+                ],
+            )
+            extras_map = corporate_actions_row_extras.get(idx, {})
+            extras = [extras_map.get(col, "") for col in added_cols]
+            output_rows.append(padded + extras)
+            continue
+
         if row[0] == "Fees" and row[1] == "Header":
             added_cols = fees_row_added_columns.get(
                 idx,
@@ -225,6 +258,8 @@ def validate_output_rows(
     withholding_row_added_columns: dict[int, list[str]],
     open_positions_row_base_len: dict[int, int],
     open_positions_row_added_columns: dict[int, list[str]],
+    corporate_actions_row_base_len: dict[int, int],
+    corporate_actions_row_added_columns: dict[int, list[str]],
     fees_row_base_len: dict[int, int],
     fees_row_added_columns: dict[int, list[str]],
     futures_mtm_row_base_len: dict[int, int],
@@ -356,6 +391,37 @@ def validate_output_rows(
             if len(row) != expected_len:
                 raise IbkrAnalyzerError(
                     f"Open Positions row column count mismatch at row {idx + 1}: expected {expected_len}, got {len(row)}"
+                )
+
+        if len(row) >= 2 and row[0] == "Corporate Actions":
+            base_len = corporate_actions_row_base_len.get(idx)
+            if base_len is None:
+                raise CsvStructureError(
+                    f"row {idx + 1}: Corporate Actions row encountered before Corporate Actions Header"
+                )
+            added_cols = corporate_actions_row_added_columns.get(idx)
+            if added_cols is None:
+                if row[1] == "Header":
+                    added_cols = [col for col in ADDED_CORPORATE_ACTIONS_COLUMNS if col not in row[2:]]
+                else:
+                    active_header = active_headers.get(idx)
+                    if active_header is None:
+                        raise CsvStructureError(
+                            f"row {idx + 1}: Corporate Actions row encountered before Corporate Actions Header"
+                        )
+                    added_cols = [col for col in ADDED_CORPORATE_ACTIONS_COLUMNS if col not in active_header.headers]
+            if row[1] == "Header":
+                expected_len = len(row)
+            else:
+                active_header = active_headers.get(idx)
+                expected_len = (
+                    _compact_base_len_from_headers(active_header.headers)
+                    if active_header is not None
+                    else base_len
+                ) + len(added_cols)
+            if len(row) != expected_len:
+                raise IbkrAnalyzerError(
+                    f"Corporate Actions row column count mismatch at row {idx + 1}: expected {expected_len}, got {len(row)}"
                 )
 
         if len(row) >= 2 and row[0] == "Fees":

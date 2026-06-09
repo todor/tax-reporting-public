@@ -262,7 +262,7 @@ Columns:
 - `currency`: 3-letter currency code for types `01`/`02`/`03`; `-` for type `04`.
 - `start amount`, `end amount`: NAV/balance for types `01`/`02`/`03`; quantity/size for type `04`.
 
-The generated template includes detected manual platforms and analyzer-derived SPB-8 rows. For IBKR securities, it includes one type `04` row per ISIN. If Corporate Actions are detected, IBKR type `04` start amounts may be left empty for manual completion.
+The generated template includes detected manual platforms and analyzer-derived SPB-8 rows. For IBKR securities, it includes one type `04` row per ISIN. Supported IBKR corporate-action patterns are included in quantity reconstruction; unsupported corporate actions or instrument events may still leave start/end quantities empty for manual completion.
 
 Automatically inferred/calculated where possible:
 
@@ -276,7 +276,7 @@ Usually filled manually:
 - crypto beginning/end NAV; crypto SPB-8 data is not automatically generated yet
 - fund beginning/end NAV; fund SPB-8 data is not automatically generated yet
 - any row left blank in the template
-- IBKR type `04` start quantities when Corporate Actions make reconstruction unsafe
+- IBKR type `04` start/end quantities when unsupported Corporate Actions or instrument events make reconstruction unsafe
 
 Limitations and warnings:
 
@@ -284,15 +284,15 @@ Limitations and warnings:
 - crypto platforms are treated in this report as type `03` foreign accounts with EUR currency by default; confirm this interpretation with your accountant
 - Bulgaria platforms are not included in filing rows
 - IBKR Transfers are used for SPB-8 beginning quantity reconstruction only; unsupported transfer rows produce warnings
-- corporate actions such as stock splits, reverse splits, spin-offs, acquisitions, and mergers are not handled yet
-- if Corporate Actions are present, review the IBKR section manually because it may affect SPB-8 and taxes
+- IBKR `Merged(Acquisition) WITH` Corporate Actions matching the supported pattern are treated as non-taxable corporate actions: removed/received quantities are applied to the parsed ISINs for Open Positions reconciliation and SPB-8 reconstruction, without creating Appendix 5/6/8 taxable income from the merger rows
+- unsupported Corporate Actions or instrument-event patterns still require manual review because they may affect ISINs, quantities, positions, acquisition cost, income, gain/loss, withholding tax, or other tax treatment
 - unknown IBKR Activity Statement sections produce one consolidated warning for manual review
 
 IBKR SPB-8 principle:
 
 - IBKR securities are derived automatically from holdings/open positions.
-- IBKR beginning security quantities use Trades and supported Transfers (`Stocks`, `Treasury Bills`) for instruments still present in Open Positions.
-- When Corporate Actions are present, type `04` start quantities are left empty unless supplied through `--spb8-input-file`.
+- IBKR beginning security quantities use Trades, supported Transfers (`Stocks`, `Treasury Bills`), and recognized Corporate Actions for instruments still present in Open Positions.
+- Type `04` start/end quantities are left empty only when unsupported Corporate Actions or other unsupported instrument events make reconstruction unsafe, unless supplied through `--spb8-input-file`.
 - Transfers do not affect tax PnL or Appendix 5; tax logic continues to use IBKR Closed Lots.
 - IBKR cash is derived automatically from Cash Report, not Net Asset Value.
 - Cash Report uses `Starting Cash` as beginning balance, `Ending Cash` as ending balance, `Currency` as the original currency, and `Total` as the amount.

@@ -324,7 +324,28 @@ def test_ibkr_spb8_transfer_instrument_without_isin_warns_and_skips() -> None:
     assert any("инструментът няма ISIN" in warning and "NOISIN" in warning for warning in extracted.warnings)
 
 
-def test_ibkr_spb8_corporate_actions_leave_start_quantity_empty() -> None:
+def test_ibkr_spb8_recognized_merger_delta_reconstructs_start_quantity() -> None:
+    rows = [
+        *_security_rows(end_qty="15", trade_qty="3"),
+        ["Corporate Actions", "Header", "Asset Category", "Symbol", "Quantity"],
+        ["Corporate Actions", "Data", "Stocks", "VWCE", "1"],
+    ]
+    active_headers, _seen_headers = _build_active_headers(rows)
+
+    extracted = extract_ibkr_spb8_rows(
+        rows=rows,
+        active_headers=active_headers,
+        listings={"VWCE": _listing()},
+        account_name="U123",
+        corporate_actions_present=False,
+        corporate_action_delta_by_isin={"IE00BK5BQT80": Decimal("1")},
+    )
+
+    assert extracted.rows[0].start_nav == Decimal("11")
+    assert extracted.rows[0].end_nav == Decimal("15")
+
+
+def test_ibkr_spb8_unsupported_corporate_actions_leave_start_quantity_empty() -> None:
     rows = [
         *_security_rows(end_qty="15", trade_qty="3"),
         ["Corporate Actions", "Header", "Asset Category", "Symbol", "Quantity"],
@@ -338,6 +359,7 @@ def test_ibkr_spb8_corporate_actions_leave_start_quantity_empty() -> None:
         listings={"VWCE": _listing()},
         account_name="U123",
         corporate_actions_present=True,
+        corporate_action_delta_by_isin={"IE00BK5BQT80": Decimal("1")},
     )
 
     assert extracted.rows[0].start_nav is None

@@ -328,6 +328,9 @@ class AnalysisSummary:
     spb8_notes: list[str] = field(default_factory=list)
     spb8_corporate_actions_present: bool = False
     corporate_actions_rows: int = 0
+    corporate_actions_ignored_rows: int = 0
+    corporate_actions_recognized_rows: int = 0
+    corporate_actions_unsupported_rows: int = 0
     net_cfd_financing: bool = True
     negative_pil_mode: str = "position-aware"
     cfd_trade_rows: int = 0

@@ -51,7 +51,7 @@ def _ibkr_corporate_actions_diagnostic(*, count: int = 1) -> AnalysisDiagnostic:
         analyzer_alias="ibkr",
         code="IBKR_CORPORATE_ACTIONS_REVIEW_REQUIRED",
         message="IBKR Corporate Actions require manual review.",
-        params={"count": count, "supported_scope": "unsupported_or_partially_supported"},
+        params={"count": count, "supported_scope": "unsupported_patterns_only"},
     )
 
 
@@ -1939,7 +1939,7 @@ def test_aggregate_report_renders_ibkr_corporate_actions_as_global_manual_review
             ],
             analyzer_errors={},
             spb8_notes=[
-                "Откритите IBKR Corporate Actions може да влияят на коректността на СПБ-8 количествата, "
+                "Неподдържаните IBKR Corporate Actions може да влияят на коректността на СПБ-8 количествата, "
                 "защото могат да променят ISIN-и, количества или позиции. "
                 "Вижте съответното предупреждение в секцията „Изискват ръчен преглед“."
             ],
@@ -1950,12 +1950,12 @@ def test_aggregate_report_renders_ibkr_corporate_actions_as_global_manual_review
 
     assert "Изискват ръчен преглед" in rendered
     assert rendered.count("IBKR: открити са Corporate Actions в Activity Statement CSV") == 1
-    assert "Засегнати редове: 2." in rendered
-    assert "корпоративните събития може да влияят както на СПБ-8 количествата" in rendered
-    assert "Прегледайте секцията Corporate Actions в IBKR отчета ръчно." in rendered
-    assert "СПБ-8\n- Откритите IBKR Corporate Actions" in rendered
+    assert "Неподдържани Corporate Actions редове: 2." in rendered
+    assert "някои корпоративни събития може да влияят на ISIN-и" in rendered
+    assert "Прегледайте неподдържаните редове в секцията Corporate Actions в IBKR отчета ръчно." in rendered
+    assert "СПБ-8\n- Неподдържаните IBKR Corporate Actions" in rendered
     assert "Попълнете липсващите стойности в генерирания SPB-8 input файл:" not in rendered
-    assert diagnostic.params["supported_scope"] == "unsupported_or_partially_supported"
+    assert diagnostic.params["supported_scope"] == "unsupported_patterns_only"
 
 
 def test_aggregate_report_does_not_emit_corporate_actions_warning_for_crypto() -> None:
@@ -4239,8 +4239,8 @@ def test_spb8_input_type04_override_falls_back_to_analyzer_and_resolves_corporat
     assert "Размер в началото на отчетната година: 12" in report
     assert "Размер в края на отчетната година: 15" in report
     assert "IBKR: открити са Corporate Actions в Activity Statement CSV" in report
-    assert "корпоративните събития може да влияят както на СПБ-8 количествата" in report
-    assert "Откритите IBKR Corporate Actions може да влияят на коректността на СПБ-8 количествата" in report
+    assert "някои корпоративни събития може да влияят на ISIN-и" in report
+    assert "Неподдържаните IBKR Corporate Actions може да влияят на коректността на СПБ-8 количествата" in report
     assert "Попълнете липсващите начални количества" not in report
     assert report.count("IBKR: открити са Corporate Actions в Activity Statement CSV") == 1
     assert (out_dir / "spb8-input-file.csv").read_text(encoding="utf-8").splitlines() == [

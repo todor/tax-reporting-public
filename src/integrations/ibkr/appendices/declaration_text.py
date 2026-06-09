@@ -61,6 +61,7 @@ _OPEN_POSITION_MISMATCH_RE = re.compile(
     r"OPEN_POSITION_TRADE_QTY_MISMATCH:\s+asset=(?P<asset>\S+)\s+symbol=(?P<symbol>\S+)\s+"
     r"prior_qty=(?P<prior>[-0-9.]+)\s+trade_delta_qty=(?P<trade_delta>[-0-9.]+)\s+"
     r"(?:transfer_delta_qty=(?P<transfer_delta>[-0-9.]+)\s+)?"
+    r"(?:corporate_action_delta_qty=(?P<corporate_action_delta>[-0-9.]+)\s+)?"
     r"expected_open_qty=(?P<expected>[-0-9.]+)\s+actual_open_qty=(?P<actual>[-0-9.]+)\s+"
     r"diff=(?P<diff>[-0-9.]+)"
 )
@@ -1152,6 +1153,22 @@ def analysis_settings_main_report_notes(summary: AnalysisSummary) -> list[MainRe
                 category="methodology",
             )
         )
+    if summary.corporate_actions_recognized_rows > 0:
+        notes.append(
+            MainReportNote(
+                section_title="IBKR — Corporate Actions",
+                text=(
+                    "Разпознати са IBKR Merged(Acquisition) WITH корпоративни събития. "
+                    "За този поддържан модел инструментът третира събитието като необлагаема "
+                    "корпоративна операция, прилага премахнатите/получените количества към съответните "
+                    "ISIN-и и ги използва за Open Positions reconciliation и СПБ-8 реконструкция. "
+                    "Редовете за merger/acquisition не създават облагаем доход или реализирана печалба/загуба "
+                    "от Proceeds/Value/Realized P/L."
+                ),
+                analyzer_alias="ibkr",
+                category="methodology",
+            )
+        )
     notes.append(
         MainReportNote(
             section_title=market_section,
@@ -1432,6 +1449,11 @@ def _append_proof_section(
     lines.append(f"- withholding total rows skipped: {summary.withholding_total_rows_skipped}")
     lines.append(f"- withholding dividend rows: {summary.withholding_dividend_rows}")
     lines.append(f"- withholding non-dividend rows: {summary.withholding_non_dividend_rows}")
+    if summary.corporate_actions_rows > 0:
+        lines.append(f"- Corporate Actions data rows: {summary.corporate_actions_rows}")
+        lines.append(f"- Corporate Actions ignored rows: {summary.corporate_actions_ignored_rows}")
+        lines.append(f"- Corporate Actions recognized non-taxable merger rows: {summary.corporate_actions_recognized_rows}")
+        lines.append(f"- Corporate Actions unsupported rows: {summary.corporate_actions_unsupported_rows}")
     lines.append(f"- positive WHT mode: {summary.positive_wht_mode}")
     lines.append(f"- positive dividend withholding rows: {summary.withholding_positive_dividend_rows}")
     lines.append(f"- positive dividend withholding rows found: {summary.positive_wht_rows_found}")

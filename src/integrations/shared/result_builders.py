@@ -802,8 +802,11 @@ def build_ibkr_result(
                 code="IBKR_CORPORATE_ACTIONS_REVIEW_REQUIRED",
                 message="IBKR Corporate Actions require manual review.",
                 params={
-                    "count": summary.corporate_actions_rows,
-                    "supported_scope": "unsupported_or_partially_supported",
+                    "count": summary.corporate_actions_unsupported_rows,
+                    "total_rows": summary.corporate_actions_rows,
+                    "recognized_rows": summary.corporate_actions_recognized_rows,
+                    "ignored_rows": summary.corporate_actions_ignored_rows,
+                    "supported_scope": "unsupported_patterns_only",
                 },
             )
         )

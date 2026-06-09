@@ -112,6 +112,61 @@ def test_open_position_reconciliation_nets_same_isin_transfers(tmp_path: Path) -
     assert not any("OPEN_POSITION_TRADE_QTY_MISMATCH" in warning for warning in result.summary.warnings)
 
 
+def test_open_position_reconciliation_uses_recognized_merger_corporate_actions(tmp_path: Path) -> None:
+    rows = [
+        ["Statement", "Header", "Field", "Value"],
+        ["Statement", "Data", "Account", "U123"],
+        ["Financial Instrument Information", "Header", "Asset Category", "Symbol", "Description", "Conid", "Security ID", "Underlying", "Listing Exch"],
+        ["Financial Instrument Information", "Data", "Stocks", "CMBT", "CMB TECH NV", "1", "BE0003816338", "CMBT", "NYSE"],
+        ["Financial Instrument Information", "Data", "Stocks", "GOGL", "GOLDEN OCEAN GROUP LTD", "2", "BMG396372051", "GOGL", "NASDAQ"],
+        ["Mark-to-Market Performance Summary", "Header", "Asset Category", "Symbol", "Prior Quantity", "Current Quantity", "Mark-to-Market P/L Total"],
+        ["Mark-to-Market Performance Summary", "Data", "Stocks", "CMBT", "0", "0", "0"],
+        ["Mark-to-Market Performance Summary", "Data", "Stocks", "GOGL", "0", "0", "0"],
+        ["Trades", "Header", "Asset Category", "Currency", "Symbol", "Date/Time", "Exchange", "Code", "Proceeds", "Quantity", "DataDiscriminator", "Basis"],
+        ["Trades", "Data", "Stocks", "USD", "CMBT", "2025-11-07, 10:27:53", "NYSE", "", "30216.50", "-3217.65", "Order", ""],
+        ["Trades", "Data", "Stocks", "USD", "CMBT", "2025-11-07, 10:27:53", "NYSE", "", "30216.50", "-3217.65", "Trade", ""],
+        ["Trades", "Data", "Stocks", "USD", "GOGL", "2025-02-05, 10:39:24", "DARK", "O", "-31807.61", "3387", "Order", ""],
+        ["Trades", "Data", "Stocks", "USD", "GOGL", "2025-02-05, 10:39:24", "DARK", "O", "-31807.61", "3387", "Trade", ""],
+        ["Open Positions", "Header", "Asset Category", "Symbol", "Currency", "Summary Quantity", "Cost Basis", "DataDiscriminator"],
+        ["Open Positions", "Data", "Stocks", "CMBT", "USD", "0", "0", "Summary"],
+        ["Open Positions", "Data", "Stocks", "GOGL", "USD", "0", "0", "Summary"],
+        ["Corporate Actions", "Header", "Asset Category", "Currency", "Report Date", "Date/Time", "Description", "Quantity", "Proceeds", "Value", "Realized P/L"],
+        [
+            "Corporate Actions",
+            "Data",
+            "Stocks",
+            "USD",
+            "2025-08-20",
+            "2025-08-19, 20:25:00",
+            "GOGL(BMG396372051) Merged(Acquisition) WITH BE0003816338 19 for 20 (CMBT, CMB TECH NV, BE0003816338)",
+            "3217.65",
+            "0",
+            "25869.906",
+            "0",
+        ],
+        [
+            "Corporate Actions",
+            "Data",
+            "Stocks",
+            "USD",
+            "2025-08-20",
+            "2025-08-19, 20:25:00",
+            "GOGL(BMG396372051) Merged(Acquisition) WITH BE0003816338 19 for 20 (GOGL, GOLDEN OCEAN GROUP LTD, BMG396372051)",
+            "-3387",
+            "0",
+            "-27028.26",
+            "0",
+        ],
+    ]
+
+    result = _run(tmp_path, rows, mode="listing_exchange")
+
+    assert result.summary.corporate_actions_recognized_rows == 2
+    assert result.summary.corporate_actions_unsupported_rows == 0
+    assert result.summary.review_required_rows == 0
+    assert not any("OPEN_POSITION_TRADE_QTY_MISMATCH" in warning for warning in result.summary.warnings)
+
+
 def test_open_position_reconciliation_unmatched_open_position_symbol_triggers_review(tmp_path: Path) -> None:
     rows = _rows_for_open_position_check(
         open_rows=[("UNKNOWN", "5")],
